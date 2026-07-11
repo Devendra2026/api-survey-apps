@@ -1,0 +1,9 @@
+{
+  "extends": "@workspace/typescript-config/react-library.json",
+  "compilerOptions": {
+    "paths": {
+      "@workspace/validation/*": ["./src/*"]
+    }
+  },
+  "include": ["src"]
+}

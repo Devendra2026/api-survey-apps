@@ -1,0 +1,15 @@
+{
+  "name": "@workspace/validation",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@workspace/typescript-config": "workspace:*",
+    "zod": "^4.4.3"
+  }
+}

@@ -11,6 +11,7 @@
     "db:generate": "turbo db:generate",
     "db:migrate": "pnpm --filter @workspace/database db:migrate",
     "db:deploy": "pnpm --filter @workspace/database db:deploy",
+    "db:seed": "pnpm --filter @workspace/database db:seed",
     "prepare": "node -e \"try{require('fs').accessSync('.git');require('child_process').execSync('husky',{stdio:'inherit'})}catch{}\""
   },
   "devDependencies": {

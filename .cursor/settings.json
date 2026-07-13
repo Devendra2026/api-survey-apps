@@ -2,6 +2,18 @@
   "plugins": {
     "prisma": {
       "enabled": true
+    },
+    "redis-development": {
+      "enabled": true
+    },
+    "clerk": {
+      "enabled": true
+    },
+    "context7-plugin": {
+      "enabled": true
+    },
+    "deploy-on-aws": {
+      "enabled": true
     }
   }
 }

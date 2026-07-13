@@ -1,3 +1,9 @@
+// =============================================================================
+// Municipal Property Tax Survey Management System — Prisma Schema
+// Shared Database + Shared Schema | Tenant grain = Ulb (ulbId)
+// Auth: Clerk (clerkUserId) | RBAC: UserTenantRole (no direct User.role)
+// =============================================================================
+
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -7,10 +13,518 @@ datasource db {
   provider = "postgresql"
 }
 
-model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  password  String
+// -----------------------------------------------------------------------------
+// Enums
+// -----------------------------------------------------------------------------
+
+enum OwnershipType {
+  INDIVIDUAL
+  JOINT
+  LIMITED_COMPANY_FIRM
+  TRUST_SOCIETY
+  RELIGIOUS_BODY
+  STATE_GOVERNMENT_BODY
+  CENTRAL_GOVERNMENT_BODY
+  MUNICIPAL_COUNCIL_TOWN_PANCHAYAT
+  LEASE_PROPERTY
+}
+
+enum PropertyUse {
+  RESIDENTIAL
+  COMMERCIAL
+  OPEN_LAND
+  RELIGIOUS_PROPERTY
+  MIX_PROPERTY
+}
+
+enum PropertyType {
+  RESIDENTIAL_SELF
+  RESIDENTIAL_RENTED
+  SHOP_BAKERY
+  BANK_OFFICE
+  SCHOOL_COLLEGE
+  MALL_SHOWROOM
+  PETROL_PUMP
+  HOTEL_MARRIAGE_RESTAURANT
+  HOSPITAL_NURSING_PATHOLOGY
+  GODOWN
+  CENTRAL_GOVERNMENT
+  STATE_GOVERNMENT
+  INDUSTRY
+  COLD_STORE
+  OPEN
+  AGRICULTURE
+  OPEN_LAND_GODOWN
+  MANDIR
+  MASJID
+  TRUST_DHARAMSHALA
+  SHAMSHAN_KABRISTAN
+  GURUDWARA_CHURCH
+  RESIDENTIAL_AND_COMMERCIAL
+}
+
+enum Situation {
+  MAIN_MARKET
+  MAIN_ROAD
+  INTERIOR
+}
+
+enum RoadType {
+  RCC
+  DAMBAR
+  KACCHA
+}
+
+enum TaxRateZone {
+  BELOW_9M
+  METER_9_TO_12
+  METER_12_TO_24
+  ABOVE_24M
+}
+
+/// Financial assessment year (label 2025-2026 → AY_2025_2026)
+enum AssessmentYear {
+  AY_2025_2026
+  AY_2026_2027
+}
+
+enum WaterConnection {
+  YES
+  NO
+  PARTIAL
+}
+
+enum SourceOfWater {
+  GOVERNMENT_TAP
+  DUG_WELL
+  BOREWELL
+  OTHER
+}
+
+enum SanitationType {
+  SEWER_SYSTEM
+  SEPTIC_TANK
+  SURFACE_DRAIN
+  NO_TOILET
+  OTHER
+}
+
+enum SurveyStatus {
+  DRAFT
+  IN_PROGRESS
+  SUBMITTED
+  APPROVED
+  REJECTED
+  REOPENED
+}
+
+enum usageFactor {
+  RESIDENTIAL
+  COMMERCIAL
+  MIXED
+  AGRICULTURE
+  GODOWN
+  OPEN_LAND
+  UNDER_CONSTRUCTION
+}
+
+enum usageType {
+  SELF_OCCUPIED
+  RENTED
+}
+
+enum ConstructionType {
+  PAKKA_BUILDING_WITH_RCC_ROOF
+  TIN_SHED
+  OPEN_LAND
+  UNDER_CONSTRUCTION
+  KACCHA_BUILDING
+}
+
+enum FloorPosition {
+  BASEMENT
+  GROUND_FLOOR
+  FIRST_FLOOR
+  SECOND_FLOOR
+  THIRD_FLOOR
+  FOURTH_FLOOR
+  FIFTH_FLOOR_PLUS
+  OPEN_LAND
+}
+
+enum PhotoType {
+  FRONT
+  SIDE
+}
+
+enum UlbType {
+  MUNICIPAL_COUNCIL
+  TOWN_PANCHAYAT
+}
+
+enum GPSCordinates {
+  LATITUDE
+  LONGITUDE
+}
+
+// -----------------------------------------------------------------------------
+// Geography hierarchy: State → District → Ulb → Ward
+// -----------------------------------------------------------------------------
+
+/// Top-level administrative unit (e.g. Telangana).
+model State {
+  id        String   @id @default(cuid())
+  name      String
+  code      String   @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  districts       District[]
+  surveys         Survey[]
+  userTenantRoles UserTenantRole[]
+
+  @@index([name])
+  @@map("states")
+}
+
+/// District within a state.
+model District {
+  id        String   @id @default(cuid())
+  stateId   String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  state           State            @relation(fields: [stateId], references: [id], onDelete: Restrict)
+  ulbs            Ulb[]
+  surveys         Survey[]
+  userTenantRoles UserTenantRole[]
+
+  @@unique([stateId, name])
+  @@index([stateId])
+  @@map("districts")
+}
+
+/// Urban Local Body (Municipality / Nagar Nigam / Nagar Palika / Town Panchayat).
+/// Operational multi-tenant grain for most RBAC and survey filtering.
+model Ulb {
+  id         String   @id @default(cuid())
+  districtId String
+  name       String
+  code       String
+  type       UlbType
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  district        District         @relation(fields: [districtId], references: [id], onDelete: Restrict)
+  wards           Ward[]
+  surveys         Survey[]
+  userTenantRoles UserTenantRole[]
+
+  @@unique([districtId, name])
+  @@index([districtId])
+  @@index([code])
+  @@map("ulbs")
+}
+
+/// Ward within a ULB.
+model Ward {
+  id         String   @id @default(cuid())
+  ulbId      String
+  wardNumber String
+  wardName   String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  ulb             Ulb              @relation(fields: [ulbId], references: [id], onDelete: Restrict)
+  surveys         Survey[]
+  userTenantRoles UserTenantRole[]
+
+  @@unique([ulbId, wardNumber])
+  @@index([ulbId])
+  @@map("wards")
+}
+
+// -----------------------------------------------------------------------------
+// Identity & RBAC (Clerk + scoped role assignments)
+// -----------------------------------------------------------------------------
+
+/// Application user synced from Clerk. No password — identity is clerkUserId.
+/// Roles are assigned only via UserTenantRole (never a direct role FK).
+model User {
+  id          String    @id @default(cuid())
+  clerkUserId String    @unique
+  email       String    @unique
+  phone       String?
+  fullName    String
+  isActive    Boolean   @default(true)
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  surveysCreated      Survey[]         @relation("SurveyCreatedBy")
+  tenantRoles         UserTenantRole[] @relation("UserTenantRoleAssignee")
+  rolesAssigned       UserTenantRole[] @relation("UserTenantRoleAssigner")
+  surveyAuditsChanged SurveyAudit[]    @relation("SurveyAuditChangedBy")
+
+  @@index([isActive])
+  @@index([fullName])
+  @@map("users")
+}
+
+/// Named role (e.g. SURVEYOR, ADMIN). Permissions attached via RolePermission.
+model Role {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  permissions     RolePermission[]
+  userTenantRoles UserTenantRole[]
+
+  @@map("roles")
+}
+
+/// Fine-grained permission (e.g. survey:create, report:export).
+model Permission {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+/// Many-to-many join between Role and Permission.
+model RolePermission {
+  id           String   @id @default(cuid())
+  roleId       String
+  permissionId String
+  createdAt    DateTime @default(now())
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+/// Tenant-scoped role assignment for a user.
+/// Optional state/district/ulb/ward define the scope (null = broader/global).
+model UserTenantRole {
+  id         String   @id @default(cuid())
+  userId     String
+  roleId     String
+  stateId    String?
+  districtId String?
+  ulbId      String?
+  wardId     String?
+  assignedBy String
+  assignedAt DateTime @default(now())
+  isActive   Boolean  @default(true)
+
+  user     User      @relation("UserTenantRoleAssignee", fields: [userId], references: [id], onDelete: Cascade)
+  role     Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  state    State?    @relation(fields: [stateId], references: [id], onDelete: Restrict)
+  district District? @relation(fields: [districtId], references: [id], onDelete: Restrict)
+  ulb      Ulb?      @relation(fields: [ulbId], references: [id], onDelete: Restrict)
+  ward     Ward?     @relation(fields: [wardId], references: [id], onDelete: Restrict)
+  assigner User      @relation("UserTenantRoleAssigner", fields: [assignedBy], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+  @@index([roleId])
+  @@index([stateId])
+  @@index([districtId])
+  @@index([ulbId])
+  @@index([wardId])
+  @@index([isActive])
+  @@index([userId, isActive])
+  @@map("user_tenant_roles")
+}
+
+// -----------------------------------------------------------------------------
+// Survey domain (property tax assessment record)
+// -----------------------------------------------------------------------------
+
+/// Central property tax survey record. Belongs to full geo hierarchy + creator.
+/// Soft-deleted via deletedAt. Legacy string fields support data migration only.
+model Survey {
+  id String @id @default(cuid())
+
+  // Tenant hierarchy (normalized FKs — do not duplicate tenant names)
+  stateId     String
+  districtId  String
+  ulbId       String
+  wardId      String
+  createdById String
+
+  // Property identification
+  propertyId    String  @unique
+  localId       String?
+  propertyIdOld String?
+  parcelNumber  String?
+  unitSubNo     String?
+  /// Legacy denormalized ward number from source systems
+  wardNumber    String?
+  /// Legacy denormalized ULB code from source systems
+  ulbCode       String?
+  /// Legacy denormalized district name from source systems
+  districtName  String?
+
+  // Owner / respondent
+  respondentName        String?
+  relationshipWithOwner String?
+  mobileNumber          String?
+  alternateMobile       String?
+  familySize            Int?
+
+  // Address
+  houseDoorNo String?
+  locality    String?
+  colony      String?
+  city        String?
+  pinCode     String?
+
+  // Property classification
+  ownershipType  OwnershipType?
+  propertyUse    PropertyUse?
+  propertyType   PropertyType?
+  situation      Situation?
+  roadType       RoadType?
+  taxRateZone    TaxRateZone?
+  assessmentYear AssessmentYear?
+
+  // Measurements
+  plotAreaSqFt          Decimal? @db.Decimal(14, 4)
+  plotAreaSqMeter       Decimal? @db.Decimal(14, 4)
+  plinthAreaSqFt        Decimal? @db.Decimal(14, 4)
+  plinthAreaSqMeter     Decimal? @db.Decimal(14, 4)
+  totalBuiltAreaSqFt    Decimal? @db.Decimal(14, 4)
+  totalBuiltAreaSqMeter Decimal? @db.Decimal(14, 4)
+
+  // Utilities
+  waterConnection      WaterConnection?
+  sourceOfWater        SourceOfWater?
+  sanitationType       SanitationType?
+  solidWasteCollection Boolean?
+
+  // GPS capture
+  gpsCoordinates GPSCordinates?
+  capturedAt    DateTime?
+
+  // Workflow
+  surveyStatus SurveyStatus @default(DRAFT)
+  submittedAt  DateTime?
+  approvedAt   DateTime?
+  rejectedAt   DateTime?
+  qcRemarks    String?
+
+  // Audit / soft delete
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  state     State    @relation(fields: [stateId], references: [id], onDelete: Restrict)
+  district  District @relation(fields: [districtId], references: [id], onDelete: Restrict)
+  ulb       Ulb      @relation(fields: [ulbId], references: [id], onDelete: Restrict)
+  ward      Ward     @relation(fields: [wardId], references: [id], onDelete: Restrict)
+  createdBy User     @relation("SurveyCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  coOwners CoOwner[]
+  floors   Floor[]
+  photos   Photo[]
+  audits   SurveyAudit[]
+
+  @@index([stateId, surveyStatus])
+  @@index([districtId, surveyStatus])
+  @@index([ulbId, surveyStatus])
+  @@index([wardId, surveyStatus])
+  @@index([createdById, createdAt])
+  @@index([surveyStatus, createdAt])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([mobileNumber])
+  @@map("surveys")
+}
+
+/// Co-owner of the surveyed property (many per survey).
+model CoOwner {
+  id                  String   @id @default(cuid())
+  surveyId            String
+  name                String
+  fatherOrHusbandName String?
+  mobile              String?
+  alternateMobile     String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  survey Survey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  @@index([surveyId])
+  @@map("co_owners")
+}
+
+/// Floor-level built-up detail for tax assessment (many per survey).
+model Floor {
+  id               String            @id @default(cuid())
+  surveyId         String
+  floorPosition    FloorPosition
+  usageFactor      usageFactor?
+  usageType        usageType?
+  constructionType ConstructionType?
+  occupancy        String?
+  areaSqFt         Decimal?          @db.Decimal(14, 4)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  survey Survey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  @@index([surveyId])
+  @@index([surveyId, floorPosition])
+  @@map("floors")
+}
+
+/// Field photo attached to a survey.
+model Photo {
+  id         String    @id @default(cuid())
+  surveyId   String
+  photoType  PhotoType
+  url        String
+  width      Int?
+  height     Int?
+  sizeKB     Int?
+  capturedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  survey Survey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  @@index([surveyId])
+  @@index([surveyId, photoType])
+  @@map("photos")
+}
+
+/// Field-level / action audit trail for survey changes.
+model SurveyAudit {
+  id        String   @id @default(cuid())
+  surveyId  String
+  action    String
+  oldValue  Json?
+  newValue  Json?
+  changedBy String
+  changedAt DateTime @default(now())
+
+  survey  Survey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  changer User   @relation("SurveyAuditChangedBy", fields: [changedBy], references: [id], onDelete: Restrict)
+
+  @@index([surveyId])
+  @@index([changedBy])
+  @@index([changedAt])
+  @@index([surveyId, changedAt])
+  @@map("survey_audits")
 }

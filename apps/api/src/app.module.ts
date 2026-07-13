@@ -17,6 +17,7 @@ import { DistrictsModule } from "./districts/districts.module.js"
 import { FloorsModule } from "./floors/floors.module.js"
 import { HealthController } from "./health/health.controller.js"
 import { ImportsModule } from "./imports/imports.module.js"
+import { NotificationsModule } from "./notifications/notifications.module.js"
 import { PermissionsModule } from "./permissions/permissions.module.js"
 import { PhotosModule } from "./photos/photos.module.js"
 import { PrismaModule } from "./prisma/prisma.module.js"
@@ -57,6 +58,7 @@ import { WardsModule } from "./wards/wards.module.js"
     DashboardModule,
     ReportsModule,
     ImportsModule,
+    NotificationsModule,
   ],
   controllers: [HealthController],
   providers: [

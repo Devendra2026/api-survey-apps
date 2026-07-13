@@ -238,6 +238,12 @@ export class RejectSurveyDto {
   qcRemarks!: string
 }
 
+export class AssignSurveyDto {
+  @ApiProperty({ description: "User ID of the surveyor to assign" })
+  @IsString()
+  assigneeId!: string
+}
+
 export class SurveyQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({ enum: SurveyStatus })
   @IsOptional()

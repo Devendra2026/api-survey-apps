@@ -59,6 +59,12 @@ export class ClerkAuthGuard implements CanActivate {
       throw new UnauthorizedException("CLERK_SECRET_KEY is not configured")
     }
 
+    let clerkUserId: string
+    let email = ""
+    let fullName = "User"
+    let phone: string | null = null
+    let profileFetched = false
+
     try {
       const authorizedParties = this.configService
         .get<string>("CLERK_AUTHORIZED_PARTIES")
@@ -70,45 +76,41 @@ export class ClerkAuthGuard implements CanActivate {
         secretKey,
         ...(authorizedParties?.length ? { authorizedParties } : {}),
       })
-      const clerkUserId = payload.sub
-      if (!clerkUserId) throw new UnauthorizedException("Invalid token subject")
-
-      let email = ""
-      let fullName = "User"
-      let phone: string | null = null
-      let profileFetched = false
-
-      if (this.clerk) {
-        try {
-          const clerkUser = await this.clerk.users.getUser(clerkUserId)
-          email =
-            clerkUser.emailAddresses.find((e) => e.id === clerkUser.primaryEmailAddressId)?.emailAddress ??
-            clerkUser.emailAddresses[0]?.emailAddress ??
-            ""
-          fullName =
-            [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim() ||
-            clerkUser.username ||
-            email ||
-            "User"
-          phone = clerkUser.primaryPhoneNumber?.phoneNumber ?? null
-          profileFetched = Boolean(email)
-        } catch (err) {
-          this.logger.warn(`Failed to fetch Clerk user ${clerkUserId}: ${String(err)}`)
-        }
-      }
-
-      request.user = await this.resolveLocalUser({
-        clerkUserId,
-        email,
-        fullName,
-        phone,
-        profileFetched,
-      })
-      return true
+      if (!payload.sub) throw new UnauthorizedException("Invalid token subject")
+      clerkUserId = payload.sub
     } catch (err) {
+      if (err instanceof UnauthorizedException) throw err
       this.logger.warn(`JWT verification failed: ${String(err)}`)
       throw new UnauthorizedException("Invalid or expired token")
     }
+
+    if (this.clerk) {
+      try {
+        const clerkUser = await this.clerk.users.getUser(clerkUserId)
+        email =
+          clerkUser.emailAddresses.find((e) => e.id === clerkUser.primaryEmailAddressId)?.emailAddress ??
+          clerkUser.emailAddresses[0]?.emailAddress ??
+          ""
+        fullName =
+          [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim() ||
+          clerkUser.username ||
+          email ||
+          "User"
+        phone = clerkUser.primaryPhoneNumber?.phoneNumber ?? null
+        profileFetched = Boolean(email)
+      } catch (err) {
+        this.logger.warn(`Failed to fetch Clerk user ${clerkUserId}: ${String(err)}`)
+      }
+    }
+
+    request.user = await this.resolveLocalUser({
+      clerkUserId,
+      email,
+      fullName,
+      phone,
+      profileFetched,
+    })
+    return true
   }
 
   private async resolveLocalUser(input: {

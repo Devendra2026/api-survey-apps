@@ -61,4 +61,11 @@ export class UsersController {
   update(@Param("id") id: string, @Body() dto: UpdateUserDto) {
     return this.usersService.update(id, dto)
   }
+
+  @Delete(":id")
+  @RequirePermission(PERMISSIONS.USER_DELETE)
+  @ApiOperation({ summary: "Soft-delete (deactivate) a user" })
+  remove(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.usersService.remove(id, user)
+  }
 }

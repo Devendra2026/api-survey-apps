@@ -218,6 +218,48 @@ export class SurveysService {
     return this.surveysRepository.listAudits(id)
   }
 
+  async assign(id: string, assigneeId: string, user: AuthenticatedUser) {
+    const survey = await this.surveysRepository.findById(id, user)
+    if (!EDITABLE.includes(survey.surveyStatus)) {
+      throw new BadRequestException(`Cannot assign survey in status ${survey.surveyStatus}`)
+    }
+
+    const assignee = await this.prisma.db.user.findUnique({
+      where: { id: assigneeId },
+      include: {
+        tenantRoles: { where: { isActive: true }, include: { role: true } },
+      },
+    })
+    if (!assignee || !assignee.isActive) {
+      throw new BadRequestException("Assignee must be an active user")
+    }
+
+    const scope = resolveTenantScope(user.tenantRoles)
+    if (
+      !canAccessTenant(scope, {
+        stateId: survey.stateId,
+        districtId: survey.districtId,
+        ulbId: survey.ulbId,
+        wardId: survey.wardId,
+      })
+    ) {
+      throw new ForbiddenException("Cannot assign survey outside your tenant scope")
+    }
+
+    if (assigneeId === survey.createdById) {
+      throw new BadRequestException("Survey is already assigned to this user")
+    }
+
+    const assigned = await this.surveysRepository.assignSurvey({
+      id,
+      assigneeId,
+      changedBy: user.id,
+      previousAssigneeId: survey.createdById,
+    })
+    this.logger.log(`Survey assigned ${id} to ${assigneeId} by ${user.id}`)
+    return assigned
+  }
+
   /** Tenant-scoped read for child modules */
   async assertReadableSurvey(surveyId: string, user: AuthenticatedUser) {
     return this.surveysRepository.findById(surveyId, user)

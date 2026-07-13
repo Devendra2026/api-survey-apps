@@ -4,7 +4,7 @@ import { PERMISSIONS } from "../common/constants/permissions.js"
 import { CurrentUser } from "../common/decorators/current-user.decorator.js"
 import { RequirePermission } from "../common/decorators/require-permission.decorator.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
-import { CreateSurveyDto, RejectSurveyDto, SurveyQueryDto, UpdateSurveyDto } from "./dto/survey.dto.js"
+import { CreateSurveyDto, AssignSurveyDto, RejectSurveyDto, SurveyQueryDto, UpdateSurveyDto } from "./dto/survey.dto.js"
 import { SurveysService } from "./surveys.service.js"
 
 @ApiTags("surveys")
@@ -80,5 +80,12 @@ export class SurveysController {
   @ApiOperation({ summary: "Reopen a REJECTED survey for corrections" })
   reopen(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.surveysService.reopen(id, user)
+  }
+
+  @Post(":id/assign")
+  @RequirePermission(PERMISSIONS.SURVEY_ASSIGN)
+  @ApiOperation({ summary: "Assign survey to a surveyor" })
+  assign(@Param("id") id: string, @Body() dto: AssignSurveyDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.surveysService.assign(id, dto.assigneeId, user)
   }
 }

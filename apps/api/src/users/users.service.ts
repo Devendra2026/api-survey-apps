@@ -20,7 +20,10 @@ export class UsersService {
   }
 
   getMe(user: AuthenticatedUser) {
-    return this.usersRepository.findById(user.id)
+    return this.usersRepository.findById(user.id).then((profile) => ({
+      ...profile,
+      permissions: user.permissions,
+    }))
   }
 
   async sync(user: AuthenticatedUser, dto: SyncUserDto) {
@@ -66,5 +69,13 @@ export class UsersService {
 
   deactivateTenantRole(id: string) {
     return this.usersRepository.deactivateTenantRole(id)
+  }
+
+  remove(id: string, actor: AuthenticatedUser) {
+    if (id === actor.id) {
+      throw new ForbiddenException("You cannot deactivate your own account")
+    }
+    this.logger.log(`User soft-delete ${id} by ${actor.id}`)
+    return this.usersRepository.softDelete(id)
   }
 }

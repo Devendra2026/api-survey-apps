@@ -85,4 +85,12 @@ export class UsersRepository {
       data: { isActive: false },
     })
   }
+
+  async softDelete(id: string) {
+    await this.findById(id)
+    return this.prisma.db.user.update({
+      where: { id },
+      data: { isActive: false },
+    })
+  }
 }

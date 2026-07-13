@@ -11,6 +11,10 @@ const surveyInclude = {
   photos: true,
   coOwners: true,
   createdBy: { select: { id: true, fullName: true, email: true } },
+  ward: { select: { id: true, wardName: true, wardNumber: true } },
+  ulb: { select: { id: true, name: true } },
+  district: { select: { id: true, name: true } },
+  state: { select: { id: true, name: true } },
 } as const
 
 @Injectable()
@@ -224,6 +228,33 @@ export class SurveysRepository {
       include: {
         changer: { select: { id: true, fullName: true, email: true } },
       },
+    })
+  }
+
+  async assignSurvey(params: {
+    id: string
+    assigneeId: string
+    changedBy: string
+    previousAssigneeId: string
+  }) {
+    return this.prisma.db.$transaction(async (tx) => {
+      const survey = await tx.survey.update({
+        where: { id: params.id },
+        data: { createdById: params.assigneeId },
+        include: surveyInclude,
+      })
+
+      await tx.surveyAudit.create({
+        data: {
+          surveyId: params.id,
+          action: "SURVEY_ASSIGNED",
+          oldValue: { createdById: params.previousAssigneeId },
+          newValue: { createdById: params.assigneeId },
+          changedBy: params.changedBy,
+        },
+      })
+
+      return survey
     })
   }
 }

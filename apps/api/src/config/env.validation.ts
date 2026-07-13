@@ -1,4 +1,4 @@
-import { plainToInstance, Transform } from "class-transformer"
+import { plainToInstance, Transform, Type } from "class-transformer"
 import {
   IsBooleanString,
   IsEnum,
@@ -28,6 +28,9 @@ export class EnvironmentVariables {
   @IsEnum(NodeEnv)
   NODE_ENV: NodeEnv = NodeEnv.Development
 
+  // @Type needed: TS emits design:type Object when the field has a numeric default,
+  // so enableImplicitConversion alone leaves env PORT as a string and @IsInt fails.
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(65535)

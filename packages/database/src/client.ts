@@ -1,22 +1,36 @@
-import { PrismaPostgresAdapter } from "@prisma/adapter-ppg"
+import { PrismaPg } from "@prisma/adapter-pg"
 import { PrismaClient } from "./generated/prisma/client.js"
+
+export type CreatePrismaClientOptions = {
+  connectionString?: string
+}
+
+export function createPrismaClient(options: CreatePrismaClientOptions = {}): PrismaClient {
+  const connectionString = options.connectionString ?? process.env.DATABASE_URL
+  if (!connectionString) {
+    throw new Error("DATABASE_URL is not set")
+  }
+
+  const adapter = new PrismaPg(connectionString)
+  return new PrismaClient({ adapter })
+}
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
 }
 
-function createPrismaClient(): PrismaClient {
-  const connectionString = process.env.DATABASE_URL
-  if (!connectionString) {
-    throw new Error("DATABASE_URL is not set")
+export function getPrisma(): PrismaClient {
+  if (!globalForPrisma.prisma) {
+    globalForPrisma.prisma = createPrismaClient()
   }
-
-  const adapter = new PrismaPostgresAdapter({ connectionString })
-  return new PrismaClient({ adapter })
+  return globalForPrisma.prisma
 }
 
-export const prisma = globalForPrisma.prisma ?? createPrismaClient()
-
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma
-}
+/** Lazy singleton — does not require DATABASE_URL until first use. */
+export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
+  get(_target, prop, receiver) {
+    const client = getPrisma()
+    const value = Reflect.get(client, prop, receiver)
+    return typeof value === "function" ? value.bind(client) : value
+  },
+})

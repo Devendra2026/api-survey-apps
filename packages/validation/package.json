@@ -8,8 +8,15 @@
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
   "devDependencies": {
     "@workspace/typescript-config": "workspace:*",
-    "zod": "^4.4.3"
+    "typescript": "^5.9.2"
   }
 }

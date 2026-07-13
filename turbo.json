@@ -2,10 +2,17 @@
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
   "tasks": {
+    "db:generate": {
+      "cache": false,
+      "outputs": [
+        "src/generated/**"
+      ]
+    },
     "build": {
       "dependsOn": [
         "^build",
-        "^db:generate"
+        "^db:generate",
+        "db:generate"
       ],
       "inputs": [
         "$TURBO_DEFAULT$",
@@ -16,6 +23,13 @@
         "!.next/cache/**",
         "dist/**"
       ]
+    },
+    "db:migrate": {
+      "cache": false,
+      "persistent": true
+    },
+    "db:deploy": {
+      "cache": false
     },
     "lint": {
       "dependsOn": [
@@ -29,7 +43,8 @@
     },
     "typecheck": {
       "dependsOn": [
-        "^typecheck"
+        "^typecheck",
+        "^db:generate"
       ]
     },
     "dev": {

@@ -1,19 +1,69 @@
 import { Module } from "@nestjs/common"
 import { ConfigModule } from "@nestjs/config"
-import { AppController } from "./app.controller.js"
-import { AppService } from "./app.service.js"
-import { DatabaseModule } from "./database/database.module.js"
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core"
+import { AuthModule } from "./auth/auth.module.js"
+import { CoOwnersModule } from "./co-owners/co-owners.module.js"
+import { CommonModule } from "./common/common.module.js"
+import { GlobalExceptionFilter } from "./common/filters/global-exception.filter.js"
+import { ClerkAuthGuard } from "./common/guards/clerk-auth.guard.js"
+import { PermissionsGuard } from "./common/guards/permissions.guard.js"
+import { TenantGuard } from "./common/guards/tenant.guard.js"
+import { LoggingInterceptor } from "./common/interceptors/logging.interceptor.js"
+import { ResponseTransformInterceptor } from "./common/interceptors/response-transform.interceptor.js"
+import { validateEnv } from "./config/env.validation.js"
+import { DashboardModule } from "./dashboard/dashboard.module.js"
+import { DistrictsModule } from "./districts/districts.module.js"
+import { FloorsModule } from "./floors/floors.module.js"
 import { HealthController } from "./health/health.controller.js"
+import { ImportsModule } from "./imports/imports.module.js"
+import { PermissionsModule } from "./permissions/permissions.module.js"
+import { PhotosModule } from "./photos/photos.module.js"
+import { PrismaModule } from "./prisma/prisma.module.js"
+import { ReportsModule } from "./reports/reports.module.js"
+import { RolesModule } from "./roles/roles.module.js"
+import { StatesModule } from "./states/states.module.js"
+import { StorageModule } from "./storage/storage.module.js"
+import { SurveyAuditsModule } from "./survey-audits/survey-audits.module.js"
+import { SurveysModule } from "./surveys/surveys.module.js"
+import { UlbsModule } from "./ulbs/ulbs.module.js"
+import { UsersModule } from "./users/users.module.js"
+import { WardsModule } from "./wards/wards.module.js"
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: [".env", "../../.env", "../../packages/database/.env"],
+      envFilePath: [".env", ".env.development", ".env.production", "../../.env", "../../packages/database/.env"],
+      validate: validateEnv,
     }),
-    DatabaseModule,
+    PrismaModule,
+    CommonModule,
+    StorageModule,
+    AuthModule,
+    UsersModule,
+    RolesModule,
+    PermissionsModule,
+    StatesModule,
+    DistrictsModule,
+    UlbsModule,
+    WardsModule,
+    SurveysModule,
+    FloorsModule,
+    PhotosModule,
+    CoOwnersModule,
+    SurveyAuditsModule,
+    DashboardModule,
+    ReportsModule,
+    ImportsModule,
   ],
-  controllers: [AppController, HealthController],
-  providers: [AppService],
+  controllers: [HealthController],
+  providers: [
+    { provide: APP_FILTER, useClass: GlobalExceptionFilter },
+    { provide: APP_INTERCEPTOR, useClass: ResponseTransformInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
+    { provide: APP_GUARD, useClass: ClerkAuthGuard },
+    { provide: APP_GUARD, useClass: PermissionsGuard },
+    { provide: APP_GUARD, useClass: TenantGuard },
+  ],
 })
 export class AppModule {}

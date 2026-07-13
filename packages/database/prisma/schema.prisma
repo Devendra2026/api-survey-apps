@@ -167,6 +167,14 @@ enum GPSCordinates {
   LONGITUDE
 }
 
+enum UserRoles {
+  ADMIN
+  SURVEYOR
+  FIELD_SUPERVISOR
+  QC_SUPERVISOR
+  PENDING_APPROVAL
+}
+
 // -----------------------------------------------------------------------------
 // Geography hierarchy: State → District → Ulb → Ward
 // -----------------------------------------------------------------------------
@@ -415,7 +423,7 @@ model Survey {
 
   // GPS capture
   gpsCoordinates GPSCordinates?
-  capturedAt    DateTime?
+  capturedAt     DateTime?
 
   // Workflow
   surveyStatus SurveyStatus @default(DRAFT)

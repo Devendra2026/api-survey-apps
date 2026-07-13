@@ -3,7 +3,7 @@ import { ConfigService } from "@nestjs/config"
 import { createPrismaClient, PrismaClient } from "@workspace/database"
 
 @Injectable()
-export class DatabaseService implements OnModuleInit, OnModuleDestroy {
+export class PrismaService implements OnModuleInit, OnModuleDestroy {
   private readonly client: PrismaClient
 
   constructor(private readonly configService: ConfigService) {
@@ -13,6 +13,11 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   }
 
   get prisma(): PrismaClient {
+    return this.client
+  }
+
+  /** Direct access for repositories that prefer `this.prisma.survey` style. */
+  get db(): PrismaClient {
     return this.client
   }
 

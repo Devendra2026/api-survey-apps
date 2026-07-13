@@ -1,10 +1,14 @@
 import { Controller, Get, ServiceUnavailableException } from "@nestjs/common"
-import { DatabaseService } from "../database/database.service.js"
+import { ApiTags } from "@nestjs/swagger"
+import { Public } from "../common/decorators/public.decorator.js"
+import { PrismaService } from "../prisma/prisma.service.js"
 
+@ApiTags("health")
 @Controller("health")
 export class HealthController {
-  constructor(private readonly databaseService: DatabaseService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
+  @Public()
   @Get()
   getHealth() {
     return {
@@ -14,10 +18,11 @@ export class HealthController {
     }
   }
 
+  @Public()
   @Get("ready")
   async getReady() {
     try {
-      await this.databaseService.prisma.$queryRaw`SELECT 1`
+      await this.prisma.db.$queryRaw`SELECT 1`
       return {
         status: "ready",
         database: "up",

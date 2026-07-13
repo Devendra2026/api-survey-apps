@@ -51,10 +51,22 @@ const PERMISSIONS: Array<{ name: string; description: string }> = [
   { name: "dashboard:view", description: "View dashboards" },
   { name: "report:view", description: "View reports" },
   { name: "report:export", description: "Export reports" },
+  { name: "photo:create", description: "Create survey photos" },
+  { name: "photo:update", description: "Update survey photos" },
+  { name: "photo:delete", description: "Delete survey photos" },
 ]
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {
-  SURVEYOR: ["survey:create", "survey:update", "survey:view", "survey:submit", "dashboard:view"],
+  SURVEYOR: [
+    "survey:create",
+    "survey:update",
+    "survey:view",
+    "survey:submit",
+    "photo:create",
+    "photo:update",
+    "photo:delete",
+    "dashboard:view",
+  ],
   FIELD_SUPERVISOR: [
     "survey:create",
     "survey:update",
@@ -62,11 +74,23 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     "survey:submit",
     "survey:assign",
     "survey:reject",
+    "photo:create",
+    "photo:update",
+    "photo:delete",
     "user:view",
     "dashboard:view",
     "report:view",
   ],
-  QC_SUPERVISOR: ["survey:view", "survey:update", "survey:approve", "survey:reject", "dashboard:view", "report:view"],
+  QC_SUPERVISOR: [
+    "survey:view",
+    "survey:update",
+    "survey:approve",
+    "survey:reject",
+    "photo:update",
+    "photo:delete",
+    "dashboard:view",
+    "report:view",
+  ],
   OPERATION_MANAGER: [
     "survey:view",
     "survey:approve",
@@ -83,10 +107,10 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
 }
 
 const ROLE_DESCRIPTIONS: Record<string, string> = {
+  PENDING_APPROVAL: "Pending approval for survey submission",
   SURVEYOR: "Field surveyor capturing property tax surveys",
   FIELD_SUPERVISOR: "Supervises field surveyors and assignments",
   QC_SUPERVISOR: "Quality-control review and approve/reject",
-  OPERATION_MANAGER: "Operations oversight across ULB tenants",
   ADMIN: "Full system administration",
 }
 

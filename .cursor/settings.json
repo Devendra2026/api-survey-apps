@@ -3,9 +3,6 @@
     "prisma": {
       "enabled": true
     },
-    "redis-development": {
-      "enabled": true
-    },
     "clerk": {
       "enabled": true
     },
@@ -13,6 +10,9 @@
       "enabled": true
     },
     "deploy-on-aws": {
+      "enabled": true
+    },
+    "redis-development": {
       "enabled": true
     }
   }

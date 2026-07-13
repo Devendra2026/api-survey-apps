@@ -1,4 +1,4 @@
-import { plainToInstance } from "class-transformer"
+import { plainToInstance, Transform } from "class-transformer"
 import {
   IsBooleanString,
   IsEnum,
@@ -11,6 +11,12 @@ import {
   Min,
   validateSync,
 } from "class-validator"
+
+/** Empty env values (`KEY=`) become undefined so @IsOptional skips them. */
+function emptyToUndefined({ value }: { value: unknown }) {
+  if (value === "" || value === null) return undefined
+  return value
+}
 
 enum NodeEnv {
   Development = "development",
@@ -56,26 +62,32 @@ export class EnvironmentVariables {
   LOG_LEVEL?: string
 
   @IsOptional()
+  @Transform(emptyToUndefined)
   @IsString()
   AWS_ACCESS_KEY_ID?: string
 
   @IsOptional()
+  @Transform(emptyToUndefined)
   @IsString()
   AWS_SECRET_ACCESS_KEY?: string
 
   @IsOptional()
+  @Transform(emptyToUndefined)
   @IsString()
   AWS_REGION?: string
 
   @IsOptional()
+  @Transform(emptyToUndefined)
   @IsString()
   AWS_S3_BUCKET?: string
 
   @IsOptional()
+  @Transform(emptyToUndefined)
   @IsUrl({ require_tld: false })
   AWS_S3_PUBLIC_URL?: string
 
   @IsOptional()
+  @Transform(emptyToUndefined)
   @IsInt()
   @Min(1024)
   AWS_S3_MAX_FILE_SIZE_BYTES?: number

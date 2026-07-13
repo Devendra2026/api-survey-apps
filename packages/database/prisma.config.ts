@@ -1,5 +1,7 @@
-import "dotenv/config"
+import { loadRootEnv } from "./load-root-env.js"
 import { defineConfig, env } from "prisma/config"
+
+loadRootEnv(import.meta.url)
 
 export default defineConfig({
   schema: "prisma/schema.prisma",

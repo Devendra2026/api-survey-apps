@@ -1,5 +1,4 @@
 import { PrismaPg } from "@prisma/adapter-pg"
-import "dotenv/config"
 import {
   AssessmentYear,
   ConstructionType,
@@ -20,6 +19,9 @@ import {
   usageFactor,
   usageType,
 } from "../src/generated/prisma/client.js"
+import { loadRootEnv } from "../load-root-env.js"
+
+loadRootEnv(import.meta.url)
 
 const connectionString = process.env.DATABASE_URL
 if (!connectionString) {

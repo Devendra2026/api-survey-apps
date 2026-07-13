@@ -1,0 +1,148 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  S3 bucket for api-survey-app survey photos (public GetObject on uploads/* only),
+  plus least-privilege IAM group/user/access key for NestJS StorageService.
+
+Metadata:
+  cfn-lint:
+    config:
+      ignore_checks: []
+  # Intentional: survey Photo.url values are permanent public HTTPS links under uploads/*.
+  # Object Lock / replication / access logging are omitted for cost (dev-sized stack).
+
+Parameters:
+  BucketName:
+    Type: String
+    Default: api-survey-app
+    Description: S3 bucket name (must be globally unique)
+    AllowedPattern: ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$
+    ConstraintDescription: 3–63 chars, lowercase letters, numbers, dots, hyphens
+  IamUserName:
+    Type: String
+    Default: api-survey-app-s3
+    Description: IAM user the API will authenticate as
+    AllowedPattern: ^[\w+=,.@-]{1,64}$
+
+Resources:
+  SurveyPhotosBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref BucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+            BucketKeyEnabled: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        # ACLs blocked; bucket policy may grant public GetObject on uploads/* only
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: false
+        RestrictPublicBuckets: false
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Project
+          Value: api-survey-app
+        - Key: Purpose
+          Value: survey-photos
+
+  SurveyPhotosBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SurveyPhotosBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt SurveyPhotosBucket.Arn
+              - !Sub "${SurveyPhotosBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+          - Sid: PublicReadSurveyUploads
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub "${SurveyPhotosBucket.Arn}/uploads/*"
+
+  SurveyPhotosIamGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: !Sub "${IamUserName}-group"
+
+  SurveyPhotosManagedPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub "${IamUserName}-s3-access"
+      Description: Put/Delete/Get survey photos under uploads/* only
+      Groups:
+        - !Ref SurveyPhotosIamGroup
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: SurveyPhotoObjects
+            Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:DeleteObject
+              - s3:GetObject
+            Resource: !Sub "${SurveyPhotosBucket.Arn}/uploads/*"
+          - Sid: ListUploadsPrefix
+            Effect: Allow
+            Action:
+              - s3:ListBucket
+            Resource: !GetAtt SurveyPhotosBucket.Arn
+            Condition:
+              StringLike:
+                s3:prefix:
+                  - uploads/*
+                  - uploads/
+
+  SurveyPhotosUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Ref IamUserName
+      Groups:
+        - !Ref SurveyPhotosIamGroup
+      Tags:
+        - Key: Project
+          Value: api-survey-app
+
+  SurveyPhotosAccessKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName: !Ref SurveyPhotosUser
+      Status: Active
+
+Outputs:
+  BucketName:
+    Description: Set as AWS_S3_BUCKET
+    Value: !Ref SurveyPhotosBucket
+  BucketArn:
+    Value: !GetAtt SurveyPhotosBucket.Arn
+  BucketRegion:
+    Description: Set as AWS_REGION (must match the stack region)
+    Value: !Ref AWS::Region
+  IamUserName:
+    Value: !Ref SurveyPhotosUser
+  IamGroupName:
+    Value: !Ref SurveyPhotosIamGroup
+  AccessKeyId:
+    Description: Set as AWS_ACCESS_KEY_ID (store securely; visible in stack outputs)
+    Value: !Ref SurveyPhotosAccessKey
+  SecretAccessKey:
+    Description: Set as AWS_SECRET_ACCESS_KEY (store securely; visible in stack outputs)
+    Value: !GetAtt SurveyPhotosAccessKey.SecretAccessKey
+  PublicObjectUrlExample:
+    Description: Leave AWS_S3_PUBLIC_URL empty to use this virtual-hosted style base
+    Value: !Sub "https://${BucketName}.s3.${AWS::Region}.amazonaws.com/uploads/..."

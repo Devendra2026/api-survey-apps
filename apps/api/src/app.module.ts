@@ -10,6 +10,7 @@ import { PermissionsGuard } from "./common/guards/permissions.guard.js"
 import { TenantGuard } from "./common/guards/tenant.guard.js"
 import { LoggingInterceptor } from "./common/interceptors/logging.interceptor.js"
 import { ResponseTransformInterceptor } from "./common/interceptors/response-transform.interceptor.js"
+import { monorepoEnvFiles } from "./config/env-files.js"
 import { validateEnv } from "./config/env.validation.js"
 import { DashboardModule } from "./dashboard/dashboard.module.js"
 import { DistrictsModule } from "./districts/districts.module.js"
@@ -33,7 +34,8 @@ import { WardsModule } from "./wards/wards.module.js"
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: [".env", ".env.development", ".env.production", "../../.env", "../../packages/database/.env"],
+      // Single source: repo-root `.env` (+ optional `.env.local` overrides)
+      envFilePath: monorepoEnvFiles(),
       validate: validateEnv,
     }),
     PrismaModule,

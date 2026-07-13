@@ -34,23 +34,31 @@ export class StorageService {
   private readonly region: string | undefined
 
   constructor(private readonly configService: ConfigService) {
-    this.bucket = this.configService.get<string>("AWS_S3_BUCKET")
-    this.publicUrl = this.configService.get<string>("AWS_S3_PUBLIC_URL")
-    this.region = this.configService.get<string>("AWS_REGION") ?? "ap-south-1"
+    this.bucket = this.nonEmpty("AWS_S3_BUCKET")
+    this.publicUrl = this.nonEmpty("AWS_S3_PUBLIC_URL")
+    this.region = this.nonEmpty("AWS_REGION") ?? "ap-south-1"
     this.maxBytes = this.configService.get<number>("AWS_S3_MAX_FILE_SIZE_BYTES") ?? 5 * 1024 * 1024
 
-    const accessKeyId = this.configService.get<string>("AWS_ACCESS_KEY_ID")
-    const secretAccessKey = this.configService.get<string>("AWS_SECRET_ACCESS_KEY")
+    const accessKeyId = this.nonEmpty("AWS_ACCESS_KEY_ID")
+    const secretAccessKey = this.nonEmpty("AWS_SECRET_ACCESS_KEY")
 
     if (accessKeyId && secretAccessKey && this.bucket) {
       this.client = new S3Client({
         region: this.region,
         credentials: { accessKeyId, secretAccessKey },
       })
+      this.logger.log(`S3 ready bucket=${this.bucket} region=${this.region}`)
     } else {
       this.client = null
-      this.logger.warn("AWS S3 is not fully configured; uploads will fail until env vars are set")
+      this.logger.warn(
+        "AWS S3 is not fully configured; set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_S3_BUCKET (see docs/aws-s3-setup.md)"
+      )
     }
+  }
+
+  private nonEmpty(key: string): string | undefined {
+    const value = this.configService.get<string>(key)?.trim()
+    return value ? value : undefined
   }
 
   isConfigured(): boolean {
@@ -99,6 +107,7 @@ export class StorageService {
           Key: key,
           Body: input.buffer,
           ContentType: input.mimeType,
+          CacheControl: "public, max-age=31536000, immutable",
           Metadata: {
             surveyId: input.surveyId,
             originalName: input.originalName.slice(0, 200),

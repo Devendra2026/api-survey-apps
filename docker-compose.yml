@@ -12,7 +12,7 @@ services:
     volumes:
       - survey_pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-survey}" ]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-survey}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -30,11 +30,17 @@ services:
       PORT: 4000
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-survey}?schema=public
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-api-survey-app}
+      AWS_S3_PUBLIC_URL: ${AWS_S3_PUBLIC_URL:-}
+      AWS_S3_MAX_FILE_SIZE_BYTES: ${AWS_S3_MAX_FILE_SIZE_BYTES:-5242880}
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1:4000/health || exit 1" ]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10

@@ -65,6 +65,13 @@ export class PhotosService {
         width: meta?.width,
         height: meta?.height,
         sizeKB: uploaded.sizeKB,
+        storageProvider: uploaded.provider,
+        bucket: uploaded.bucket,
+        objectKey: uploaded.key,
+        mimeType: uploaded.mimeType,
+        sizeBytes: uploaded.sizeBytes,
+        checksum: uploaded.checksum,
+        etag: uploaded.etag,
         capturedAt: meta?.capturedAt,
       })
       this.logger.log(`Photo uploaded survey=${surveyId} type=${photoType}`)
@@ -109,9 +116,16 @@ export class PhotosService {
         width: meta?.width,
         height: meta?.height,
         sizeKB: uploaded.sizeKB,
+        storageProvider: uploaded.provider,
+        bucket: uploaded.bucket,
+        objectKey: uploaded.key,
+        mimeType: uploaded.mimeType,
+        sizeBytes: uploaded.sizeBytes,
+        checksum: uploaded.checksum,
+        etag: uploaded.etag,
         capturedAt: meta?.capturedAt,
       })
-      await this.storageService.deleteObject(existing.url)
+      await this.storageService.deleteObject(existing.objectKey ?? existing.url)
       return photo
     } catch (err) {
       await this.storageService.deleteObject(uploaded.key)
@@ -123,7 +137,7 @@ export class PhotosService {
     const photo = await this.photosRepository.findById(id)
     await this.surveysService.assertEditableSurvey(photo.surveyId, user)
     const deleted = await this.photosRepository.delete(id)
-    await this.storageService.deleteObject(photo.url)
+    await this.storageService.deleteObject(photo.objectKey ?? photo.url)
     return deleted
   }
 }

@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -13,16 +13,21 @@ export function findMonorepoRoot(start = process.cwd()): string {
   }
 }
 
-/**
- * Root env files for Nest ConfigModule (first existing file wins per key).
- * Prefer `.env.local` overrides, then `.env`.
- */
 export function monorepoEnvFiles(start = process.cwd()): string[] {
   const root = findMonorepoRoot(start)
-  return [join(root, ".env.local"), join(root, ".env")].filter((path) => existsSync(path))
+  const nodeEnv = process.env.NODE_ENV ?? readNodeEnvFromFile(join(root, ".env.local")) ?? "development"
+  return [join(root, ".env.local"), join(root, `.env.${nodeEnv}`), join(root, ".env")].filter((path) =>
+    existsSync(path)
+  )
 }
 
 /** Absolute path to monorepo root (for scripts / ESM packages). */
 export function monorepoRootFromUrl(importMetaUrl: string): string {
   return findMonorepoRoot(dirname(fileURLToPath(importMetaUrl)))
+}
+
+function readNodeEnvFromFile(path: string): string | undefined {
+  if (!existsSync(path)) return undefined
+  const match = readFileSync(path, "utf8").match(/^NODE_ENV=(.+)$/m)
+  return match?.[1]?.trim() || undefined
 }

@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common"
 import { ConfigModule } from "@nestjs/config"
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core"
+import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler"
 import { AuthModule } from "./auth/auth.module.js"
 import { CoOwnersModule } from "./co-owners/co-owners.module.js"
 import { CommonModule } from "./common/common.module.js"
@@ -17,6 +18,7 @@ import { DistrictsModule } from "./districts/districts.module.js"
 import { FloorsModule } from "./floors/floors.module.js"
 import { HealthController } from "./health/health.controller.js"
 import { ImportsModule } from "./imports/imports.module.js"
+import { JobsModule } from "./jobs/jobs.module.js"
 import { NotificationsModule } from "./notifications/notifications.module.js"
 import { PermissionsModule } from "./permissions/permissions.module.js"
 import { PhotosModule } from "./photos/photos.module.js"
@@ -37,11 +39,20 @@ import { WardsModule } from "./wards/wards.module.js"
       isGlobal: true,
       // Single source: repo-root `.env` (+ optional `.env.local` overrides)
       envFilePath: monorepoEnvFiles(),
+      expandVariables: true,
+      cache: true,
       validate: validateEnv,
     }),
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60_000,
+        limit: 120,
+      },
+    ]),
     PrismaModule,
     CommonModule,
     StorageModule,
+    JobsModule,
     AuthModule,
     UsersModule,
     RolesModule,
@@ -65,6 +76,7 @@ import { WardsModule } from "./wards/wards.module.js"
     { provide: APP_FILTER, useClass: GlobalExceptionFilter },
     { provide: APP_INTERCEPTOR, useClass: ResponseTransformInterceptor },
     { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: ClerkAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
     { provide: APP_GUARD, useClass: TenantGuard },

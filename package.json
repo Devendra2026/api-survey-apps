@@ -19,6 +19,7 @@
     "@workspace/eslint-config": "workspace:*",
     "@workspace/typescript-config": "workspace:*",
     "@workspace/validation": "workspace:*",
+    "@workspace/ui": "workspace:*",
     "eslint": "^9.39.4",
     "husky": "^9.1.7",
     "lint-staged": "^16.1.2",
@@ -29,6 +30,6 @@
   },
   "packageManager": "pnpm@10.33.4",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.12"
   }
 }

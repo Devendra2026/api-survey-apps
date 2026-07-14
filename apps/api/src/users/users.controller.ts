@@ -28,8 +28,8 @@ export class UsersController {
 
   @Get()
   @RequirePermission(PERMISSIONS.USER_VIEW)
-  findAll(@Query() query: PaginationQueryDto) {
-    return this.usersService.findAll(query)
+  findAll(@Query() query: PaginationQueryDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.usersService.findAll(query, user)
   }
 
   @Post("tenant-roles/assign")
@@ -40,14 +40,14 @@ export class UsersController {
 
   @Delete("tenant-roles/:id")
   @RequirePermission(PERMISSIONS.ROLE_ASSIGN)
-  deactivateTenantRole(@Param("id") id: string) {
-    return this.usersService.deactivateTenantRole(id)
+  deactivateTenantRole(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.usersService.deactivateTenantRole(id, user)
   }
 
   @Get(":id")
   @RequirePermission(PERMISSIONS.USER_VIEW)
-  findOne(@Param("id") id: string) {
-    return this.usersService.findById(id)
+  findOne(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.usersService.findById(id, user)
   }
 
   @Post()
@@ -58,8 +58,8 @@ export class UsersController {
 
   @Patch(":id")
   @RequirePermission(PERMISSIONS.USER_UPDATE)
-  update(@Param("id") id: string, @Body() dto: UpdateUserDto) {
-    return this.usersService.update(id, dto)
+  update(@Param("id") id: string, @Body() dto: UpdateUserDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.usersService.update(id, dto, user)
   }
 
   @Delete(":id")

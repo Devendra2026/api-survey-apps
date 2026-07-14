@@ -173,7 +173,14 @@ export default function SurveyDetailPage() {
               label="Submitted"
               value={survey.submittedAt ? new Date(survey.submittedAt as string).toLocaleString() : "—"}
             />
-            <Row label="GPS" value={survey.gpsCoordinates ? String(survey.gpsCoordinates) : "Not captured"} />
+            <Row
+              label="GPS"
+              value={
+                survey.latitude != null && survey.longitude != null
+                  ? `${survey.latitude}, ${survey.longitude}`
+                  : "Not captured"
+              }
+            />
             <Row label="Floors" value={String((survey.floors as unknown[] | undefined)?.length ?? 0)} />
             <Row label="Photos" value={String((survey.photos as unknown[] | undefined)?.length ?? 0)} />
             {survey.qcRemarks ? <Row label="QC remarks" value={String(survey.qcRemarks)} /> : null}

@@ -1,5 +1,10 @@
 import type { Prisma } from "@workspace/database"
-import type { TenantRoleAssignment, TenantScope } from "../interfaces/authenticated-user.interface.js"
+import type {
+  AuthenticatedUser,
+  TenantGeo,
+  TenantRoleAssignment,
+  TenantScope,
+} from "../interfaces/authenticated-user.interface.js"
 
 export function resolveTenantScope(roles: TenantRoleAssignment[]): TenantScope {
   const active = roles.filter((r) => r.isActive)
@@ -50,10 +55,43 @@ export function buildTenantWhere(scope: TenantScope): Prisma.SurveyWhereInput | 
   return { OR: or }
 }
 
-export function canAccessTenant(
-  scope: TenantScope,
-  geo: { stateId?: string | null; districtId?: string | null; ulbId?: string | null; wardId?: string | null }
-): boolean {
+/** Whether an assignment's geographic scope covers the target geo. */
+export function assignmentCoversGeo(role: TenantRoleAssignment, geo: TenantGeo): boolean {
+  if (!role.isActive) return false
+  if (!role.stateId && !role.districtId && !role.ulbId && !role.wardId) {
+    return true // global assignment
+  }
+
+  if (role.wardId) {
+    return Boolean(geo.wardId && geo.wardId === role.wardId)
+  }
+  if (role.ulbId) {
+    return Boolean(geo.ulbId && geo.ulbId === role.ulbId)
+  }
+  if (role.districtId) {
+    return Boolean(geo.districtId && geo.districtId === role.districtId)
+  }
+  if (role.stateId) {
+    return Boolean(geo.stateId && geo.stateId === role.stateId)
+  }
+  return false
+}
+
+/**
+ * Permission check bound to the tenant of the target resource.
+ * An ADMIN role in Ward A does NOT grant admin permission in Ward B.
+ */
+export function userHasPermissionInTenant(user: AuthenticatedUser, permission: string, geo: TenantGeo): boolean {
+  return user.tenantRoles.some(
+    (role) => role.isActive && role.permissions.includes(permission) && assignmentCoversGeo(role, geo)
+  )
+}
+
+export function userHasAnyPermissionInTenant(user: AuthenticatedUser, permissions: string[], geo: TenantGeo): boolean {
+  return permissions.some((p) => userHasPermissionInTenant(user, p, geo))
+}
+
+export function canAccessTenant(scope: TenantScope, geo: TenantGeo): boolean {
   if (scope.isGlobal) return true
 
   if (geo.wardId && scope.wardIds.includes(geo.wardId)) return true
@@ -61,20 +99,50 @@ export function canAccessTenant(
   if (geo.districtId && scope.districtIds.includes(geo.districtId)) return true
   if (geo.stateId && scope.stateIds.includes(geo.stateId)) return true
 
-  // Ward-scoped user accessing via parent: if user's ward is under target ulb we already matched wardId on resource.
-  // Broader resource check: user with ulb scope can access ward under that ulb when resource has ulbId.
-  if (geo.ulbId && scope.wardIds.length === 0 && scope.ulbIds.includes(geo.ulbId)) return true
-
   return false
+}
+
+/**
+ * Strict tenant access: every provided geo field that has scope data must match,
+ * and at least one matching level is required when scope is not global.
+ */
+export function canAccessTenantStrict(scope: TenantScope, geo: TenantGeo): boolean {
+  if (scope.isGlobal) return true
+  if (!geo.stateId && !geo.districtId && !geo.ulbId && !geo.wardId) return false
+
+  if (geo.wardId && scope.wardIds.length && !scope.wardIds.includes(geo.wardId)) {
+    // Ward-scoped users must match ward; ULB-scoped users may access wards under their ULB via ulbId.
+    if (!geo.ulbId || !scope.ulbIds.includes(geo.ulbId)) {
+      if (!scope.ulbIds.length && !scope.districtIds.length && !scope.stateIds.length) return false
+    }
+  }
+
+  return canAccessTenant(scope, geo)
 }
 
 export function buildStateTenantWhere(scope: TenantScope): Prisma.StateWhereInput | undefined {
   if (scope.isGlobal) return undefined
   if (scope.stateIds.length || scope.districtIds.length || scope.ulbIds.length || scope.wardIds.length) {
-    // Can see states that appear in any of their scoped assignments
     const ids = new Set(scope.stateIds)
-    // If only lower levels assigned, we still need to allow listing — filter at query via related IDs in service
     if (ids.size) return { id: { in: [...ids] } }
   }
   return { id: "__no_access__" }
+}
+
+/** Roles a given actor role may grant (ceiling). */
+export const ROLE_GRANT_CEILINGS: Record<string, string[]> = {
+  ADMIN: ["ADMIN", "OPERATION_MANAGER", "QC_SUPERVISOR", "FIELD_SUPERVISOR", "SURVEYOR", "PENDING_APPROVAL"],
+  OPERATION_MANAGER: ["QC_SUPERVISOR", "FIELD_SUPERVISOR", "SURVEYOR", "PENDING_APPROVAL"],
+  FIELD_SUPERVISOR: ["SURVEYOR", "PENDING_APPROVAL"],
+  QC_SUPERVISOR: [],
+  SURVEYOR: [],
+  PENDING_APPROVAL: [],
+}
+
+export function canGrantRole(actorRoleNames: string[], targetRoleName: string): boolean {
+  for (const actorRole of actorRoleNames) {
+    const allowed = ROLE_GRANT_CEILINGS[actorRole]
+    if (allowed?.includes(targetRoleName)) return true
+  }
+  return false
 }

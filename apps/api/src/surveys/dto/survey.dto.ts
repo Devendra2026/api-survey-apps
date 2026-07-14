@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from "@nestjs/swagger"
 import {
   AssessmentYear,
-  GPSCordinates,
+  GpsSource,
   OwnershipType,
   PropertyType,
   PropertyUse,
@@ -22,6 +22,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
   MinLength,
@@ -168,10 +169,9 @@ export class CreateSurveyDto {
   @IsEnum(TaxRateZone)
   taxRateZone?: TaxRateZone
 
-  @ApiPropertyOptional({ enum: AssessmentYear })
-  @IsOptional()
+  @ApiProperty({ enum: AssessmentYear })
   @IsEnum(AssessmentYear)
-  assessmentYear?: AssessmentYear
+  assessmentYear!: AssessmentYear
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -217,10 +217,33 @@ export class CreateSurveyDto {
   @IsBoolean()
   solidWasteCollection?: boolean
 
-  @ApiPropertyOptional({ enum: GPSCordinates })
+  @ApiPropertyOptional({ description: "WGS84 latitude (-90..90)" })
   @IsOptional()
-  @IsEnum(GPSCordinates)
-  gpsCoordinates?: GPSCordinates
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  latitude?: number
+
+  @ApiPropertyOptional({ description: "WGS84 longitude (-180..180)" })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  longitude?: number
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  gpsAccuracyMeters?: number
+
+  @ApiPropertyOptional({ enum: GpsSource })
+  @IsOptional()
+  @IsEnum(GpsSource)
+  gpsSource?: GpsSource
 
   @ApiPropertyOptional()
   @IsOptional()

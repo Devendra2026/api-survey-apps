@@ -1,5 +1,6 @@
 "use client"
 
+import { tenantRoleDisplayName } from "@/lib/api/types"
 import { useAuthStore } from "@/stores/app-store"
 import { Badge } from "@workspace/ui/components/badge"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@workspace/ui/components/tooltip"
@@ -19,7 +20,7 @@ export function TenantScopeBadge() {
   }
 
   const primary = roles[0]!
-  const label = primary.role.name
+  const label = tenantRoleDisplayName(primary)
   const detail = [
     primary.stateId ? "State" : null,
     primary.districtId ? "District" : null,

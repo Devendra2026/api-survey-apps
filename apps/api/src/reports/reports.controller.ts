@@ -1,7 +1,7 @@
 import { Controller, Get, Query, Res, StreamableFile } from "@nestjs/common"
 import { ApiBearerAuth, ApiOperation, ApiPropertyOptional, ApiTags } from "@nestjs/swagger"
 import { SurveyStatus } from "@workspace/database"
-import { IsDateString, IsEnum, IsIn, IsOptional, IsString } from "class-validator"
+import { IsBooleanString, IsDateString, IsEnum, IsIn, IsOptional, IsString } from "class-validator"
 import type { Response } from "express"
 import { PERMISSIONS } from "../common/constants/permissions.js"
 import { CurrentUser } from "../common/decorators/current-user.decorator.js"
@@ -76,6 +76,11 @@ class ExportQueryDto {
   @IsOptional()
   @IsDateString()
   dateTo?: string
+
+  @ApiPropertyOptional({ description: "Run immediately for small exports only", default: "false" })
+  @IsOptional()
+  @IsBooleanString()
+  sync?: string
 }
 
 @ApiTags("reports")
@@ -105,7 +110,7 @@ export class ReportsController {
     @CurrentUser() user: AuthenticatedUser,
     @Res({ passthrough: true }) res: Response
   ) {
-    const result = await this.reportsService.export(user, query.format, query.reportType, {
+    const filters = {
       surveyStatus: query.surveyStatus,
       stateId: query.stateId,
       districtId: query.districtId,
@@ -114,7 +119,13 @@ export class ReportsController {
       search: query.search,
       dateFrom: query.dateFrom,
       dateTo: query.dateTo,
-    })
+    }
+
+    if (query.sync !== "true") {
+      return this.reportsService.enqueueExport(user, query.format, query.reportType, filters)
+    }
+
+    const result = await this.reportsService.exportSync(user, query.format, query.reportType, filters)
 
     if ("buffer" in result) {
       res.setHeader("Content-Type", result.contentType)

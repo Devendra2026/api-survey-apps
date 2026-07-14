@@ -9,6 +9,7 @@ loadEnvConfig(monorepoRoot)
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  outputFileTracingRoot: monorepoRoot,
   transpilePackages: ["@workspace/ui", "@workspace/validation", "@workspace/database"],
 }
 

@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common"
 import type { Prisma } from "@workspace/database"
-import { usageFactor } from "@workspace/database"
+import { UsageFactor } from "@workspace/database"
 import type { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
 import { sqFtToSqMeter } from "../common/utils/decimal.util.js"
 import { buildOrderBy, getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
@@ -107,8 +107,8 @@ export class FloorsRepository {
     for (const f of floors) {
       const area = f.areaSqFt ? Number(f.areaSqFt) : 0
       totalBuilt += area
-      if (f.usageFactor === usageFactor.RESIDENTIAL) residential += area
-      if (f.usageFactor === usageFactor.COMMERCIAL) commercial += area
+      if (f.usageFactor === UsageFactor.RESIDENTIAL) residential += area
+      if (f.usageFactor === UsageFactor.COMMERCIAL) commercial += area
     }
 
     await tx.survey.update({

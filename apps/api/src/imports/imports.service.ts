@@ -1,10 +1,16 @@
 import { BadRequestException, Injectable, Logger } from "@nestjs/common"
-import { AssessmentYear, OwnershipType, PropertyType, PropertyUse, SurveyStatus } from "@workspace/database"
+import { AssessmentYear, JobStatus, OwnershipType, PropertyType, PropertyUse, SurveyStatus } from "@workspace/database"
 import ExcelJS from "exceljs"
+import { randomUUID } from "node:crypto"
 import { Readable } from "node:stream"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { canAccessTenant, resolveTenantScope } from "../common/utils/tenant-scope.util.js"
+import { JobsService } from "../jobs/jobs.service.js"
 import { PrismaService } from "../prisma/prisma.service.js"
+import { StorageService } from "../storage/storage.service.js"
+
+const SYNC_IMPORT_MAX_ROWS = 500
+const SYNC_IMPORT_MAX_BYTES = 2 * 1024 * 1024
 
 const REQUIRED_COLUMNS = [
   "propertyId",
@@ -12,6 +18,7 @@ const REQUIRED_COLUMNS = [
   "districtId",
   "ulbId",
   "wardId",
+  "assessmentYear",
   "ownershipType",
   "propertyUse",
   "propertyType",
@@ -35,33 +42,103 @@ export interface ImportSummary {
 export class ImportsService {
   private readonly logger = new Logger(ImportsService.name)
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storageService: StorageService,
+    private readonly jobsService: JobsService
+  ) {}
 
-  async importSurveys(file: Express.Multer.File, user: AuthenticatedUser): Promise<ImportSummary> {
+  async enqueueSurveyImport(file: Express.Multer.File, user: AuthenticatedUser) {
+    this.validateImportFile(file)
+
+    const job = await this.prisma.db.importJob.create({
+      data: {
+        createdById: user.id,
+        originalName: file.originalname,
+        mimeType: file.mimetype,
+      },
+      select: { id: true, status: true },
+    })
+
+    const objectKey = ["imports", user.id, job.id, `${randomUUID()}-${this.safeObjectName(file.originalname)}`].join(
+      "/"
+    )
+    const uploaded = await this.storageService.uploadStoredObject({
+      key: objectKey,
+      buffer: file.buffer,
+      mimeType: file.mimetype || "application/octet-stream",
+      originalName: file.originalname,
+      metadata: {
+        importJobId: job.id,
+        createdById: user.id,
+      },
+    })
+
+    await this.prisma.db.importJob.update({
+      where: { id: job.id },
+      data: {
+        storageProvider: uploaded.provider,
+        bucket: uploaded.bucket,
+        objectKey: uploaded.key,
+      },
+    })
+
+    await this.jobsService.enqueueImport({
+      jobId: job.id,
+      createdById: user.id,
+      originalName: file.originalname,
+      mimeType: file.mimetype || undefined,
+      sizeBytes: file.size,
+      bucket: uploaded.bucket,
+      storageProvider: uploaded.provider,
+      objectKey: uploaded.key,
+      tenantRoles: user.tenantRoles,
+    })
+
+    return { jobId: job.id, status: JobStatus.QUEUED }
+  }
+
+  async importSurveys(
+    file: Express.Multer.File,
+    user: AuthenticatedUser,
+    options: { enforceSyncCap?: boolean } = {}
+  ): Promise<ImportSummary> {
     if (!file) throw new BadRequestException("Import file is required")
-    const name = file.originalname.toLowerCase()
-    if (!name.endsWith(".xlsx") && !name.endsWith(".csv")) {
-      throw new BadRequestException("Only .xlsx and .csv files are supported")
+    this.validateImportFile(file)
+    if (options.enforceSyncCap && file.size > SYNC_IMPORT_MAX_BYTES) {
+      throw new BadRequestException("Synchronous imports are capped at 2MB. Retry without ?sync=true.")
     }
 
     const rows = await this.parseRows(file)
     if (!rows.length) throw new BadRequestException("Import file has no data rows")
-
-    const propertyIds = rows.map((r) => String(r.propertyId ?? "").trim()).filter(Boolean)
-    const dupInFile = propertyIds.filter((id, idx) => propertyIds.indexOf(id) !== idx)
-    if (dupInFile.length) {
-      throw new BadRequestException(`Duplicate Property IDs in file: ${[...new Set(dupInFile)].join(", ")}`)
+    if (options.enforceSyncCap && rows.length > SYNC_IMPORT_MAX_ROWS) {
+      throw new BadRequestException("Synchronous imports are capped at 500 rows. Retry without ?sync=true.")
     }
 
     const existing = await this.prisma.db.survey.findMany({
-      where: { propertyId: { in: propertyIds }, deletedAt: null },
-      select: { propertyId: true },
+      where: {
+        deletedAt: null,
+        OR: rows
+          .filter((r) => r.propertyId && r.ulbId && r.assessmentYear)
+          .map((r) => ({
+            propertyId: String(r.propertyId).trim(),
+            ulbId: String(r.ulbId).trim(),
+            assessmentYear: r.assessmentYear as AssessmentYear,
+          })),
+      },
+      select: { propertyId: true, ulbId: true, assessmentYear: true },
     })
-    const existingSet = new Set(existing.map((e) => e.propertyId))
+    const existingSet = new Set(existing.map((e) => `${e.ulbId}|${e.propertyId}|${e.assessmentYear}`))
 
     const scope = resolveTenantScope(user.tenantRoles)
     const errors: ImportRowError[] = []
     const validRows: Array<Record<string, string>> = []
+
+    const wards = await this.prisma.db.ward.findMany({
+      where: { id: { in: [...new Set(rows.map((r) => String(r.wardId ?? "").trim()).filter(Boolean))] } },
+      include: { ulb: { include: { district: true } } },
+    })
+    const wardById = new Map(wards.map((w) => [w.id, w]))
 
     rows.forEach((row, index) => {
       const rowNumber = index + 2
@@ -73,8 +150,11 @@ export class ImportsService {
       }
 
       const propertyId = String(row.propertyId ?? "").trim()
-      if (propertyId && existingSet.has(propertyId)) {
-        rowErrors.push(`Property ID already exists: ${propertyId}`)
+      const ulbId = String(row.ulbId ?? "").trim()
+      const assessmentYear = String(row.assessmentYear ?? "").trim()
+      const identityKey = `${ulbId}|${propertyId}|${assessmentYear}`
+      if (propertyId && ulbId && assessmentYear && existingSet.has(identityKey)) {
+        rowErrors.push(`Property ID already exists for ULB/assessment year: ${propertyId}`)
       }
 
       if (row.ownershipType && !Object.values(OwnershipType).includes(row.ownershipType as OwnershipType)) {
@@ -88,6 +168,18 @@ export class ImportsService {
       }
       if (row.assessmentYear && !Object.values(AssessmentYear).includes(row.assessmentYear as AssessmentYear)) {
         rowErrors.push(`Invalid assessmentYear: ${row.assessmentYear}`)
+      }
+
+      const ward = wardById.get(String(row.wardId ?? "").trim())
+      if (row.wardId && !ward) {
+        rowErrors.push("Invalid wardId")
+      } else if (ward) {
+        if (ward.ulbId !== String(row.ulbId ?? "").trim()) rowErrors.push("wardId does not belong to ulbId")
+        if (ward.ulb.districtId !== String(row.districtId ?? "").trim())
+          rowErrors.push("ulbId does not belong to districtId")
+        if (ward.ulb.district.stateId !== String(row.stateId ?? "").trim()) {
+          rowErrors.push("districtId does not belong to stateId")
+        }
       }
 
       if (
@@ -105,6 +197,7 @@ export class ImportsService {
         errors.push({ row: rowNumber, propertyId: propertyId || undefined, errors: rowErrors })
       } else {
         validRows.push(row)
+        existingSet.add(identityKey)
       }
     })
 
@@ -123,13 +216,15 @@ export class ImportsService {
                 ownershipType: row.ownershipType as OwnershipType,
                 propertyUse: row.propertyUse as PropertyUse,
                 propertyType: row.propertyType as PropertyType,
-                assessmentYear: row.assessmentYear ? (row.assessmentYear as AssessmentYear) : undefined,
+                assessmentYear: row.assessmentYear as AssessmentYear,
                 respondentName: row.respondentName || undefined,
                 mobileNumber: row.mobileNumber || undefined,
                 houseDoorNo: row.houseDoorNo || undefined,
                 locality: row.locality || undefined,
                 surveyStatus: SurveyStatus.DRAFT,
                 createdById: user.id,
+                assignedToId: user.id,
+                assignedAt: new Date(),
               },
             })
             await tx.surveyAudit.create({
@@ -162,6 +257,18 @@ export class ImportsService {
     return summary
   }
 
+  private validateImportFile(file: Express.Multer.File | undefined): asserts file is Express.Multer.File {
+    if (!file) throw new BadRequestException("Import file is required")
+    const name = file.originalname.toLowerCase()
+    if (!name.endsWith(".xlsx") && !name.endsWith(".csv")) {
+      throw new BadRequestException("Only .xlsx and .csv files are supported")
+    }
+  }
+
+  private safeObjectName(originalName: string) {
+    return originalName.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 160) || "import-file"
+  }
+
   private async parseRows(file: Express.Multer.File): Promise<Array<Record<string, string>>> {
     const workbook = new ExcelJS.Workbook()
     if (file.originalname.toLowerCase().endsWith(".csv")) {
@@ -176,7 +283,7 @@ export class ImportsService {
     const headerRow = sheet.getRow(1)
     const headers: string[] = []
     headerRow.eachCell((cell, col) => {
-      headers[col] = String(cell.value ?? "").trim()
+      headers[col] = this.cellValueToString(cell.value).trim()
     })
 
     for (const required of REQUIRED_COLUMNS) {
@@ -192,19 +299,29 @@ export class ImportsService {
       headers.forEach((header, col) => {
         if (!header) return
         const value = row.getCell(col).value
-        record[header] =
-          value == null
-            ? ""
-            : String(
-                typeof value === "object" && value !== null && "text" in value
-                  ? (value as { text: string }).text
-                  : value
-              ).trim()
+        record[header] = this.cellValueToString(value).trim()
       })
       if (Object.values(record).some((v) => v !== "")) {
         rows.push(record)
       }
     })
     return rows
+  }
+
+  private cellValueToString(value: ExcelJS.CellValue): string {
+    if (value == null) return ""
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value instanceof Date) {
+      return String(value)
+    }
+    if ("text" in value && typeof value.text === "string") {
+      return value.text
+    }
+    if ("result" in value) {
+      return this.cellValueToString(value.result)
+    }
+    if ("richText" in value && Array.isArray(value.richText)) {
+      return value.richText.map((part) => part.text).join("")
+    }
+    return ""
   }
 }

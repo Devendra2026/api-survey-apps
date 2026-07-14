@@ -118,7 +118,7 @@ enum SurveyStatus {
   REOPENED
 }
 
-enum usageFactor {
+enum UsageFactor {
   RESIDENTIAL
   COMMERCIAL
   MIXED
@@ -126,11 +126,15 @@ enum usageFactor {
   GODOWN
   OPEN_LAND
   UNDER_CONSTRUCTION
+
+  @@map("usageFactor")
 }
 
-enum usageType {
+enum UsageType {
   SELF_OCCUPIED
   RENTED
+
+  @@map("usageType")
 }
 
 enum ConstructionType {
@@ -162,17 +166,36 @@ enum UlbType {
   TOWN_PANCHAYAT
 }
 
+/// @deprecated Legacy axis label — prefer latitude/longitude Decimal fields.
 enum GPSCordinates {
   LATITUDE
   LONGITUDE
 }
 
-enum UserRoles {
-  ADMIN
-  SURVEYOR
-  FIELD_SUPERVISOR
-  QC_SUPERVISOR
-  PENDING_APPROVAL
+enum StorageProvider {
+  S3
+  MINIO
+}
+
+enum JobStatus {
+  QUEUED
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum ExportFormat {
+  CSV
+  XLSX
+  PDF
+  JSON
+}
+
+enum GpsSource {
+  DEVICE
+  MANUAL
+  IMPORT
 }
 
 // -----------------------------------------------------------------------------
@@ -271,9 +294,14 @@ model User {
   updatedAt   DateTime  @updatedAt
 
   surveysCreated      Survey[]         @relation("SurveyCreatedBy")
+  surveysAssigned     Survey[]         @relation("SurveyAssignedTo")
   tenantRoles         UserTenantRole[] @relation("UserTenantRoleAssignee")
   rolesAssigned       UserTenantRole[] @relation("UserTenantRoleAssigner")
+  rolesDeactivated    UserTenantRole[] @relation("UserTenantRoleDeactivator")
   surveyAuditsChanged SurveyAudit[]    @relation("SurveyAuditChangedBy")
+  securityAuditsActor SecurityAudit[]  @relation("SecurityAuditActor")
+  importJobsCreated   ImportJob[]      @relation("ImportJobCreatedBy")
+  exportJobsCreated   ExportJob[]      @relation("ExportJobCreatedBy")
 
   @@index([isActive])
   @@index([fullName])
@@ -325,24 +353,27 @@ model RolePermission {
 /// Tenant-scoped role assignment for a user.
 /// Optional state/district/ulb/ward define the scope (null = broader/global).
 model UserTenantRole {
-  id         String   @id @default(cuid())
-  userId     String
-  roleId     String
-  stateId    String?
-  districtId String?
-  ulbId      String?
-  wardId     String?
-  assignedBy String
-  assignedAt DateTime @default(now())
-  isActive   Boolean  @default(true)
+  id            String    @id @default(cuid())
+  userId        String
+  roleId        String
+  stateId       String?
+  districtId    String?
+  ulbId         String?
+  wardId        String?
+  assignedBy    String
+  assignedAt    DateTime  @default(now())
+  isActive      Boolean   @default(true)
+  deactivatedAt DateTime?
+  deactivatedBy String?
 
-  user     User      @relation("UserTenantRoleAssignee", fields: [userId], references: [id], onDelete: Cascade)
-  role     Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
-  state    State?    @relation(fields: [stateId], references: [id], onDelete: Restrict)
-  district District? @relation(fields: [districtId], references: [id], onDelete: Restrict)
-  ulb      Ulb?      @relation(fields: [ulbId], references: [id], onDelete: Restrict)
-  ward     Ward?     @relation(fields: [wardId], references: [id], onDelete: Restrict)
-  assigner User      @relation("UserTenantRoleAssigner", fields: [assignedBy], references: [id], onDelete: Restrict)
+  user        User      @relation("UserTenantRoleAssignee", fields: [userId], references: [id], onDelete: Cascade)
+  role        Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  state       State?    @relation(fields: [stateId], references: [id], onDelete: Restrict)
+  district    District? @relation(fields: [districtId], references: [id], onDelete: Restrict)
+  ulb         Ulb?      @relation(fields: [ulbId], references: [id], onDelete: Restrict)
+  ward        Ward?     @relation(fields: [wardId], references: [id], onDelete: Restrict)
+  assigner    User      @relation("UserTenantRoleAssigner", fields: [assignedBy], references: [id], onDelete: Restrict)
+  deactivator User?     @relation("UserTenantRoleDeactivator", fields: [deactivatedBy], references: [id], onDelete: Restrict)
 
   @@index([userId])
   @@index([roleId])
@@ -361,18 +392,21 @@ model UserTenantRole {
 
 /// Central property tax survey record. Belongs to full geo hierarchy + creator.
 /// Soft-deleted via deletedAt. Legacy string fields support data migration only.
+/// Identity: one assessment per (ulbId, propertyId, assessmentYear).
 model Survey {
   id String @id @default(cuid())
 
   // Tenant hierarchy (normalized FKs — do not duplicate tenant names)
-  stateId     String
-  districtId  String
-  ulbId       String
-  wardId      String
-  createdById String
+  stateId      String
+  districtId   String
+  ulbId        String
+  wardId       String
+  createdById  String
+  assignedToId String?
+  assignedAt   DateTime?
 
   // Property identification
-  propertyId    String  @unique
+  propertyId    String
   localId       String?
   propertyIdOld String?
   parcelNumber  String?
@@ -405,7 +439,7 @@ model Survey {
   situation      Situation?
   roadType       RoadType?
   taxRateZone    TaxRateZone?
-  assessmentYear AssessmentYear?
+  assessmentYear AssessmentYear
 
   // Measurements
   plotAreaSqFt          Decimal? @db.Decimal(14, 4)
@@ -421,9 +455,14 @@ model Survey {
   sanitationType       SanitationType?
   solidWasteCollection Boolean?
 
-  // GPS capture
-  gpsCoordinates GPSCordinates?
-  capturedAt     DateTime?
+  // GPS capture (Decimal fields are source of truth; gpsCoordinates is legacy)
+  latitude          Decimal?       @db.Decimal(9, 6)
+  longitude         Decimal?       @db.Decimal(9, 6)
+  gpsAccuracyMeters Decimal?       @db.Decimal(8, 2)
+  gpsSource         GpsSource?
+  /// @deprecated Use latitude/longitude
+  gpsCoordinates    GPSCordinates?
+  capturedAt        DateTime?
 
   // Workflow
   surveyStatus SurveyStatus @default(DRAFT)
@@ -437,26 +476,30 @@ model Survey {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  state     State    @relation(fields: [stateId], references: [id], onDelete: Restrict)
-  district  District @relation(fields: [districtId], references: [id], onDelete: Restrict)
-  ulb       Ulb      @relation(fields: [ulbId], references: [id], onDelete: Restrict)
-  ward      Ward     @relation(fields: [wardId], references: [id], onDelete: Restrict)
-  createdBy User     @relation("SurveyCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  state      State    @relation(fields: [stateId], references: [id], onDelete: Restrict)
+  district   District @relation(fields: [districtId], references: [id], onDelete: Restrict)
+  ulb        Ulb      @relation(fields: [ulbId], references: [id], onDelete: Restrict)
+  ward       Ward     @relation(fields: [wardId], references: [id], onDelete: Restrict)
+  createdBy  User     @relation("SurveyCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  assignedTo User?    @relation("SurveyAssignedTo", fields: [assignedToId], references: [id], onDelete: Restrict)
 
   coOwners CoOwner[]
   floors   Floor[]
   photos   Photo[]
   audits   SurveyAudit[]
 
+  @@unique([ulbId, propertyId, assessmentYear])
   @@index([stateId, surveyStatus])
   @@index([districtId, surveyStatus])
   @@index([ulbId, surveyStatus])
   @@index([wardId, surveyStatus])
   @@index([createdById, createdAt])
+  @@index([assignedToId, surveyStatus])
   @@index([surveyStatus, createdAt])
   @@index([createdAt])
   @@index([deletedAt])
   @@index([mobileNumber])
+  @@index([propertyId])
   @@map("surveys")
 }
 
@@ -482,8 +525,8 @@ model Floor {
   id               String            @id @default(cuid())
   surveyId         String
   floorPosition    FloorPosition
-  usageFactor      usageFactor?
-  usageType        usageType?
+  usageFactor      UsageFactor?
+  usageType        UsageType?
   constructionType ConstructionType?
   occupancy        String?
   areaSqFt         Decimal?          @db.Decimal(14, 4)
@@ -492,32 +535,41 @@ model Floor {
 
   survey Survey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
 
+  @@unique([surveyId, floorPosition])
   @@index([surveyId])
-  @@index([surveyId, floorPosition])
   @@map("floors")
 }
 
-/// Field photo attached to a survey.
+/// Field photo attached to a survey (private object storage).
 model Photo {
-  id         String    @id @default(cuid())
-  surveyId   String
-  photoType  PhotoType
-  url        String
-  width      Int?
-  height     Int?
-  sizeKB     Int?
-  capturedAt DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id              String           @id @default(cuid())
+  surveyId        String
+  photoType       PhotoType
+  /// Cached delivery URL (signed/public); prefer objectKey for identity
+  url             String
+  storageProvider StorageProvider?
+  bucket          String?
+  objectKey       String?
+  mimeType        String?
+  sizeBytes       Int?
+  checksum        String?
+  etag            String?
+  width           Int?
+  height          Int?
+  sizeKB          Int?
+  capturedAt      DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 
   survey Survey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
 
   @@index([surveyId])
   @@index([surveyId, photoType])
+  @@index([objectKey])
   @@map("photos")
 }
 
-/// Field-level / action audit trail for survey changes.
+/// Field-level / action audit trail for survey changes (immutable; retained).
 model SurveyAudit {
   id        String   @id @default(cuid())
   surveyId  String
@@ -527,7 +579,7 @@ model SurveyAudit {
   changedBy String
   changedAt DateTime @default(now())
 
-  survey  Survey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  survey  Survey @relation(fields: [surveyId], references: [id], onDelete: Restrict)
   changer User   @relation("SurveyAuditChangedBy", fields: [changedBy], references: [id], onDelete: Restrict)
 
   @@index([surveyId])
@@ -535,4 +587,78 @@ model SurveyAudit {
   @@index([changedAt])
   @@index([surveyId, changedAt])
   @@map("survey_audits")
+}
+
+/// Immutable security / RBAC audit trail.
+model SecurityAudit {
+  id         String   @id @default(cuid())
+  action     String
+  actorId    String
+  targetType String
+  targetId   String?
+  oldValue   Json?
+  newValue   Json?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  actor User @relation("SecurityAuditActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+  @@index([targetType, targetId])
+  @@map("security_audits")
+}
+
+/// Async Excel/CSV import job processed by the background worker.
+model ImportJob {
+  id              String           @id @default(cuid())
+  createdById     String
+  status          JobStatus        @default(QUEUED)
+  originalName    String
+  mimeType        String?
+  storageProvider StorageProvider?
+  bucket          String?
+  objectKey       String?
+  totalRows       Int              @default(0)
+  successCount    Int              @default(0)
+  failureCount    Int              @default(0)
+  errorReportKey  String?
+  resultSummary   Json?
+  errorMessage    String?
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  createdBy User @relation("ImportJobCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([createdById, createdAt])
+  @@index([status, createdAt])
+  @@map("import_jobs")
+}
+
+/// Async report export job processed by the background worker.
+model ExportJob {
+  id              String           @id @default(cuid())
+  createdById     String
+  status          JobStatus        @default(QUEUED)
+  reportType      String
+  format          ExportFormat
+  filters         Json?
+  storageProvider StorageProvider?
+  bucket          String?
+  objectKey       String?
+  rowCount        Int              @default(0)
+  errorMessage    String?
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  createdBy User @relation("ExportJobCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([createdById, createdAt])
+  @@index([status, createdAt])
+  @@map("export_jobs")
 }

@@ -1,17 +1,26 @@
-import { Injectable, Logger } from "@nestjs/common"
-import type { Prisma, SurveyStatus } from "@workspace/database"
+import { BadRequestException, Injectable, Logger } from "@nestjs/common"
+import { ExportFormat as DbExportFormat, JobStatus, type Prisma, type SurveyStatus } from "@workspace/database"
 import ExcelJS from "exceljs"
 import PDFDocument from "pdfkit"
 import type { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
+import { JobsService } from "../jobs/jobs.service.js"
+import { PrismaService } from "../prisma/prisma.service.js"
 import type { ExportFilters, ExportFormat, ExportReportType } from "./export.types.js"
 import { ReportsRepository } from "./reports.repository.js"
+
+const SYNC_EXPORT_MAX_ROWS = 500
+const SYNC_EXPORT_MAX_BYTES = 2 * 1024 * 1024
 
 @Injectable()
 export class ReportsService {
   private readonly logger = new Logger(ReportsService.name)
 
-  constructor(private readonly reportsRepository: ReportsRepository) {}
+  constructor(
+    private readonly reportsRepository: ReportsRepository,
+    private readonly prisma: PrismaService,
+    private readonly jobsService: JobsService
+  ) {}
 
   surveyReport(user: AuthenticatedUser, query: PaginationQueryDto & { surveyStatus?: SurveyStatus; ulbId?: string }) {
     return this.reportsRepository.surveyReport(user, query)
@@ -25,38 +34,108 @@ export class ReportsService {
     user: AuthenticatedUser,
     format: ExportFormat,
     reportType: ExportReportType,
-    filters: ExportFilters
+    filters: ExportFilters,
+    options: { maxRows?: number; maxBytes?: number } = {}
   ): Promise<
     | { format: ExportFormat; reportType: ExportReportType; count: number; data: unknown }
     | { contentType: string; filename: string; buffer: Buffer }
   > {
-    const rows = await this.reportsRepository.exportSurveys(user, filters)
+    const rows = await this.reportsRepository.exportSurveys(user, filters, options.maxRows ? options.maxRows + 1 : undefined)
+    if (options.maxRows && rows.length > options.maxRows) {
+      throw new BadRequestException(`Synchronous exports are capped at ${options.maxRows} rows. Retry without ?sync=true.`)
+    }
     this.logger.log(`Export format=${format} type=${reportType} rows=${rows.length} by=${user.id}`)
 
     if (format === "json") {
       return { format, reportType, count: rows.length, data: this.aggregate(rows, reportType) }
     }
     if (format === "csv") {
-      return {
-        contentType: "text/csv",
-        filename: `${reportType}-export.csv`,
-        buffer: Buffer.from(this.toCsv(rows as Array<Record<string, unknown>>), "utf8"),
-      }
+      return this.assertExportSize(
+        {
+          contentType: "text/csv",
+          filename: `${reportType}-export.csv`,
+          buffer: Buffer.from(this.toCsv(rows as Array<Record<string, unknown>>), "utf8"),
+        },
+        options.maxBytes
+      )
     }
     if (format === "xlsx") {
       const buffer = await this.toExcel(rows, reportType)
-      return {
-        contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename: `${reportType}-export.xlsx`,
-        buffer,
-      }
+      return this.assertExportSize(
+        {
+          contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          filename: `${reportType}-export.xlsx`,
+          buffer,
+        },
+        options.maxBytes
+      )
     }
 
     const buffer = await this.toPdf(rows, reportType, filters)
-    return {
-      contentType: "application/pdf",
-      filename: `${reportType}-export.pdf`,
-      buffer,
+    return this.assertExportSize(
+      {
+        contentType: "application/pdf",
+        filename: `${reportType}-export.pdf`,
+        buffer,
+      },
+      options.maxBytes
+    )
+  }
+
+  exportSync(user: AuthenticatedUser, format: ExportFormat, reportType: ExportReportType, filters: ExportFilters) {
+    return this.export(user, format, reportType, filters, {
+      maxRows: SYNC_EXPORT_MAX_ROWS,
+      maxBytes: SYNC_EXPORT_MAX_BYTES,
+    })
+  }
+
+  async enqueueExport(user: AuthenticatedUser, format: ExportFormat, reportType: ExportReportType, filters: ExportFilters) {
+    const normalizedFilters = this.normalizeFilters(filters)
+    const job = await this.prisma.db.exportJob.create({
+      data: {
+        createdById: user.id,
+        reportType,
+        format: this.toDbExportFormat(format),
+        filters: normalizedFilters,
+      },
+      select: { id: true, status: true },
+    })
+
+    await this.jobsService.enqueueExport({
+      jobId: job.id,
+      createdById: user.id,
+      format,
+      reportType,
+      filters: normalizedFilters,
+      tenantRoles: user.tenantRoles,
+    })
+
+    return { jobId: job.id, status: JobStatus.QUEUED }
+  }
+
+  private assertExportSize<T extends { buffer: Buffer }>(result: T, maxBytes?: number): T {
+    if (maxBytes && result.buffer.byteLength > maxBytes) {
+      throw new BadRequestException("Synchronous exports are capped at 2MB. Retry without ?sync=true.")
+    }
+    return result
+  }
+
+  private normalizeFilters(filters: ExportFilters): Record<string, string> {
+    return Object.fromEntries(
+      Object.entries(filters).filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].length > 0)
+    )
+  }
+
+  private toDbExportFormat(format: ExportFormat): DbExportFormat {
+    switch (format) {
+      case "csv":
+        return DbExportFormat.CSV
+      case "json":
+        return DbExportFormat.JSON
+      case "pdf":
+        return DbExportFormat.PDF
+      case "xlsx":
+        return DbExportFormat.XLSX
     }
   }
 

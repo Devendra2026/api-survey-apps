@@ -2,12 +2,29 @@ import { ValidationPipe } from "@nestjs/common"
 import { ConfigService } from "@nestjs/config"
 import { NestFactory } from "@nestjs/core"
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger"
+import helmet from "helmet"
+import { randomUUID } from "node:crypto"
+import { pinoHttp } from "pino-http"
 import { AppModule } from "./app.module.js"
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule)
   const configService = app.get(ConfigService)
   const nodeEnv = configService.get<string>("NODE_ENV") ?? "development"
+
+  app.enableShutdownHooks()
+  app.use(helmet())
+  app.use(
+    pinoHttp({
+      genReqId: (req, res) => {
+        const header = req.headers["x-request-id"]
+        const requestId = Array.isArray(header) ? header[0] : header || randomUUID()
+        res.setHeader("x-request-id", requestId)
+        return requestId
+      },
+      level: configService.get<string>("LOG_LEVEL") ?? (nodeEnv === "production" ? "info" : "debug"),
+    })
+  )
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -37,6 +54,7 @@ async function bootstrap() {
     SwaggerModule.setup("docs", app, document)
   }
 
+  // Keep bootstrap generic: environment validation owns fail-fast configuration checks.
   const port = configService.get<number>("PORT") ?? configService.get<number>("APP_PORT") ?? 4000
   await app.listen(port)
 }

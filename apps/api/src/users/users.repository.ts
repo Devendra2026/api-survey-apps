@@ -9,7 +9,10 @@ import type { AssignTenantRoleDto, CreateUserDto, UpdateUserDto } from "./dto/us
 export class UsersRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(query: PaginationQueryDto) {
+  async findAll(
+    query: PaginationQueryDto,
+    scope?: import("../common/interfaces/authenticated-user.interface.js").TenantScope
+  ) {
     const { skip, take, page, limit } = getSkipTake(query)
     const where: Prisma.UserWhereInput = {}
     if (query.search) {
@@ -17,6 +20,20 @@ export class UsersRepository {
         { fullName: { contains: query.search, mode: "insensitive" } },
         { email: { contains: query.search, mode: "insensitive" } },
       ]
+    }
+
+    if (scope && !scope.isGlobal) {
+      const roleOr: Prisma.UserTenantRoleWhereInput[] = []
+      if (scope.wardIds.length) roleOr.push({ wardId: { in: scope.wardIds } })
+      if (scope.ulbIds.length) roleOr.push({ ulbId: { in: scope.ulbIds } })
+      if (scope.districtIds.length) roleOr.push({ districtId: { in: scope.districtIds } })
+      if (scope.stateIds.length) roleOr.push({ stateId: { in: scope.stateIds } })
+      where.tenantRoles = {
+        some: {
+          isActive: true,
+          ...(roleOr.length ? { OR: roleOr } : { id: "__no_access__" }),
+        },
+      }
     }
 
     const [items, total] = await Promise.all([
@@ -79,10 +96,10 @@ export class UsersRepository {
     })
   }
 
-  async deactivateTenantRole(id: string) {
+  async deactivateTenantRole(id: string, deactivatedBy: string) {
     return this.prisma.db.userTenantRole.update({
       where: { id },
-      data: { isActive: false },
+      data: { isActive: false, deactivatedAt: new Date(), deactivatedBy },
     })
   }
 

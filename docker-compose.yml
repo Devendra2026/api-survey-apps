@@ -1,7 +1,8 @@
+name: api-survey-local
+
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: survey-postgres
     restart: unless-stopped
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
@@ -10,60 +11,76 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-survey}
     volumes:
-      - survey_pg_data:/var/lib/postgresql/data
+      - survey_pg_data_dev:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-survey}"]
       interval: 5s
       timeout: 5s
       retries: 10
 
-  api:
-    build:
-      context: .
-      dockerfile: apps/api/Dockerfile
-    container_name: survey-api
+  redis:
+    image: redis:7-alpine
     restart: unless-stopped
     ports:
-      - "${API_PORT:-4000}:4000"
-    environment:
-      NODE_ENV: production
-      PORT: 4000
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-survey}?schema=public
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
-      AWS_REGION: ${AWS_REGION:-ap-south-1}
-      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-api-survey-app}
-      AWS_S3_PUBLIC_URL: ${AWS_S3_PUBLIC_URL:-}
-      AWS_S3_MAX_FILE_SIZE_BYTES: ${AWS_S3_MAX_FILE_SIZE_BYTES:-5242880}
-    depends_on:
-      postgres:
-        condition: service_healthy
+      - "6379:6379"
+    volumes:
+      - survey_redis_data_dev:/data
+    command: ["redis-server", "--appendonly", "yes"]
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/health || exit 1"]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
       retries: 10
-      start_period: 20s
 
-  web:
-    build:
-      context: .
-      dockerfile: apps/web/Dockerfile
-      args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
-    container_name: survey-web
+  minio:
+    image: minio/minio:latest
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "9000:9000"
+      - "9001:9001"
     environment:
-      NODE_ENV: production
-      PORT: 3000
-      HOSTNAME: 0.0.0.0
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - survey_minio_data_dev:/data
+    command: ["server", "/data", "--console-address", ":9001"]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  minio-init:
+    image: minio/mc:latest
     depends_on:
-      api:
+      minio:
         condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-api-survey-app}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        mc mb --ignore-existing "local/$$MINIO_BUCKET"
+        mc anonymous set download "local/$$MINIO_BUCKET" || true
+    restart: "no"
+
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "${MAILPIT_UI_PORT:-8025}:8025"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8025/livez"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
 
 volumes:
-  survey_pg_data:
+  survey_pg_data_dev:
+  survey_redis_data_dev:
+  survey_minio_data_dev:

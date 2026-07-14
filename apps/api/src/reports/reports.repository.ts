@@ -65,7 +65,7 @@ export class ReportsRepository {
     return toPaginatedResult(items, total, page, limit)
   }
 
-  async exportSurveys(user: AuthenticatedUser, filters: ExportFilters) {
+  async exportSurveys(user: AuthenticatedUser, filters: ExportFilters, take = 10000) {
     const scope = resolveTenantScope(user.tenantRoles)
     const tenantWhere = buildTenantWhere(scope)
 
@@ -97,7 +97,7 @@ export class ReportsRepository {
           : {}),
       },
       orderBy: { createdAt: "desc" },
-      take: 10000,
+      take,
       select: {
         id: true,
         propertyId: true,

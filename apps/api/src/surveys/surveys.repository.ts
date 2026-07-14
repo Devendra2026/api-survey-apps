@@ -93,12 +93,17 @@ export class SurveysRepository {
     })
   }
 
-  async createWithAudit(data: CreateSurveyDto & { createdById: string }, changedBy: string) {
+  async createWithAudit(
+    data: CreateSurveyDto & { createdById: string; assignedToId?: string; assignedAt?: Date },
+    changedBy: string
+  ) {
     return this.prisma.db.$transaction(async (tx) => {
       const survey = await tx.survey.create({
         data: {
           ...data,
           surveyStatus: "DRAFT",
+          assignedToId: data.assignedToId ?? data.createdById,
+          assignedAt: data.assignedAt ?? new Date(),
           capturedAt: data.capturedAt ? new Date(data.capturedAt) : undefined,
         },
         include: surveyInclude,
@@ -231,16 +236,14 @@ export class SurveysRepository {
     })
   }
 
-  async assignSurvey(params: {
-    id: string
-    assigneeId: string
-    changedBy: string
-    previousAssigneeId: string
-  }) {
+  async assignSurvey(params: { id: string; assigneeId: string; changedBy: string; previousAssigneeId: string }) {
     return this.prisma.db.$transaction(async (tx) => {
       const survey = await tx.survey.update({
         where: { id: params.id },
-        data: { createdById: params.assigneeId },
+        data: {
+          assignedToId: params.assigneeId,
+          assignedAt: new Date(),
+        },
         include: surveyInclude,
       })
 
@@ -248,8 +251,8 @@ export class SurveysRepository {
         data: {
           surveyId: params.id,
           action: "SURVEY_ASSIGNED",
-          oldValue: { createdById: params.previousAssigneeId },
-          newValue: { createdById: params.assigneeId },
+          oldValue: { assignedToId: params.previousAssigneeId },
+          newValue: { assignedToId: params.assigneeId },
           changedBy: params.changedBy,
         },
       })

@@ -31,13 +31,13 @@ export class TenantScopeService {
 
     const permissionSet = new Set<string>()
     const tenantRoles: TenantRoleAssignment[] = assignments.map((a) => {
-      for (const rp of a.role.permissions) {
-        permissionSet.add(rp.permission.name)
-      }
+      const permissions = a.role.permissions.map((rp) => rp.permission.name)
+      for (const name of permissions) permissionSet.add(name)
       return {
         id: a.id,
         roleId: a.roleId,
         roleName: a.role.name,
+        permissions,
         stateId: a.stateId,
         districtId: a.districtId,
         ulbId: a.ulbId,

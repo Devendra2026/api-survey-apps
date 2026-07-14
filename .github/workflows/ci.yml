@@ -12,13 +12,42 @@ concurrency:
 
 jobs:
   check:
-    name: Lint, typecheck, and build
+    name: Lint, test, migrate, and build
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: survey
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d survey"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/survey?schema=public
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/survey?schema=public
+      REDIS_URL: redis://localhost:6379
+      APP_URL: http://localhost:3000
+      API_URL: http://localhost:4000
       NEXT_PUBLIC_API_URL: http://localhost:4000
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ci
+      CLERK_SECRET_KEY: sk_test_ci
+      CLERK_PUBLISHABLE_KEY: pk_test_ci
+      CORS_ORIGIN: http://localhost:3000
+      STORAGE_PROVIDER: s3
+      AWS_REGION: ap-south-1
+      AWS_S3_BUCKET: ci-bucket
+      AWS_ACCESS_KEY_ID: ci
+      AWS_SECRET_ACCESS_KEY: ci
+      SWAGGER_ENABLED: "false"
       TURBO_TELEMETRY_DISABLED: "1"
 
     steps:
@@ -33,7 +62,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.12
           cache: pnpm
 
       - name: Install dependencies
@@ -48,5 +77,27 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Deploy Prisma migrations
+        run: pnpm db:deploy
+
+      - name: Run API tests
+        run: pnpm --filter api test -- --runInBand
+
       - name: Build
         run: pnpm build
+
+      - name: Build API Docker image
+        run: docker build -f apps/api/Dockerfile -t api-survey-api:ci .
+
+      - name: Build web Docker image
+        run: |
+          docker build \
+            -f apps/web/Dockerfile \
+            --build-arg NEXT_PUBLIC_API_URL=http://localhost:4000 \
+            --build-arg NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_ci \
+            -t api-survey-web:ci .
+
+      - name: Validate compose files
+        run: |
+          docker compose -f docker-compose.dev.yml config
+          docker compose -f docker-compose.prod.yml config

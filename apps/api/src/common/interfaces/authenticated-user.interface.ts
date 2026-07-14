@@ -2,6 +2,8 @@ export interface TenantRoleAssignment {
   id: string
   roleId: string
   roleName: string
+  /** Permissions granted by this specific role assignment */
+  permissions: string[]
   stateId: string | null
   districtId: string | null
   ulbId: string | null
@@ -16,6 +18,10 @@ export interface AuthenticatedUser {
   fullName: string
   phone: string | null
   isActive: boolean
+  /**
+   * Union of permissions for backward-compatible route gates.
+   * Prefer `userHasPermissionInTenant` for resource authorization.
+   */
   permissions: string[]
   tenantRoles: TenantRoleAssignment[]
 }
@@ -27,4 +33,11 @@ export interface TenantScope {
   districtIds: string[]
   ulbIds: string[]
   wardIds: string[]
+}
+
+export type TenantGeo = {
+  stateId?: string | null
+  districtId?: string | null
+  ulbId?: string | null
+  wardId?: string | null
 }

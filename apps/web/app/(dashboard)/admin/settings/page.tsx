@@ -1,6 +1,7 @@
 "use client"
 
 import { PageHeader } from "@/components/shared/page-elements"
+import { tenantRoleDisplayName } from "@/lib/api/types"
 import { useAuthStore } from "@/stores/app-store"
 import { Badge } from "@workspace/ui/components/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@workspace/ui/components/card"
@@ -38,7 +39,7 @@ export default function AdminSettingsPage() {
               {roles.length ? (
                 roles.map((r) => (
                   <Badge key={r.id} variant="secondary" className="rounded-md font-normal">
-                    {r.role.name}
+                    {tenantRoleDisplayName(r)}
                   </Badge>
                 ))
               ) : (

@@ -4,6 +4,7 @@ import { DataTable } from "@/components/data-table/data-table"
 import { PageHeader } from "@/components/shared/page-elements"
 import { useUsers } from "@/hooks/use-api"
 import type { AuthenticatedProfile } from "@/lib/api/types"
+import { tenantRoleDisplayName } from "@/lib/api/types"
 import type { ColumnDef } from "@tanstack/react-table"
 import { Badge } from "@workspace/ui/components/badge"
 import { useMemo, useState } from "react"
@@ -27,7 +28,7 @@ export default function AdminUsersPage() {
             <div className="flex flex-wrap gap-1">
               {roles.map((role) => (
                 <Badge key={role.id} variant="secondary" className="rounded-md font-normal">
-                  {role.role.name}
+                  {tenantRoleDisplayName(role)}
                 </Badge>
               ))}
             </div>

@@ -12,12 +12,20 @@ describe("SurveysService workflow", () => {
     fullName: "User",
     phone: null,
     isActive: true,
-    permissions: ["survey:submit", "survey:approve", "survey:reject", "survey:update"],
+    permissions: [
+      "survey:submit",
+      "survey:approve",
+      "survey:reject",
+      "survey:update",
+      "survey:create",
+      "survey:assign",
+    ],
     tenantRoles: [
       {
         id: "tr1",
         roleId: "r1",
         roleName: "SURVEYOR",
+        permissions: ["survey:submit", "survey:update", "survey:create", "survey:view"],
         stateId: null,
         districtId: null,
         ulbId: null,
@@ -32,17 +40,34 @@ describe("SurveysService workflow", () => {
     id: "reviewer1",
     clerkUserId: "clerk-reviewer",
     email: "qc@test.com",
+    permissions: ["survey:approve", "survey:reject", "survey:view"],
+    tenantRoles: [
+      {
+        id: "tr2",
+        roleId: "r2",
+        roleName: "QC_SUPERVISOR",
+        permissions: ["survey:approve", "survey:reject", "survey:view"],
+        stateId: null,
+        districtId: null,
+        ulbId: null,
+        wardId: null,
+        isActive: true,
+      },
+    ],
   }
 
   const baseSurvey = {
     id: "s1",
     createdById: "user1",
+    assignedToId: "user1",
     surveyStatus: "DRAFT" as const,
     propertyId: "P1",
     ownershipType: "INDIVIDUAL" as const,
     propertyUse: "RESIDENTIAL" as const,
     propertyType: "RESIDENTIAL_SELF" as const,
-    gpsCoordinates: "LATITUDE" as const,
+    latitude: 27.56,
+    longitude: 78.65,
+    gpsCoordinates: null,
     floors: [{ id: "f1" }],
     photos: [{ id: "ph1", photoType: PhotoType.FRONT }],
     coOwners: [],
@@ -70,8 +95,8 @@ describe("SurveysService workflow", () => {
     await expect(service.submit("s1", user)).rejects.toThrow(BadRequestException)
   })
 
-  it("rejects submit by non-creator", async () => {
-    repo.findById.mockResolvedValue({ ...baseSurvey, createdById: "other" })
+  it("rejects submit by non-creator and non-assignee", async () => {
+    repo.findById.mockResolvedValue({ ...baseSurvey, createdById: "other", assignedToId: "other" })
     await expect(service.submit("s1", user)).rejects.toThrow(ForbiddenException)
   })
 

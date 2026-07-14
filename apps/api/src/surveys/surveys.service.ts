@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common"
 import { OwnershipType, PhotoType, SurveyStatus } from "@workspace/database"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
-import { canAccessTenant, resolveTenantScope } from "../common/utils/tenant-scope.util.js"
+import { canAccessTenant, resolveTenantScope, userHasPermissionInTenant } from "../common/utils/tenant-scope.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import type { CreateSurveyDto, RejectSurveyDto, SurveyQueryDto, UpdateSurveyDto } from "./dto/survey.dto.js"
 import { SurveysRepository } from "./surveys.repository.js"
@@ -37,15 +37,28 @@ export class SurveysService {
     ) {
       throw new ForbiddenException("Cannot create survey outside your tenant scope")
     }
+    if (
+      !userHasPermissionInTenant(user, "survey:create", {
+        stateId: dto.stateId,
+        districtId: dto.districtId,
+        ulbId: dto.ulbId,
+        wardId: dto.wardId,
+      })
+    ) {
+      throw new ForbiddenException("Missing permission survey:create in this tenant scope")
+    }
     await this.assertGeoHierarchy(dto)
 
     try {
-      const survey = await this.surveysRepository.createWithAudit({ ...dto, createdById: user.id }, user.id)
+      const survey = await this.surveysRepository.createWithAudit(
+        { ...dto, createdById: user.id, assignedToId: user.id, assignedAt: new Date() },
+        user.id
+      )
       this.logger.log(`Survey created ${survey.id} by ${user.id}`)
       return survey
     } catch (err: unknown) {
       if (typeof err === "object" && err !== null && "code" in err && (err as { code: string }).code === "P2002") {
-        throw new BadRequestException("Property ID must be unique")
+        throw new BadRequestException("Property ID must be unique within ULB and assessment year")
       }
       throw err
     }
@@ -54,8 +67,8 @@ export class SurveysService {
   async update(id: string, dto: UpdateSurveyDto, user: AuthenticatedUser) {
     const survey = await this.surveysRepository.findById(id, user)
 
-    if (survey.createdById !== user.id) {
-      throw new ForbiddenException("Only the creator can edit this survey")
+    if (survey.createdById !== user.id && survey.assignedToId !== user.id) {
+      throw new ForbiddenException("Only the creator or assignee can edit this survey")
     }
     if (!EDITABLE.includes(survey.surveyStatus)) {
       throw new BadRequestException(`Survey in status ${survey.surveyStatus} cannot be edited`)
@@ -108,8 +121,8 @@ export class SurveysService {
   async submit(id: string, user: AuthenticatedUser) {
     const survey = await this.surveysRepository.findById(id, user)
 
-    if (survey.createdById !== user.id) {
-      throw new ForbiddenException("Only the creator can submit this survey")
+    if (survey.createdById !== user.id && survey.assignedToId !== user.id) {
+      throw new ForbiddenException("Only the creator or assignee can submit this survey")
     }
     if (!EDITABLE.includes(survey.surveyStatus)) {
       throw new BadRequestException(`Cannot submit survey in status ${survey.surveyStatus}`)
@@ -121,8 +134,8 @@ export class SurveysService {
     if (!survey.photos.some((p) => p.photoType === PhotoType.FRONT)) {
       throw new BadRequestException("Survey requires at least one FRONT photo")
     }
-    if (!survey.gpsCoordinates) {
-      throw new BadRequestException("Survey requires GPS coordinates")
+    if (survey.latitude == null || survey.longitude == null) {
+      throw new BadRequestException("Survey requires GPS latitude and longitude")
     }
     if (!survey.propertyId || !survey.ownershipType || !survey.propertyUse || !survey.propertyType) {
       throw new BadRequestException("Survey requires valid property details")
@@ -224,6 +237,17 @@ export class SurveysService {
       throw new BadRequestException(`Cannot assign survey in status ${survey.surveyStatus}`)
     }
 
+    const geo = {
+      stateId: survey.stateId,
+      districtId: survey.districtId,
+      ulbId: survey.ulbId,
+      wardId: survey.wardId,
+    }
+
+    if (!userHasPermissionInTenant(user, "survey:assign", geo)) {
+      throw new ForbiddenException("Missing permission survey:assign in this tenant scope")
+    }
+
     const assignee = await this.prisma.db.user.findUnique({
       where: { id: assigneeId },
       include: {
@@ -234,19 +258,24 @@ export class SurveysService {
       throw new BadRequestException("Assignee must be an active user")
     }
 
-    const scope = resolveTenantScope(user.tenantRoles)
-    if (
-      !canAccessTenant(scope, {
-        stateId: survey.stateId,
-        districtId: survey.districtId,
-        ulbId: survey.ulbId,
-        wardId: survey.wardId,
-      })
-    ) {
-      throw new ForbiddenException("Cannot assign survey outside your tenant scope")
+    const assigneeScope = resolveTenantScope(
+      assignee.tenantRoles.map((r) => ({
+        id: r.id,
+        roleId: r.roleId,
+        roleName: r.role.name,
+        permissions: [],
+        stateId: r.stateId,
+        districtId: r.districtId,
+        ulbId: r.ulbId,
+        wardId: r.wardId,
+        isActive: r.isActive,
+      }))
+    )
+    if (!canAccessTenant(assigneeScope, geo)) {
+      throw new ForbiddenException("Assignee does not belong to the survey tenant scope")
     }
 
-    if (assigneeId === survey.createdById) {
+    if (assigneeId === survey.assignedToId) {
       throw new BadRequestException("Survey is already assigned to this user")
     }
 
@@ -254,7 +283,7 @@ export class SurveysService {
       id,
       assigneeId,
       changedBy: user.id,
-      previousAssigneeId: survey.createdById,
+      previousAssigneeId: survey.assignedToId ?? survey.createdById,
     })
     this.logger.log(`Survey assigned ${id} to ${assigneeId} by ${user.id}`)
     return assigned

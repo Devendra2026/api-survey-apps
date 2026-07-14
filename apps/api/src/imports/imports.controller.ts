@@ -1,4 +1,4 @@
-import { Controller, Post, UploadedFile, UseInterceptors } from "@nestjs/common"
+import { Controller, Post, Query, UploadedFile, UseInterceptors } from "@nestjs/common"
 import { FileInterceptor } from "@nestjs/platform-express"
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from "@nestjs/swagger"
 import { memoryStorage } from "multer"
@@ -33,7 +33,14 @@ export class ImportsController {
       limits: { fileSize: 10 * 1024 * 1024 },
     })
   )
-  importSurveys(@UploadedFile() file: Express.Multer.File, @CurrentUser() user: AuthenticatedUser) {
-    return this.importsService.importSurveys(file, user)
+  importSurveys(
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: AuthenticatedUser,
+    @Query("sync") sync?: string
+  ) {
+    if (sync === "true") {
+      return this.importsService.importSurveys(file, user, { enforceSyncCap: true })
+    }
+    return this.importsService.enqueueSurveyImport(file, user)
   }
 }

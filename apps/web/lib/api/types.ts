@@ -22,12 +22,20 @@ export interface PaginatedResult<T> {
 
 export interface TenantRole {
   id: string
-  role: { id: string; name: string }
+  /** Nested role from Prisma includes (preferred for /users/me). */
+  role?: { id: string; name: string }
+  /** Flat name from auth-context assignments (fallback). */
+  roleName?: string
+  roleId?: string
   stateId?: string | null
   districtId?: string | null
   ulbId?: string | null
   wardId?: string | null
   isActive: boolean
+}
+
+export function tenantRoleDisplayName(role: TenantRole): string {
+  return role.role?.name ?? role.roleName ?? "Role"
 }
 
 export interface AppUser {
@@ -80,6 +88,10 @@ export interface SurveyListItem {
   surveyStatus: string
   respondentName?: string | null
   locality?: string | null
+  latitude?: number | string | null
+  longitude?: number | string | null
+  assessmentYear?: string | null
+  assignedToId?: string | null
   createdAt: string
   updatedAt: string
   state?: { id: string; name: string }

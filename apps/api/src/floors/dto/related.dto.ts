@@ -1,5 +1,12 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from "@nestjs/swagger"
-import { ConstructionType, FloorPosition, PhotoType, usageFactor, usageType } from "@workspace/database"
+import {
+  ConstructionType,
+  FloorPosition,
+  PhotoType,
+  StorageProvider,
+  UsageFactor,
+  UsageType,
+} from "@workspace/database"
 import { Type } from "class-transformer"
 import {
   IsDateString,
@@ -23,15 +30,15 @@ export class CreateFloorDto {
   @IsEnum(FloorPosition)
   floorPosition!: FloorPosition
 
-  @ApiPropertyOptional({ enum: usageFactor })
+  @ApiPropertyOptional({ enum: UsageFactor })
   @IsOptional()
-  @IsEnum(usageFactor)
-  usageFactor?: usageFactor
+  @IsEnum(UsageFactor)
+  usageFactor?: UsageFactor
 
-  @ApiPropertyOptional({ enum: usageType })
+  @ApiPropertyOptional({ enum: UsageType })
   @IsOptional()
-  @IsEnum(usageType)
-  usageType?: usageType
+  @IsEnum(UsageType)
+  usageType?: UsageType
 
   @ApiPropertyOptional({ enum: ConstructionType })
   @IsOptional()
@@ -88,6 +95,43 @@ export class CreatePhotoDto {
   @Min(0)
   sizeKB?: number
 
+  @ApiPropertyOptional({ enum: StorageProvider })
+  @IsOptional()
+  @IsEnum(StorageProvider)
+  storageProvider?: StorageProvider
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  bucket?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  objectKey?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  mimeType?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  sizeBytes?: number
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  checksum?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  etag?: string
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsDateString()
@@ -126,6 +170,43 @@ export class UpdatePhotoDto {
   @IsInt()
   @Min(0)
   sizeKB?: number
+
+  @ApiPropertyOptional({ enum: StorageProvider })
+  @IsOptional()
+  @IsEnum(StorageProvider)
+  storageProvider?: StorageProvider
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  bucket?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  objectKey?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  mimeType?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  sizeBytes?: number
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  checksum?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  etag?: string
 
   @ApiPropertyOptional()
   @IsOptional()

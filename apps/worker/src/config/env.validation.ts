@@ -115,9 +115,7 @@ export function validateWorkerEnv(config: Record<string, unknown>) {
     enableImplicitConversion: true,
   })
   const errors = validateSync(validated, { skipMissingProperties: false })
-  const messages = errors
-    .map((e) => Object.values(e.constraints ?? {}).join(", "))
-    .filter(Boolean)
+  const messages = errors.map((e) => Object.values(e.constraints ?? {}).join(", ")).filter(Boolean)
 
   if (!validated.REDIS_URL) {
     messages.push(

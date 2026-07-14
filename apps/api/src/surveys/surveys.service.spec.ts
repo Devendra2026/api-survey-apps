@@ -84,7 +84,8 @@ describe("SurveysService workflow", () => {
     },
   }
 
-  const service = new SurveysService(repo as never, prisma as never)
+  const jobs = { enqueueExport: jest.fn() }
+  const service = new SurveysService(repo as never, prisma as never, jobs as never)
 
   beforeEach(() => {
     jest.clearAllMocks()

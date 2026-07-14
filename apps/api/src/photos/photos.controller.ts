@@ -12,6 +12,7 @@ import {
   UseInterceptors,
 } from "@nestjs/common"
 import { FileInterceptor } from "@nestjs/platform-express"
+import { Throttle } from "@nestjs/throttler"
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiPropertyOptional, ApiTags } from "@nestjs/swagger"
 import { PhotoType } from "@workspace/database"
 import { IsDateString, IsEnum, IsInt, IsOptional, IsString, Min } from "class-validator"
@@ -68,6 +69,14 @@ export class PhotosController {
     return this.photosService.findAll(query, user, query.surveyId)
   }
 
+  @Get(":id/download")
+  @RequirePermission(PERMISSIONS.SURVEY_VIEW)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @ApiOperation({ summary: "Get a short-lived signed URL for a private survey photo" })
+  download(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.photosService.getDownloadUrl(id, user)
+  }
+
   @Get(":id")
   @RequirePermission(PERMISSIONS.SURVEY_VIEW)
   findOne(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
@@ -83,6 +92,7 @@ export class PhotosController {
 
   @Post("upload")
   @RequirePermission(PERMISSIONS.PHOTO_CREATE)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({ summary: "Upload image to S3 and store photo metadata" })
   @ApiConsumes("multipart/form-data")
   @ApiBody({
@@ -119,6 +129,7 @@ export class PhotosController {
 
   @Put(":id/replace")
   @RequirePermission(PERMISSIONS.PHOTO_UPDATE)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({ summary: "Replace photo image in S3" })
   @ApiConsumes("multipart/form-data")
   @UseInterceptors(

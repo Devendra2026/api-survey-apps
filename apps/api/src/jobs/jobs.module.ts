@@ -24,7 +24,8 @@ import { RedisPreflightService } from "./redis-preflight.service.js"
     BullModule.registerQueue(
       { name: JOB_QUEUE_NAMES.imports },
       { name: JOB_QUEUE_NAMES.exports },
-      { name: JOB_QUEUE_NAMES.storageCleanup }
+      { name: JOB_QUEUE_NAMES.storageCleanup },
+      { name: JOB_QUEUE_NAMES.imageMigration }
     ),
   ],
   providers: [RedisPreflightService, JobsService],

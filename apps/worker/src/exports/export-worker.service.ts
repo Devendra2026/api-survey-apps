@@ -1,5 +1,11 @@
 import { Injectable, Logger } from "@nestjs/common"
 import { JobStatus, type Prisma, SurveyStatus } from "@workspace/database"
+import {
+  renderConvexFullWorkbook,
+  renderNagarPanchayatWorkbook,
+  renderSurveyDataWorkbook,
+  type SurveyExportBundle,
+} from "@workspace/excel-reports"
 import type { ExportFiltersPayload, ExportJobPayload, ExportReportType } from "@workspace/jobs"
 import ExcelJS from "exceljs"
 import PDFDocument from "pdfkit"
@@ -67,6 +73,7 @@ export class ExportWorkerService {
           storageProvider: uploaded.provider,
           bucket: uploaded.bucket,
           objectKey: uploaded.key,
+          filename: artifact.filename,
           finishedAt: new Date(),
         },
       })
@@ -102,10 +109,13 @@ export class ExportWorkerService {
         deletedAt: null,
         ...(tenantWhere ?? {}),
         ...(toSurveyStatus(filters.surveyStatus) ? { surveyStatus: toSurveyStatus(filters.surveyStatus) } : {}),
+        ...(filters.qcStatus ? { qcStatus: filters.qcStatus as never } : {}),
         ...(filters.stateId ? { stateId: filters.stateId } : {}),
         ...(filters.districtId ? { districtId: filters.districtId } : {}),
         ...(filters.ulbId ? { ulbId: filters.ulbId } : {}),
         ...(filters.wardId ? { wardId: filters.wardId } : {}),
+        ...(filters.surveyorId ? { createdById: filters.surveyorId } : {}),
+        ...(filters.selectedIds?.length ? { id: { in: filters.selectedIds } } : {}),
         ...dateFilter,
         ...(filters.search
           ? {
@@ -132,6 +142,64 @@ export class ExportWorkerService {
         submittedAt: true,
         approvedAt: true,
         createdAt: true,
+        localId: true,
+        propertyIdOld: true,
+        parcelNumber: true,
+        unitSubNo: true,
+        sectorNo: true,
+        constructedYear: true,
+        isSlum: true,
+        wardNumber: true,
+        relationshipWithOwner: true,
+        alternateMobile: true,
+        familySize: true,
+        houseDoorNo: true,
+        locality: true,
+        colony: true,
+        city: true,
+        pinCode: true,
+        assessmentYear: true,
+        ownershipType: true,
+        propertyUse: true,
+        propertyType: true,
+        situation: true,
+        roadType: true,
+        taxRateZone: true,
+        plotAreaSqFt: true,
+        plotAreaSqMeter: true,
+        plinthAreaSqFt: true,
+        plinthAreaSqMeter: true,
+        totalBuiltAreaSqMeter: true,
+        waterConnection: true,
+        sourceOfWater: true,
+        sanitationType: true,
+        solidWasteCollection: true,
+        electricityConsumerNo: true,
+        latitude: true,
+        longitude: true,
+        gpsAccuracyMeters: true,
+        capturedAt: true,
+        gpsProvider: true,
+        gpsMockLocation: true,
+        qcStatus: true,
+        serverVersion: true,
+        clientUpdatedAt: true,
+        createdBy: { select: { fullName: true, email: true } },
+        ward: { select: { wardName: true, wardNumber: true } },
+        ulb: { select: { name: true, code: true } },
+        district: { select: { name: true } },
+        coOwners: { select: { name: true, fatherOrHusbandName: true, mobile: true, alternateMobile: true } },
+        floors: {
+          select: {
+            floorPosition: true,
+            usageFactor: true,
+            usageType: true,
+            constructionType: true,
+            occupancy: true,
+            areaSqFt: true,
+          },
+        },
+        photos: { select: { photoType: true, url: true, capturedAt: true, sizeKB: true, width: true, height: true } },
       },
     })
   }
@@ -201,7 +269,12 @@ export class ExportWorkerService {
         headers
           .map((header) => {
             const value = record[header]
-            const text = value == null ? "" : String(value)
+            const text =
+              value == null
+                ? ""
+                : typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+                  ? String(value)
+                  : JSON.stringify(value)
             return `"${text.replaceAll('"', '""')}"`
           })
           .join(",")
@@ -211,6 +284,10 @@ export class ExportWorkerService {
   }
 
   private async toExcel(rows: ExportRow[], reportType: string) {
+    const bundles = rows as unknown as SurveyExportBundle[]
+    if (reportType === "convex_full") return renderConvexFullWorkbook(bundles)
+    if (reportType === "nagar_panchayat") return renderNagarPanchayatWorkbook(bundles)
+    if (reportType === "survey_data") return renderSurveyDataWorkbook(bundles)
     const workbook = new ExcelJS.Workbook()
     workbook.creator = "Municipal Property Tax Survey Worker"
     const sheet = workbook.addWorksheet(reportType)
@@ -262,9 +339,7 @@ export class ExportWorkerService {
           doc.fontSize(9).text(header)
           doc.text("-".repeat(90))
         }
-        doc.text(
-          `${row.propertyId} | ${row.surveyStatus} | ${row.respondentName ?? ""} | ${row.ulbId} | ${row.wardId}`
-        )
+        doc.text(`${row.propertyId} | ${row.surveyStatus} | ${row.respondentName ?? ""} | ${row.ulbId} | ${row.wardId}`)
       }
 
       const range = doc.bufferedPageRange()

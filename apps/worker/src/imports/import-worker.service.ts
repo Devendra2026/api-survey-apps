@@ -1,28 +1,96 @@
 import { Injectable, Logger } from "@nestjs/common"
-import { AssessmentYear, JobStatus, OwnershipType, PropertyType, PropertyUse, SurveyStatus } from "@workspace/database"
+import {
+  AssessmentYear,
+  ConstructionType,
+  FloorPosition,
+  GpsSource,
+  JobStatus,
+  OwnershipType,
+  PhotoType,
+  PropertyType,
+  PropertyUse,
+  QcStatus,
+  RoadType,
+  SanitationType,
+  Situation,
+  SourceOfWater,
+  SurveyStatus,
+  TaxRateZone,
+  UsageFactor,
+  UsageType,
+  WaterConnection,
+  type Prisma,
+} from "@workspace/database"
 import type { ImportJobPayload } from "@workspace/jobs"
-import ExcelJS from "exceljs"
-import { Readable } from "node:stream"
+import {
+  formatPropertyId,
+  mapAssessmentYear,
+  mapConstructionType,
+  mapFloorPosition,
+  mapGpsSource,
+  mapOwnershipType,
+  mapPhotoType,
+  mapPropertyType,
+  mapPropertyUse,
+  mapQcStatus,
+  mapRoadType,
+  mapSanitationType,
+  mapSituation,
+  mapSourceOfWater,
+  mapSurveyStatus,
+  mapTaxRateZone,
+  mapUsageFactor,
+  mapUsageType,
+  mapWaterConnection,
+  padUlbCode,
+  padWardNo,
+  parseNumber,
+  parseYn,
+  sqFtToSqMeter,
+} from "@workspace/validation"
 import { PrismaService } from "../database/prisma.service.js"
 import { ObjectStorageService } from "../storage/object-storage.service.js"
 import { canAccessTenant, resolveTenantScope } from "../tenant/tenant-scope.js"
+import { groupRowsByPropertyId, parseConvexWorkbook, type WorkbookRow } from "./convex-workbook-parser.js"
 
-const REQUIRED_COLUMNS = [
-  "propertyId",
-  "stateId",
-  "districtId",
-  "ulbId",
-  "wardId",
-  "assessmentYear",
-  "ownershipType",
-  "propertyUse",
-  "propertyType",
-] as const
+const CHUNK_SIZE = 50
+
+function toSurveyUpdateData(data: Prisma.SurveyUncheckedCreateInput): Prisma.SurveyUncheckedUpdateInput {
+  const { createdById, assignedToId, assignedAt, ...updateFields } = data
+  void createdById
+  void assignedToId
+  void assignedAt
+  return updateFields
+}
 
 interface ImportRowError {
   row: number
   propertyId?: string
+  localId?: string
   errors: string[]
+}
+
+interface ImportCheckpoint {
+  processedRows: number
+  lastPropertyId?: string
+}
+
+interface GeoResolved {
+  stateId: string
+  districtId: string
+  ulbId: string
+  wardId: string
+  ulbCode: string
+  wardNumber: string
+}
+
+interface MappedSurvey {
+  rowNumber: number
+  propertyId: string
+  localId?: string
+  legacySurveyId?: string
+  geo: GeoResolved
+  data: Prisma.SurveyUncheckedCreateInput
 }
 
 @Injectable()
@@ -37,76 +105,286 @@ export class ImportWorkerService {
   async process(payload: ImportJobPayload, updateProgress: (progress: number) => Promise<void>): Promise<void> {
     await this.prisma.db.importJob.update({
       where: { id: payload.jobId },
-      data: { status: JobStatus.PROCESSING, startedAt: new Date(), errorMessage: null },
+      data: { status: JobStatus.PROCESSING, startedAt: new Date(), errorMessage: null, finishedAt: null },
     })
-    await updateProgress(5)
+    await updateProgress(2)
 
     try {
       const source = await this.storageService.getObjectBuffer(payload.objectKey, payload.bucket)
-      const rows = await this.parseRows(source, payload.originalName)
-      await this.prisma.db.importJob.update({ where: { id: payload.jobId }, data: { totalRows: rows.length } })
-      await updateProgress(15)
+      const workbook = await parseConvexWorkbook(source, payload.originalName)
+      await updateProgress(8)
 
-      const errors: ImportRowError[] = []
-      const validRows = await this.validateRows(rows, payload, errors)
-      const createdSurveyIds: string[] = []
+      const checkpoint = payload.resumeFromCheckpoint ? await this.readCheckpoint(payload.jobId) : { processedRows: 0 }
 
-      await this.prisma.db.$transaction(async (tx) => {
-        for (const [index, row] of validRows.entries()) {
-          const survey = await tx.survey.create({
-            data: {
-              propertyId: String(row.propertyId).trim(),
-              stateId: String(row.stateId).trim(),
-              districtId: String(row.districtId).trim(),
-              ulbId: String(row.ulbId).trim(),
-              wardId: String(row.wardId).trim(),
-              ownershipType: row.ownershipType as OwnershipType,
-              propertyUse: row.propertyUse as PropertyUse,
-              propertyType: row.propertyType as PropertyType,
-              assessmentYear: row.assessmentYear as AssessmentYear,
-              respondentName: row.respondentName || undefined,
-              mobileNumber: row.mobileNumber || undefined,
-              houseDoorNo: row.houseDoorNo || undefined,
-              locality: row.locality || undefined,
-              surveyStatus: SurveyStatus.DRAFT,
-              createdById: payload.createdById,
-              assignedToId: payload.createdById,
-              assignedAt: new Date(),
-            },
-          })
-          await tx.surveyAudit.create({
-            data: {
-              surveyId: survey.id,
-              action: "IMPORTED",
-              newValue: { propertyId: survey.propertyId },
-              changedBy: payload.createdById,
-            },
-          })
-          createdSurveyIds.push(survey.id)
-          const progress = 15 + Math.floor(((index + 1) / Math.max(validRows.length, 1)) * 70)
-          await updateProgress(progress)
-        }
+      await this.prisma.db.importJob.update({
+        where: { id: payload.jobId },
+        data: { totalRows: workbook.surveys.length },
       })
 
-      const errorReportKey = errors.length ? await this.writeErrorReport(payload, errors) : null
+      const coOwnersByPid = groupRowsByPropertyId(workbook.coOwners)
+      const floorsByPid = groupRowsByPropertyId(workbook.floors)
+      const photosByPid = groupRowsByPropertyId(workbook.photos)
+
+      const errors: ImportRowError[] = []
+      const createdSurveyIds: string[] = []
+      const updatedSurveyIds: string[] = []
+      let successCount = 0
+      let failureCount = 0
+      let photoSuccessCount = 0
+      let photoFailureCount = 0
+      let processedRows = checkpoint.processedRows
+
+      const startIndex = Math.min(Math.max(checkpoint.processedRows, 0), workbook.surveys.length)
+      const remaining = workbook.surveys.slice(startIndex)
+
+      const geoCache = new Map<string, GeoResolved | null>()
+      const scope = resolveTenantScope(payload.tenantRoles)
+
+      for (let offset = 0; offset < remaining.length; offset += CHUNK_SIZE) {
+        const chunkRows = remaining.slice(offset, offset + CHUNK_SIZE)
+        const mappedChunk: MappedSurvey[] = []
+
+        for (const [i, row] of chunkRows.entries()) {
+          const rowNumber = startIndex + offset + i + 2
+          const mapped = await this.mapSurveyRow(row, rowNumber, payload, scope, geoCache, errors)
+          if (mapped) mappedChunk.push(mapped)
+          else failureCount += 1
+        }
+
+        const propertyIds = mappedChunk.map((item) => item.propertyId)
+        const localIds = mappedChunk.map((item) => item.localId).filter((id): id is string => Boolean(id))
+
+        const existingByProperty = propertyIds.length
+          ? await this.prisma.db.survey.findMany({
+              where: { deletedAt: null, propertyId: { in: propertyIds } },
+              select: { id: true, propertyId: true, localId: true },
+            })
+          : []
+        const byPropertyId = new Map(existingByProperty.map((s) => [s.propertyId.toUpperCase(), s]))
+
+        const unmatchedLocalIds = localIds.filter((localId) => {
+          return !existingByProperty.some((s) => s.localId?.toUpperCase() === localId.toUpperCase())
+        })
+        const existingByLocal =
+          unmatchedLocalIds.length > 0
+            ? await this.prisma.db.survey.findMany({
+                where: {
+                  deletedAt: null,
+                  localId: { in: unmatchedLocalIds },
+                  NOT: { propertyId: { in: propertyIds } },
+                },
+                select: { id: true, propertyId: true, localId: true },
+              })
+            : []
+        const byLocalId = new Map(
+          existingByLocal.filter((s) => s.localId).map((s) => [String(s.localId).toUpperCase(), s])
+        )
+
+        for (const item of mappedChunk) {
+          try {
+            const existing =
+              byPropertyId.get(item.propertyId.toUpperCase()) ??
+              (item.localId ? byLocalId.get(item.localId.toUpperCase()) : undefined)
+
+            const result = await this.prisma.db.$transaction(async (tx) => {
+              let surveyId: string
+              let created = false
+
+              if (existing) {
+                await tx.survey.update({
+                  where: { id: existing.id },
+                  data: toSurveyUpdateData(item.data),
+                })
+                surveyId = existing.id
+                await tx.surveyAudit.create({
+                  data: {
+                    surveyId,
+                    action: "IMPORT_UPDATED",
+                    newValue: { propertyId: item.propertyId, jobId: payload.jobId },
+                    changedBy: payload.createdById,
+                  },
+                })
+              } else {
+                const createdSurvey = await tx.survey.create({ data: item.data })
+                surveyId = createdSurvey.id
+                created = true
+                await tx.surveyAudit.create({
+                  data: {
+                    surveyId,
+                    action: "IMPORTED",
+                    newValue: { propertyId: item.propertyId, jobId: payload.jobId },
+                    changedBy: payload.createdById,
+                  },
+                })
+              }
+
+              await tx.coOwner.deleteMany({ where: { surveyId } })
+              const coOwnerRows = coOwnersByPid.get(item.propertyId.toUpperCase()) ?? []
+              for (const [idx, ownerRow] of coOwnerRows.entries()) {
+                const name = String(ownerRow.Name ?? "").trim()
+                if (!name) continue
+                await tx.coOwner.create({
+                  data: {
+                    surveyId,
+                    ownerIndex: parseNumber(ownerRow["Owner Index"]) ?? idx + 1,
+                    name,
+                    fatherOrHusbandName: emptyToUndefined(ownerRow["Father / Husband Name"]),
+                    mobile: emptyToUndefined(ownerRow.Mobile),
+                    alternateMobile: emptyToUndefined(ownerRow["Alt Mobile"]),
+                  },
+                })
+              }
+
+              await tx.floor.deleteMany({ where: { surveyId } })
+              const floorRows = floorsByPid.get(item.propertyId.toUpperCase()) ?? []
+              const seenPositions = new Set<string>()
+              for (const floorRow of floorRows) {
+                const positionRaw = mapFloorPosition(floorRow.Floor)
+                if (!positionRaw || !isFloorPosition(positionRaw)) continue
+                if (seenPositions.has(positionRaw)) continue
+                seenPositions.add(positionRaw)
+                const areaSqFt = parseNumber(floorRow["Area (Sqft)"])
+                await tx.floor.create({
+                  data: {
+                    surveyId,
+                    clientFloorId: emptyToUndefined(floorRow["Client Floor ID"]),
+                    floorPosition: positionRaw,
+                    usageFactor: asEnum(mapUsageFactor(floorRow["Usage Factor"]), isUsageFactor),
+                    usageType: asEnum(mapUsageType(floorRow["Usage Type"]), isUsageType),
+                    constructionType: asEnum(mapConstructionType(floorRow["Construction Type"]), isConstructionType),
+                    occupancy: emptyToUndefined(floorRow.Occupancy),
+                    areaSqFt: areaSqFt ?? undefined,
+                    position: parseNumber(floorRow.Position) ?? 0,
+                  },
+                })
+              }
+
+              const photoRows = photosByPid.get(item.propertyId.toUpperCase()) ?? []
+              let photoOk = 0
+              let photoFail = 0
+              for (const photoRow of photoRows) {
+                try {
+                  const photoTypeRaw = mapPhotoType(photoRow["Slot Key"] || photoRow.Slot)
+                  if (!photoTypeRaw || !isPhotoType(photoTypeRaw)) {
+                    photoFail += 1
+                    continue
+                  }
+                  const sourceUrl = emptyToUndefined(photoRow["Photo URL"])
+                  if (!sourceUrl) {
+                    photoFail += 1
+                    continue
+                  }
+                  const existingPhoto = await tx.photo.findFirst({
+                    where: { surveyId, photoType: photoTypeRaw },
+                  })
+                  if (existingPhoto) {
+                    await tx.photo.update({
+                      where: { id: existingPhoto.id },
+                      data: {
+                        sourceUrl,
+                        importStatus: "PENDING",
+                        url: sourceUrl,
+                        sizeKB: parseNumber(photoRow["Size (KB)"]),
+                        width: parseNumber(photoRow.Width),
+                        height: parseNumber(photoRow.Height),
+                        capturedAt: parseDate(photoRow["Captured At"]),
+                      },
+                    })
+                  } else {
+                    await tx.photo.create({
+                      data: {
+                        surveyId,
+                        photoType: photoTypeRaw,
+                        url: sourceUrl,
+                        sourceUrl,
+                        importStatus: "PENDING",
+                        sizeKB: parseNumber(photoRow["Size (KB)"]),
+                        width: parseNumber(photoRow.Width),
+                        height: parseNumber(photoRow.Height),
+                        capturedAt: parseDate(photoRow["Captured At"]),
+                      },
+                    })
+                  }
+                  photoOk += 1
+                } catch {
+                  photoFail += 1
+                }
+              }
+
+              return { surveyId, created, photoOk, photoFail }
+            })
+
+            if (result.created) createdSurveyIds.push(result.surveyId)
+            else updatedSurveyIds.push(result.surveyId)
+            successCount += 1
+            photoSuccessCount += result.photoOk
+            photoFailureCount += result.photoFail
+          } catch (err) {
+            failureCount += 1
+            errors.push({
+              row: item.rowNumber,
+              propertyId: item.propertyId,
+              localId: item.localId,
+              errors: [err instanceof Error ? err.message : String(err)],
+            })
+          }
+        }
+
+        processedRows = startIndex + offset + chunkRows.length
+        const checkpointData: ImportCheckpoint = {
+          processedRows,
+          lastPropertyId: mappedChunk.at(-1)?.propertyId ?? checkpoint.lastPropertyId,
+        }
+        await this.prisma.db.importJob.update({
+          where: { id: payload.jobId },
+          data: {
+            processedRows,
+            successCount,
+            failureCount,
+            photoSuccessCount,
+            photoFailureCount,
+            checkpoint: checkpointData as unknown as Prisma.InputJsonValue,
+          },
+        })
+
+        const progress =
+          10 + Math.floor(((startIndex + offset + chunkRows.length) / Math.max(workbook.surveys.length, 1)) * 85)
+        await updateProgress(Math.min(progress, 95))
+      }
+
+      const validationReport = {
+        jobId: payload.jobId,
+        totalRows: workbook.surveys.length,
+        successCount,
+        failureCount,
+        photoSuccessCount,
+        photoFailureCount,
+        createdSurveyIds,
+        updatedSurveyIds,
+        errors,
+        resumedFrom: checkpoint.processedRows,
+      }
+      const errorReportKey = await this.writeValidationReport(payload, validationReport)
+
       await this.prisma.db.importJob.update({
         where: { id: payload.jobId },
         data: {
           status: JobStatus.SUCCEEDED,
-          successCount: createdSurveyIds.length,
-          failureCount: errors.length,
+          processedRows,
+          successCount,
+          failureCount,
+          photoSuccessCount,
+          photoFailureCount,
           errorReportKey,
-          resultSummary: {
-            totalRows: rows.length,
-            successCount: createdSurveyIds.length,
-            failureCount: errors.length,
-            createdSurveyIds,
-          },
+          resultSummary: validationReport as unknown as Prisma.InputJsonValue,
+          checkpoint: { processedRows },
           finishedAt: new Date(),
         },
       })
       await updateProgress(100)
-      this.logger.log(`Import job ${payload.jobId} completed rows=${rows.length}`)
+      this.logger.log(
+        `Import job ${payload.jobId} completed total=${workbook.surveys.length} ok=${successCount} fail=${failureCount}`
+      )
     } catch (err) {
       await this.prisma.db.importJob.update({
         where: { id: payload.jobId },
@@ -120,122 +398,322 @@ export class ImportWorkerService {
     }
   }
 
-  private async validateRows(
-    rows: Array<Record<string, string>>,
-    payload: ImportJobPayload,
-    errors: ImportRowError[]
-  ): Promise<Array<Record<string, string>>> {
-    const existing = await this.prisma.db.survey.findMany({
-      where: {
-        deletedAt: null,
-        OR: rows
-          .filter((row) => row.propertyId && row.ulbId && row.assessmentYear)
-          .map((row) => ({
-            propertyId: String(row.propertyId).trim(),
-            ulbId: String(row.ulbId).trim(),
-            assessmentYear: row.assessmentYear as AssessmentYear,
-          })),
-      },
-      select: { propertyId: true, ulbId: true, assessmentYear: true },
+  /** Survey IDs created/updated by a completed import (from resultSummary). */
+  async getResultSurveyIds(jobId: string): Promise<string[]> {
+    const job = await this.prisma.db.importJob.findUnique({
+      where: { id: jobId },
+      select: { resultSummary: true },
     })
-    const existingSet = new Set(existing.map((row) => `${row.ulbId}|${row.propertyId}|${row.assessmentYear}`))
-    const seenInFile = new Set<string>()
-    const scope = resolveTenantScope(payload.tenantRoles)
-    const validRows: Array<Record<string, string>> = []
-
-    rows.forEach((row, index) => {
-      const rowErrors: string[] = []
-      const propertyId = String(row.propertyId ?? "").trim()
-      const ulbId = String(row.ulbId ?? "").trim()
-      const assessmentYear = String(row.assessmentYear ?? "").trim()
-      const identityKey = `${ulbId}|${propertyId}|${assessmentYear}`
-      for (const column of REQUIRED_COLUMNS) {
-        if (!row[column] || String(row[column]).trim() === "") {
-          rowErrors.push(`Missing required column: ${column}`)
-        }
-      }
-      if (propertyId && ulbId && assessmentYear && seenInFile.has(identityKey)) {
-        rowErrors.push(`Duplicate Property ID/ULB/assessmentYear in file: ${propertyId}`)
-      }
-      if (propertyId && ulbId && assessmentYear && existingSet.has(identityKey)) {
-        rowErrors.push(`Property ID already exists for ULB/assessment year: ${propertyId}`)
-      }
-      if (row.ownershipType && !Object.values(OwnershipType).includes(row.ownershipType as OwnershipType)) {
-        rowErrors.push(`Invalid ownershipType: ${row.ownershipType}`)
-      }
-      if (row.propertyUse && !Object.values(PropertyUse).includes(row.propertyUse as PropertyUse)) {
-        rowErrors.push(`Invalid propertyUse: ${row.propertyUse}`)
-      }
-      if (row.propertyType && !Object.values(PropertyType).includes(row.propertyType as PropertyType)) {
-        rowErrors.push(`Invalid propertyType: ${row.propertyType}`)
-      }
-      if (row.assessmentYear && !Object.values(AssessmentYear).includes(row.assessmentYear as AssessmentYear)) {
-        rowErrors.push(`Invalid assessmentYear: ${row.assessmentYear}`)
-      }
-      if (
-        !canAccessTenant(scope, {
-          stateId: row.stateId,
-          districtId: row.districtId,
-          ulbId: row.ulbId,
-          wardId: row.wardId,
-        })
-      ) {
-        rowErrors.push("Row is outside creator tenant scope")
-      }
-
-      if (rowErrors.length) {
-        errors.push({ row: index + 2, propertyId: propertyId || undefined, errors: rowErrors })
-      } else {
-        validRows.push(row)
-        seenInFile.add(identityKey)
-      }
-    })
-
-    return validRows
+    const summary = job?.resultSummary
+    if (!summary || typeof summary !== "object" || Array.isArray(summary)) return []
+    const obj = summary as Record<string, unknown>
+    const created = Array.isArray(obj.createdSurveyIds)
+      ? obj.createdSurveyIds.filter((id): id is string => typeof id === "string")
+      : []
+    const updated = Array.isArray(obj.updatedSurveyIds)
+      ? obj.updatedSurveyIds.filter((id): id is string => typeof id === "string")
+      : []
+    return [...new Set([...created, ...updated])]
   }
 
-  private async parseRows(buffer: Buffer, originalName: string): Promise<Array<Record<string, string>>> {
-    const workbook = new ExcelJS.Workbook()
-    if (originalName.toLowerCase().endsWith(".csv")) {
-      await workbook.csv.read(Readable.from(buffer))
-    } else {
-      await workbook.xlsx.load(buffer as never)
+  private async readCheckpoint(jobId: string): Promise<ImportCheckpoint> {
+    const job = await this.prisma.db.importJob.findUnique({
+      where: { id: jobId },
+      select: { checkpoint: true, processedRows: true },
+    })
+    const raw = job?.checkpoint
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      const obj = raw as Record<string, unknown>
+      return {
+        processedRows: typeof obj.processedRows === "number" ? obj.processedRows : (job?.processedRows ?? 0),
+        lastPropertyId: typeof obj.lastPropertyId === "string" ? obj.lastPropertyId : undefined,
+      }
+    }
+    return { processedRows: job?.processedRows ?? 0 }
+  }
+
+  private async mapSurveyRow(
+    row: WorkbookRow,
+    rowNumber: number,
+    payload: ImportJobPayload,
+    scope: ReturnType<typeof resolveTenantScope>,
+    geoCache: Map<string, GeoResolved | null>,
+    errors: ImportRowError[]
+  ): Promise<MappedSurvey | null> {
+    const rowErrors: string[] = []
+    const localId = emptyToUndefined(row["Local ID"])
+    const legacySurveyId = emptyToUndefined(row["Survey ID"])
+    const ulbCodeRaw = emptyToUndefined(row["ULB Code"])
+    const wardNumberRaw = emptyToUndefined(row["Ward Number"])
+    const parcelNo = emptyToUndefined(row["Parcel Number"])
+    const unitNo = emptyToUndefined(row["Unit / Sub-No"])
+    const propertyUseMapped = mapPropertyUse(row["Property Use"])
+
+    let propertyId = emptyToUndefined(row["Property ID"])?.toUpperCase()
+    if (!propertyId && ulbCodeRaw && wardNumberRaw && parcelNo && unitNo && propertyUseMapped) {
+      propertyId = formatPropertyId({
+        ulbCode: ulbCodeRaw,
+        wardNo: wardNumberRaw,
+        parcelNo,
+        unitNo,
+        propertyUse: propertyUseMapped,
+      })
+    }
+    if (!propertyId) rowErrors.push("Missing Property ID (and could not derive from ULB/Ward/Parcel/Unit/Use)")
+
+    const assessmentYear = mapAssessmentYear(row["Assessment Year"]) ?? AssessmentYear.AY_2025_2026
+    if (!mapAssessmentYear(row["Assessment Year"]) && emptyToUndefined(row["Assessment Year"])) {
+      rowErrors.push(`Invalid Assessment Year: ${row["Assessment Year"]}`)
     }
 
-    const sheet = workbook.worksheets[0]
-    if (!sheet) return []
-    const headerRow = sheet.getRow(1)
-    const headers: string[] = []
-    headerRow.eachCell((cell, col) => {
-      headers[col] = String(cell.value ?? "").trim()
-    })
+    let geo: GeoResolved | null = null
+    if (ulbCodeRaw && wardNumberRaw) {
+      geo = await this.resolveGeo(ulbCodeRaw, wardNumberRaw, geoCache)
+      if (!geo) rowErrors.push(`Could not resolve ULB code + ward: ${ulbCodeRaw} / ${wardNumberRaw}`)
+    } else {
+      rowErrors.push("Missing ULB Code or Ward Number")
+    }
 
-    const rows: Array<Record<string, string>> = []
-    sheet.eachRow((row, rowNumber) => {
-      if (rowNumber === 1) return
-      const record: Record<string, string> = {}
-      headers.forEach((header, col) => {
-        if (!header) return
-        const value = row.getCell(col).value
-        record[header] =
-          value == null
-            ? ""
-            : String(typeof value === "object" && value !== null && "text" in value ? (value as { text: string }).text : value).trim()
+    const ownershipType = asEnum(mapOwnershipType(row["Ownership Type"]), isOwnershipType)
+    const propertyUse = asEnum(propertyUseMapped, isPropertyUse)
+    const propertyType = asEnum(mapPropertyType(row["Property Type"]), isPropertyType)
+    if (emptyToUndefined(row["Ownership Type"]) && !ownershipType) {
+      rowErrors.push(`Invalid Ownership Type: ${row["Ownership Type"]}`)
+    }
+    if (emptyToUndefined(row["Property Use"]) && !propertyUse) {
+      rowErrors.push(`Invalid Property Use: ${row["Property Use"]}`)
+    }
+    if (emptyToUndefined(row["Property Type"]) && !propertyType) {
+      rowErrors.push(`Invalid Property Type: ${row["Property Type"]}`)
+    }
+
+    if (geo && !canAccessTenant(scope, geo)) {
+      rowErrors.push("Row is outside creator tenant scope")
+    }
+
+    if (rowErrors.length || !propertyId || !geo) {
+      errors.push({
+        row: rowNumber,
+        propertyId: propertyId,
+        localId,
+        errors: rowErrors.length ? rowErrors : ["Invalid survey row"],
       })
-      if (Object.values(record).some((value) => value !== "")) rows.push(record)
-    })
-    return rows
+      return null
+    }
+
+    const plotAreaSqFt = parseNumber(row["Plot Area SqFt"])
+    const plinthAreaSqFt = parseNumber(row["Plinth Area SqFt"])
+    const totalBuiltAreaSqFt = parseNumber(row["Total Built Up Area SqFt"])
+    const plotAreaSqMeter = parseNumber(row["Plot Area SqMeter"]) ?? sqFtToSqMeter(plotAreaSqFt)
+    const plinthAreaSqMeter = parseNumber(row["Plinth Area SqMeter"]) ?? sqFtToSqMeter(plinthAreaSqFt)
+    const totalBuiltAreaSqMeter = parseNumber(row["Total Built Up Area SqMeter"]) ?? sqFtToSqMeter(totalBuiltAreaSqFt)
+
+    const surveyStatus = asEnum(mapSurveyStatus(row["Survey Status"]), isSurveyStatus) ?? SurveyStatus.DRAFT
+    const qcStatus = asEnum(mapQcStatus(row["QC Status"]), isQcStatus) ?? QcStatus.PENDING
+    const waterConnection = mapWaterConnection(row["Water Connection?"])
+      ? asEnum(mapWaterConnection(row["Water Connection?"]), isWaterConnection)
+      : parseYn(row["Water Connection?"]) === true
+        ? WaterConnection.YES
+        : parseYn(row["Water Connection?"]) === false
+          ? WaterConnection.NO
+          : undefined
+
+    const data: Prisma.SurveyUncheckedCreateInput = {
+      propertyId,
+      localId,
+      legacySurveyId,
+      propertyIdOld: emptyToUndefined(row["Property ID (Old)"]),
+      parcelNumber: parcelNo,
+      unitSubNo: unitNo,
+      sectorNo: emptyToUndefined(row["Sector / Zone"]),
+      constructedYear: parseNumber(row["Constructed Year"]),
+      isSlum: parseYn(row["Slum Area"]) ?? false,
+      wardNumber: geo.wardNumber,
+      ulbCode: geo.ulbCode,
+      districtName: emptyToUndefined(row.District),
+      stateId: geo.stateId,
+      districtId: geo.districtId,
+      ulbId: geo.ulbId,
+      wardId: geo.wardId,
+      respondentName: emptyToUndefined(row["Respondent Name"]),
+      relationshipWithOwner: emptyToUndefined(row["Relationship with Owner"]),
+      familySize: parseNumber(row["Family Size"]),
+      mobileNumber: emptyToUndefined(row["Mobile Number"]),
+      alternateMobile: emptyToUndefined(row["Alt Mobile"]),
+      houseDoorNo: emptyToUndefined(row["House / Door No"]),
+      locality: emptyToUndefined(row["Locality / Landmark"]),
+      colony: emptyToUndefined(row["Colony / Society"]),
+      city: emptyToUndefined(row.City),
+      pinCode: emptyToUndefined(row["Pin Code"]),
+      assessmentYear: assessmentYear as AssessmentYear,
+      ownershipType,
+      propertyUse,
+      propertyType,
+      situation: asEnum(mapSituation(row.Situation), isSituation),
+      roadType: asEnum(mapRoadType(row["Road Type"]), isRoadType),
+      taxRateZone: asEnum(mapTaxRateZone(row["Tax Rate Zone"]), isTaxRateZone),
+      plotAreaSqFt,
+      plotAreaSqMeter,
+      plinthAreaSqFt,
+      plinthAreaSqMeter,
+      totalBuiltAreaSqFt,
+      totalBuiltAreaSqMeter,
+      waterConnection,
+      sourceOfWater: asEnum(mapSourceOfWater(row["Source of Water"]), isSourceOfWater),
+      sanitationType: asEnum(mapSanitationType(row["Sanitation Type"]), isSanitationType),
+      solidWasteCollection: parseYn(row["Door-to-door Waste Collection"]),
+      electricityConsumerNo: emptyToUndefined(row["Electricity Consumer No"]),
+      latitude: parseNumber(row["GPS Latitude"]),
+      longitude: parseNumber(row["GPS Longitude"]),
+      gpsAccuracyMeters: parseNumber(row["GPS Accuracy (m)"]),
+      gpsProvider: emptyToUndefined(row["GPS Provider"]),
+      gpsMockLocation: parseYn(row["GPS Mock Location"]),
+      gpsSource: asEnum(mapGpsSource("import"), isGpsSource) ?? GpsSource.IMPORT,
+      capturedAt: parseDate(row["GPS Captured At"]),
+      surveyStatus,
+      qcStatus,
+      serverVersion: parseNumber(row["Server Version"]) ?? 1,
+      clientUpdatedAt: parseDate(row["Client Updated At"]),
+      submittedAt: parseDate(row["Submitted At"]),
+      createdById: payload.createdById,
+      assignedToId: payload.createdById,
+      assignedAt: new Date(),
+    }
+
+    return { rowNumber, propertyId, localId, legacySurveyId, geo, data }
   }
 
-  private async writeErrorReport(payload: ImportJobPayload, errors: ImportRowError[]): Promise<string> {
-    const key = ["imports", payload.createdById, payload.jobId, "errors.json"].join("/")
+  private async resolveGeo(
+    ulbCodeRaw: string,
+    wardNumberRaw: string,
+    cache: Map<string, GeoResolved | null>
+  ): Promise<GeoResolved | null> {
+    const code = padUlbCode(ulbCodeRaw) || ulbCodeRaw.trim()
+    const wardCandidates = uniqueNonEmpty([
+      wardNumberRaw.trim(),
+      padWardNo(wardNumberRaw),
+      String(Number.parseInt(wardNumberRaw.replace(/\D/g, ""), 10) || ""),
+    ])
+    const cacheKey = `${code}|${wardCandidates.join(",")}`
+    if (cache.has(cacheKey)) return cache.get(cacheKey) ?? null
+
+    const ulb =
+      (await this.prisma.db.ulb.findFirst({
+        where: { code },
+        include: { district: true },
+      })) ??
+      (await this.prisma.db.ulb.findFirst({
+        where: { code: ulbCodeRaw.trim() },
+        include: { district: true },
+      }))
+
+    if (!ulb) {
+      cache.set(cacheKey, null)
+      return null
+    }
+
+    const ward = await this.prisma.db.ward.findFirst({
+      where: { ulbId: ulb.id, wardNumber: { in: wardCandidates } },
+    })
+    if (!ward) {
+      cache.set(cacheKey, null)
+      return null
+    }
+
+    const resolved: GeoResolved = {
+      stateId: ulb.district.stateId,
+      districtId: ulb.districtId,
+      ulbId: ulb.id,
+      wardId: ward.id,
+      ulbCode: ulb.code,
+      wardNumber: ward.wardNumber,
+    }
+    cache.set(cacheKey, resolved)
+    return resolved
+  }
+
+  private async writeValidationReport(payload: ImportJobPayload, report: Record<string, unknown>): Promise<string> {
+    const key = ["imports", payload.createdById, payload.jobId, "validation-report.json"].join("/")
     await this.storageService.putObject({
       key,
       bucket: payload.bucket,
-      body: Buffer.from(JSON.stringify({ jobId: payload.jobId, errors }, null, 2), "utf8"),
+      body: Buffer.from(JSON.stringify(report, null, 2), "utf8"),
       mimeType: "application/json",
       metadata: { importJobId: payload.jobId },
     })
     return key
   }
+}
+
+function emptyToUndefined(value: string | undefined | null): string | undefined {
+  if (value == null) return undefined
+  const trimmed = String(value).trim()
+  return trimmed === "" ? undefined : trimmed
+}
+
+function uniqueNonEmpty(values: string[]): string[] {
+  return [...new Set(values.map((v) => v.trim()).filter(Boolean))]
+}
+
+function parseDate(raw: string | undefined): Date | undefined {
+  if (!raw || !String(raw).trim()) return undefined
+  const d = new Date(raw)
+  return Number.isNaN(d.getTime()) ? undefined : d
+}
+
+function asEnum<T extends string>(value: string | undefined, guard: (v: string) => v is T): T | undefined {
+  if (!value) return undefined
+  return guard(value) ? value : undefined
+}
+
+function isOwnershipType(v: string): v is OwnershipType {
+  return Object.values(OwnershipType).includes(v as OwnershipType)
+}
+function isPropertyUse(v: string): v is PropertyUse {
+  return Object.values(PropertyUse).includes(v as PropertyUse)
+}
+function isPropertyType(v: string): v is PropertyType {
+  return Object.values(PropertyType).includes(v as PropertyType)
+}
+function isSituation(v: string): v is Situation {
+  return Object.values(Situation).includes(v as Situation)
+}
+function isRoadType(v: string): v is RoadType {
+  return Object.values(RoadType).includes(v as RoadType)
+}
+function isTaxRateZone(v: string): v is TaxRateZone {
+  return Object.values(TaxRateZone).includes(v as TaxRateZone)
+}
+function isWaterConnection(v: string): v is WaterConnection {
+  return Object.values(WaterConnection).includes(v as WaterConnection)
+}
+function isSourceOfWater(v: string): v is SourceOfWater {
+  return Object.values(SourceOfWater).includes(v as SourceOfWater)
+}
+function isSanitationType(v: string): v is SanitationType {
+  return Object.values(SanitationType).includes(v as SanitationType)
+}
+function isSurveyStatus(v: string): v is SurveyStatus {
+  return Object.values(SurveyStatus).includes(v as SurveyStatus)
+}
+function isQcStatus(v: string): v is QcStatus {
+  return Object.values(QcStatus).includes(v as QcStatus)
+}
+function isFloorPosition(v: string): v is FloorPosition {
+  return Object.values(FloorPosition).includes(v as FloorPosition)
+}
+function isUsageFactor(v: string): v is UsageFactor {
+  return Object.values(UsageFactor).includes(v as UsageFactor)
+}
+function isUsageType(v: string): v is UsageType {
+  return Object.values(UsageType).includes(v as UsageType)
+}
+function isConstructionType(v: string): v is ConstructionType {
+  return Object.values(ConstructionType).includes(v as ConstructionType)
+}
+function isPhotoType(v: string): v is PhotoType {
+  return Object.values(PhotoType).includes(v as PhotoType)
+}
+function isGpsSource(v: string): v is GpsSource {
+  return Object.values(GpsSource).includes(v as GpsSource)
 }

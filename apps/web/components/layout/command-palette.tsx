@@ -11,7 +11,7 @@ import {
   CommandList,
   CommandSeparator,
 } from "@workspace/ui/components/command"
-import { FileSearch, LayoutDashboard } from "lucide-react"
+import { FilePlus2, FileSearch, LayoutDashboard, Upload } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useEffect, useMemo } from "react"
 
@@ -74,6 +74,24 @@ export function CommandPalette() {
             <FileSearch />
             <span>Browse surveys</span>
           </CommandItem>
+          {hasPermission("survey:create") ? (
+            <CommandItem value="create survey dashboard" onSelect={() => run("/surveys/new")}>
+              <FilePlus2 />
+              <span>Create survey</span>
+            </CommandItem>
+          ) : null}
+          {hasPermission("survey:create") ? (
+            <CommandItem value="import surveys dashboard" onSelect={() => run("/import")}>
+              <Upload />
+              <span>Import surveys</span>
+            </CommandItem>
+          ) : null}
+          {hasPermission("survey:view") ? (
+            <CommandItem value="review pending qc dashboard" onSelect={() => run("/surveys?surveyStatus=SUBMITTED")}>
+              <FileSearch />
+              <span>Review pending QC</span>
+            </CommandItem>
+          ) : null}
         </CommandGroup>
       </CommandList>
     </CommandDialog>

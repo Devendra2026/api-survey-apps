@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common"
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common"
 import type { Prisma, SurveyStatus } from "@workspace/database"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { buildOrderBy, getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
@@ -11,11 +11,41 @@ const surveyInclude = {
   photos: true,
   coOwners: true,
   createdBy: { select: { id: true, fullName: true, email: true } },
+  assignedTo: { select: { id: true, fullName: true, email: true } },
   ward: { select: { id: true, wardName: true, wardNumber: true } },
   ulb: { select: { id: true, name: true } },
   district: { select: { id: true, name: true } },
   state: { select: { id: true, name: true } },
 } as const
+
+type SurveyCursor = {
+  createdAt: string
+  id: string
+}
+
+function decodeSurveyCursor(cursor: string): SurveyCursor {
+  try {
+    const decoded: unknown = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"))
+    if (
+      typeof decoded !== "object" ||
+      decoded === null ||
+      !("id" in decoded) ||
+      !("createdAt" in decoded) ||
+      typeof decoded.id !== "string" ||
+      typeof decoded.createdAt !== "string" ||
+      Number.isNaN(Date.parse(decoded.createdAt))
+    ) {
+      throw new Error("Invalid cursor shape")
+    }
+    return { id: decoded.id, createdAt: decoded.createdAt }
+  } catch {
+    throw new BadRequestException("Invalid survey cursor")
+  }
+}
+
+function encodeSurveyCursor(survey: { id: string; createdAt: Date }): string {
+  return Buffer.from(JSON.stringify({ id: survey.id, createdAt: survey.createdAt.toISOString() })).toString("base64url")
+}
 
 @Injectable()
 export class SurveysRepository {
@@ -24,15 +54,34 @@ export class SurveysRepository {
   private baseWhere(user: AuthenticatedUser, query?: SurveyQueryDto): Prisma.SurveyWhereInput {
     const scope = resolveTenantScope(user.tenantRoles)
     const tenantWhere = buildTenantWhere(scope)
+    const createdAt: Prisma.DateTimeFilter = {}
+    if (query?.dateFrom) createdAt.gte = new Date(query.dateFrom)
+    if (query?.dateTo) {
+      const end = new Date(query.dateTo)
+      end.setUTCHours(23, 59, 59, 999)
+      createdAt.lte = end
+    }
+
     return {
       deletedAt: null,
       AND: [
         tenantWhere ?? {},
         query?.surveyStatus ? { surveyStatus: query.surveyStatus } : {},
+        query?.qcStatus ? { qcStatus: query.qcStatus } : {},
         query?.stateId ? { stateId: query.stateId } : {},
         query?.districtId ? { districtId: query.districtId } : {},
         query?.ulbId ? { ulbId: query.ulbId } : {},
         query?.wardId ? { wardId: query.wardId } : {},
+        query?.surveyorId ? { assignedToId: query.surveyorId } : {},
+        Object.keys(createdAt).length > 0 ? { createdAt } : {},
+        query?.mobile
+          ? {
+              OR: [
+                { mobileNumber: { contains: query.mobile, mode: "insensitive" } },
+                { alternateMobile: { contains: query.mobile, mode: "insensitive" } },
+              ],
+            }
+          : {},
         query?.search
           ? {
               OR: [
@@ -48,6 +97,31 @@ export class SurveysRepository {
   }
 
   async findAll(query: SurveyQueryDto, user: AuthenticatedUser) {
+    if (query.cursorPagination === "true") {
+      if (query.sortBy && query.sortBy !== "createdAt") {
+        throw new BadRequestException("Cursor pagination only supports sorting by createdAt")
+      }
+
+      const cursor = query.cursor ? decodeSurveyCursor(query.cursor) : undefined
+      const limit = query.limit ?? 20
+      const direction = query.sortOrder === "asc" ? "asc" : "desc"
+      const rows = await this.prisma.db.survey.findMany({
+        where: this.baseWhere(user, query),
+        ...(cursor ? { cursor: { id: cursor.id }, skip: 1 } : {}),
+        take: limit + 1,
+        orderBy: [{ createdAt: direction }, { id: direction }],
+        include: surveyInclude,
+      })
+      const hasMore = rows.length > limit
+      const items = hasMore ? rows.slice(0, limit) : rows
+      const lastItem = items.at(-1)
+
+      return {
+        items,
+        meta: { limit, nextCursor: hasMore && lastItem ? encodeSurveyCursor(lastItem) : null },
+      }
+    }
+
     const { skip, take, page, limit } = getSkipTake(query)
     const where = this.baseWhere(user, query)
     const [items, total] = await Promise.all([
@@ -58,7 +132,7 @@ export class SurveysRepository {
         orderBy: buildOrderBy(
           query.sortBy,
           query.sortOrder,
-          ["createdAt", "updatedAt", "propertyId", "surveyStatus", "submittedAt"],
+          ["createdAt", "updatedAt", "propertyId", "surveyStatus", "qcStatus", "submittedAt"],
           "createdAt"
         ),
         include: surveyInclude,
@@ -66,6 +140,73 @@ export class SurveysRepository {
       this.prisma.db.survey.count({ where }),
     ])
     return toPaginatedResult(items, total, page, limit)
+  }
+
+  async wardCommandStats(
+    user: AuthenticatedUser,
+    opts: { limit?: number; districtId?: string; ulbId?: string } = {}
+  ) {
+    const scope = resolveTenantScope(user.tenantRoles)
+    const tenantWhere = buildTenantWhere(scope)
+    const where: Prisma.SurveyWhereInput = {
+      deletedAt: null,
+      ...(tenantWhere ?? {}),
+      ...(opts.districtId ? { districtId: opts.districtId } : {}),
+      ...(opts.ulbId ? { ulbId: opts.ulbId } : {}),
+    }
+
+    const rows = await this.prisma.db.survey.groupBy({
+      by: ["wardId", "surveyStatus"],
+      where,
+      _count: { _all: true },
+    })
+
+    const byWard = new Map<string, { id: string; count: number; byStatus: Record<string, number> }>()
+    for (const row of rows) {
+      const current = byWard.get(row.wardId) ?? { id: row.wardId, count: 0, byStatus: {} }
+      current.count += row._count._all
+      current.byStatus[row.surveyStatus] = (current.byStatus[row.surveyStatus] ?? 0) + row._count._all
+      byWard.set(row.wardId, current)
+    }
+
+    const top = [...byWard.values()].sort((a, b) => b.count - a.count).slice(0, opts.limit ?? 8)
+    if (top.length === 0) return []
+
+    const wards = await this.prisma.db.ward.findMany({
+      where: { id: { in: top.map((w) => w.id) } },
+      select: { id: true, wardName: true, wardNumber: true, ulbId: true },
+    })
+    const wardMap = new Map(wards.map((w) => [w.id, w]))
+
+    return top.map((ward) => {
+      const detail = wardMap.get(ward.id)
+      return {
+        id: ward.id,
+        name: detail?.wardName || (detail ? `Ward ${detail.wardNumber}` : "Unknown ward"),
+        wardNumber: detail?.wardNumber ?? null,
+        ulbId: detail?.ulbId ?? null,
+        count: ward.count,
+        byStatus: ward.byStatus,
+      }
+    })
+  }
+
+  async findAccessibleByIds(ids: string[], user: AuthenticatedUser) {
+    const scope = resolveTenantScope(user.tenantRoles)
+    const tenantWhere = buildTenantWhere(scope)
+    return this.prisma.db.survey.findMany({
+      where: {
+        id: { in: ids },
+        deletedAt: null,
+        ...(tenantWhere ?? {}),
+      },
+      select: {
+        id: true,
+        createdById: true,
+        surveyStatus: true,
+        qcStatus: true,
+      },
+    })
   }
 
   async findById(id: string, user: AuthenticatedUser) {

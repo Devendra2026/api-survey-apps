@@ -29,7 +29,8 @@ export class RedisHealthService implements OnModuleInit, OnModuleDestroy {
       throw new Error(
         `Redis is not running or REDIS_URL is incorrect (${redactRedisUrl(this.redisUrl)}). ` +
           "Start Docker Compose or configure REDIS_URL. " +
-          `Original error: ${error instanceof Error ? error.message : String(error)}`
+          `Original error: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error }
       )
     }
   }

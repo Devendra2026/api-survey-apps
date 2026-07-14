@@ -15,13 +15,13 @@ export class StatesController {
   constructor(private readonly statesService: StatesService) {}
 
   @Get()
-  @RequirePermission(PERMISSIONS.USER_VIEW)
+  @RequirePermission(PERMISSIONS.SURVEY_VIEW)
   findAll(@Query() query: PaginationQueryDto, @CurrentUser() user: AuthenticatedUser) {
     return this.statesService.findAll(query, user)
   }
 
   @Get(":id")
-  @RequirePermission(PERMISSIONS.USER_VIEW)
+  @RequirePermission(PERMISSIONS.SURVEY_VIEW)
   findOne(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.statesService.findById(id, user)
   }

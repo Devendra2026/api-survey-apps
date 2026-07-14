@@ -23,13 +23,13 @@ export class UlbsController {
   constructor(private readonly ulbsService: UlbsService) {}
 
   @Get()
-  @RequirePermission(PERMISSIONS.USER_VIEW)
+  @RequirePermission(PERMISSIONS.SURVEY_VIEW)
   findAll(@Query() query: UlbQueryDto, @CurrentUser() user: AuthenticatedUser) {
     return this.ulbsService.findAll(query, user, query.districtId)
   }
 
   @Get(":id")
-  @RequirePermission(PERMISSIONS.USER_VIEW)
+  @RequirePermission(PERMISSIONS.SURVEY_VIEW)
   findOne(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.ulbsService.findById(id, user)
   }

@@ -9,7 +9,18 @@ import { useAuthStore } from "@/stores/app-store"
 import { Button } from "@workspace/ui/components/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@workspace/ui/components/card"
 import { Progress } from "@workspace/ui/components/progress"
-import { CheckCircle2, ClipboardList, FileCheck2, FileX2, Layers, Plus, TrendingUp } from "lucide-react"
+import {
+  CheckCircle2,
+  Download,
+  DraftingCompass,
+  FileCheck2,
+  FileX2,
+  Gauge,
+  Layers,
+  Plus,
+  TrendingUp,
+  Upload,
+} from "lucide-react"
 import Link from "next/link"
 
 export default function DashboardPage() {
@@ -31,7 +42,7 @@ export default function DashboardPage() {
   const approved = data.byStatus.APPROVED ?? 0
   const submitted = data.pendingApproval ?? data.byStatus.SUBMITTED ?? 0
   const rejected = data.rejected ?? data.byStatus.REJECTED ?? 0
-  const inProgress = (data.byStatus.IN_PROGRESS ?? 0) + (data.byStatus.DRAFT ?? 0) + (data.byStatus.REOPENED ?? 0)
+  const draft = data.byStatus.DRAFT ?? 0
 
   const statusChart = Object.entries(data.byStatus).map(([status, count]) => ({
     name: statusLabels[status] ?? status,
@@ -71,33 +82,47 @@ export default function DashboardPage() {
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         <KpiCard title="Total surveys" value={data.total} icon={Layers} />
-        <KpiCard title="In progress" value={inProgress} icon={ClipboardList} />
+        <KpiCard title="Today" value={data.today?.created ?? 0} icon={CheckCircle2} subtitle="Created since midnight UTC" />
         <KpiCard title="Pending QC" value={submitted} icon={TrendingUp} subtitle="Awaiting approval" />
         <KpiCard title="Approved" value={approved} icon={FileCheck2} />
         <KpiCard title="Rejected" value={rejected} icon={FileX2} />
-        <KpiCard
-          title="Today"
-          value={data.today?.created ?? 0}
-          icon={CheckCircle2}
-          subtitle={`${data.today?.submitted ?? 0} submitted · ${data.today?.approved ?? 0} approved`}
-        />
+        <KpiCard title="Draft" value={draft} icon={DraftingCompass} subtitle="Field work not submitted" />
       </div>
 
-      <Card className="shadow-none">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Today&apos;s progress</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">
-              {data.today?.created ?? 0} created today
-              {todayTotal ? ` · ${todayTotal} workflow events` : ""}
-            </span>
-            <span className="font-mono tabular-nums">{todayProgress}‰ of portfolio</span>
-          </div>
-          <Progress value={Math.min(100, todayProgress * 10)} />
-        </CardContent>
-      </Card>
+      <div className="grid gap-4 xl:grid-cols-3">
+        <Card className="shadow-none xl:col-span-2">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Today&apos;s progress</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">
+                {data.today?.created ?? 0} created today
+                {todayTotal ? ` · ${todayTotal} workflow events` : ""}
+              </span>
+              <span className="font-mono tabular-nums">{todayProgress}‰ of portfolio</span>
+            </div>
+            <Progress value={Math.min(100, todayProgress * 10)} />
+          </CardContent>
+        </Card>
+        <Card className="shadow-none">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">GPS quality</CardTitle>
+            <Gauge className="size-4 text-muted-foreground" aria-hidden="true" />
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="font-mono text-2xl font-semibold tabular-nums">
+              {data.gps.averageAccuracyMeters === null ? "—" : `${data.gps.averageAccuracyMeters.toFixed(1)} m`}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">Average accuracy across captured survey points</p>
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              <span>{data.qcStatus.APPROVED ?? 0} QC approved</span>
+              <span>{data.qcStatus.PENDING ?? 0} QC pending</span>
+              <span>{data.qcStatus.REJECTED ?? 0} QC rejected</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       <div className="grid gap-4 xl:grid-cols-3">
         <Card className="shadow-none xl:col-span-2">
@@ -175,8 +200,13 @@ export default function DashboardPage() {
           <CardContent>
             <div className="space-y-2">
               {(data.byWard ?? []).slice(0, 6).map((w) => (
-                <div key={w.id} className="flex items-center justify-between text-sm">
-                  <span className="truncate pr-3">{w.name}</span>
+                <div key={w.id} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{w.name}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {w.byStatus.APPROVED ?? 0} approved · {w.byStatus.SUBMITTED ?? 0} pending
+                    </p>
+                  </div>
                   <span className="font-mono tabular-nums">{w.count}</span>
                 </div>
               ))}
@@ -275,6 +305,56 @@ export default function DashboardPage() {
             {!notifications?.items.length ? (
               <p className="text-sm text-muted-foreground">No recent notifications</p>
             ) : null}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card className="shadow-none">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Import queue</CardTitle>
+            <Upload className="size-4 text-muted-foreground" aria-hidden="true" />
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {data.jobs.imports.length ? (
+              data.jobs.imports.map((job) => (
+                <div key={job.id} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{job.originalName}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {job.processedRows} / {job.totalRows} rows
+                    </p>
+                  </div>
+                  <StatusBadge status={job.status} />
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">No import jobs in your recent activity.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-none">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Export queue</CardTitle>
+            <Download className="size-4 text-muted-foreground" aria-hidden="true" />
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {data.jobs.exports.length ? (
+              data.jobs.exports.map((job) => (
+                <div key={job.id} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{job.reportType}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {job.format} · {job.rowCount} rows
+                    </p>
+                  </div>
+                  <StatusBadge status={job.status} />
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">No export jobs in your recent activity.</p>
+            )}
           </CardContent>
         </Card>
       </div>

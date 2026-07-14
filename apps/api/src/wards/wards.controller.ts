@@ -23,13 +23,13 @@ export class WardsController {
   constructor(private readonly wardsService: WardsService) {}
 
   @Get()
-  @RequirePermission(PERMISSIONS.USER_VIEW)
+  @RequirePermission(PERMISSIONS.SURVEY_VIEW)
   findAll(@Query() query: WardQueryDto, @CurrentUser() user: AuthenticatedUser) {
     return this.wardsService.findAll(query, user, query.ulbId)
   }
 
   @Get(":id")
-  @RequirePermission(PERMISSIONS.USER_VIEW)
+  @RequirePermission(PERMISSIONS.SURVEY_VIEW)
   findOne(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.wardsService.findById(id, user)
   }

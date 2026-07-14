@@ -7,6 +7,8 @@ import {
   getSortedRowModel,
   useReactTable,
   type ColumnDef,
+  type OnChangeFn,
+  type RowSelectionState,
   type SortingState,
   type VisibilityState,
 } from "@tanstack/react-table"
@@ -21,6 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu"
 import { Input } from "@workspace/ui/components/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@workspace/ui/components/table"
 import { cn } from "@workspace/ui/lib/utils"
@@ -32,6 +35,9 @@ export interface DataTablePagination {
   totalPages: number
   total: number
   onPageChange: (page: number) => void
+  pageSize?: number
+  onPageSizeChange?: (size: number) => void
+  pageSizeOptions?: number[]
 }
 
 interface DataTableProps<TData, TValue> {
@@ -42,10 +48,18 @@ interface DataTableProps<TData, TValue> {
   searchValue?: string
   onSearchChange?: (value: string) => void
   toolbar?: React.ReactNode
+  footerToolbar?: React.ReactNode
   emptyTitle?: string
   emptyDescription?: string
   pagination?: DataTablePagination
   className?: string
+  enableRowSelection?: boolean
+  rowSelection?: RowSelectionState
+  onRowSelectionChange?: OnChangeFn<RowSelectionState>
+  getRowId?: (originalRow: TData, index: number) => string
+  columnVisibility?: VisibilityState
+  onColumnVisibilityChange?: OnChangeFn<VisibilityState>
+  maxHeightClassName?: string
 }
 
 export function DataTable<TData, TValue>({
@@ -56,24 +70,47 @@ export function DataTable<TData, TValue>({
   searchValue,
   onSearchChange,
   toolbar,
+  footerToolbar,
   emptyTitle = "No results",
   emptyDescription,
   pagination,
   className,
+  enableRowSelection,
+  rowSelection,
+  onRowSelectionChange,
+  getRowId,
+  columnVisibility,
+  onColumnVisibilityChange,
+  maxHeightClassName = "max-h-[min(70vh,720px)]",
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([])
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({})
+  const [internalVisibility, setInternalVisibility] = React.useState<VisibilityState>({})
+  const [internalSelection, setInternalSelection] = React.useState<RowSelectionState>({})
+
+  const visibility = columnVisibility ?? internalVisibility
+  const setVisibility = onColumnVisibilityChange ?? setInternalVisibility
+  const selection = rowSelection ?? internalSelection
+  const setSelection = onRowSelectionChange ?? setInternalSelection
 
   const table = useReactTable({
     data,
     columns,
-    state: { sorting, columnVisibility },
+    state: {
+      sorting,
+      columnVisibility: visibility,
+      ...(enableRowSelection ? { rowSelection: selection } : {}),
+    },
     onSortingChange: setSorting,
-    onColumnVisibilityChange: setColumnVisibility,
+    onColumnVisibilityChange: setVisibility,
+    onRowSelectionChange: enableRowSelection ? setSelection : undefined,
+    enableRowSelection,
+    getRowId,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     manualPagination: Boolean(pagination),
   })
+
+  const selectedCount = enableRowSelection ? table.getSelectedRowModel().rows.length : 0
 
   return (
     <div className={cn("space-y-3", className)}>
@@ -89,38 +126,45 @@ export function DataTable<TData, TValue>({
           ) : null}
           {toolbar}
         </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="h-8">
-              <Columns3 className="size-3.5" />
-              Columns
-              <ChevronDown className="size-3.5 opacity-60" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-44">
-            <DropdownMenuLabel>Toggle columns</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {table
-              .getAllColumns()
-              .filter((col) => col.getCanHide())
-              .map((col) => (
-                <DropdownMenuCheckboxItem
-                  key={col.id}
-                  className="capitalize"
-                  checked={col.getIsVisible()}
-                  onCheckedChange={(value) => col.toggleVisibility(Boolean(value))}
-                >
-                  {col.id}
-                </DropdownMenuCheckboxItem>
-              ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <div className="flex items-center gap-2">
+          {enableRowSelection && selectedCount > 0 ? (
+            <span className="text-xs text-muted-foreground">{selectedCount} selected</span>
+          ) : null}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-8">
+                <Columns3 className="size-3.5" />
+                Columns
+                <ChevronDown className="size-3.5 opacity-60" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuLabel>Toggle columns</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {table
+                .getAllColumns()
+                .filter((col) => col.getCanHide())
+                .map((col) => (
+                  <DropdownMenuCheckboxItem
+                    key={col.id}
+                    className="capitalize"
+                    checked={col.getIsVisible()}
+                    onCheckedChange={(value) => col.toggleVisibility(Boolean(value))}
+                  >
+                    {col.id}
+                  </DropdownMenuCheckboxItem>
+                ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
+      {footerToolbar}
+
       <div className="overflow-hidden rounded-xl border">
-        <div className="overflow-x-auto">
+        <div className={cn("overflow-auto", maxHeightClassName)}>
           <Table>
-            <TableHeader className="sticky top-0 z-10 bg-muted/40">
+            <TableHeader className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
                   {headerGroup.headers.map((header) => (
@@ -133,7 +177,7 @@ export function DataTable<TData, TValue>({
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                Array.from({ length: 5 }).map((_, i) => (
+                Array.from({ length: 8 }).map((_, i) => (
                   <TableRow key={i}>
                     {columns.map((_, j) => (
                       <TableCell key={j}>
@@ -174,6 +218,23 @@ export function DataTable<TData, TValue>({
             {pagination.total.toLocaleString()} total · Page {pagination.page} of {Math.max(pagination.totalPages, 1)}
           </p>
           <div className="flex items-center gap-2">
+            {pagination.onPageSizeChange ? (
+              <Select
+                value={String(pagination.pageSize ?? 20)}
+                onValueChange={(value) => pagination.onPageSizeChange?.(Number(value))}
+              >
+                <SelectTrigger className="h-8 w-[5.5rem]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(pagination.pageSizeOptions ?? [20, 50, 100]).map((size) => (
+                    <SelectItem key={size} value={String(size)}>
+                      {size}/page
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : null}
             <Button
               variant="outline"
               size="sm"

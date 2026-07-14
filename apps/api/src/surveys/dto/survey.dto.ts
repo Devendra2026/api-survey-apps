@@ -5,6 +5,7 @@ import {
   OwnershipType,
   PropertyType,
   PropertyUse,
+  QcStatus,
   RoadType,
   SanitationType,
   Situation,
@@ -15,7 +16,11 @@ import {
 } from "@workspace/database"
 import { Type } from "class-transformer"
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
+  IsBooleanString,
   IsDateString,
   IsEnum,
   IsInt,
@@ -268,10 +273,25 @@ export class AssignSurveyDto {
 }
 
 export class SurveyQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ description: "Use cursor pagination instead of page/limit offsets" })
+  @IsOptional()
+  @IsBooleanString()
+  cursorPagination?: string
+
+  @ApiPropertyOptional({ description: "Opaque cursor returned by a previous cursor-paginated survey response" })
+  @IsOptional()
+  @IsString()
+  cursor?: string
+
   @ApiPropertyOptional({ enum: SurveyStatus })
   @IsOptional()
   @IsEnum(SurveyStatus)
   surveyStatus?: SurveyStatus
+
+  @ApiPropertyOptional({ enum: QcStatus })
+  @IsOptional()
+  @IsEnum(QcStatus)
+  qcStatus?: QcStatus
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -292,4 +312,78 @@ export class SurveyQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   wardId?: string
+
+  @ApiPropertyOptional({ description: "Filter by assigned surveyor user id" })
+  @IsOptional()
+  @IsString()
+  surveyorId?: string
+
+  @ApiPropertyOptional({ description: "Inclusive createdAt lower bound (ISO date)" })
+  @IsOptional()
+  @IsDateString()
+  dateFrom?: string
+
+  @ApiPropertyOptional({ description: "Inclusive createdAt upper bound (ISO date)" })
+  @IsOptional()
+  @IsDateString()
+  dateTo?: string
+
+  @ApiPropertyOptional({ description: "Exact/partial mobile number search" })
+  @IsOptional()
+  @IsString()
+  mobile?: string
+}
+
+export class BulkSurveyIdsDto {
+  @ApiProperty({ type: [String], minItems: 1, maxItems: 200 })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(200)
+  @IsString({ each: true })
+  ids!: string[]
+}
+
+export class BulkRejectSurveysDto extends BulkSurveyIdsDto {
+  @ApiProperty()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(2000)
+  qcRemarks!: string
+}
+
+export class BulkExportSurveysDto {
+  @ApiProperty({ type: [String], minItems: 1, maxItems: 5000 })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(5000)
+  @IsString({ each: true })
+  selectedIds!: string[]
+
+  @ApiPropertyOptional({
+    enum: ["surveys", "convex_full", "survey_data", "nagar_panchayat", "qc_final"],
+    default: "survey_data",
+  })
+  @IsOptional()
+  @IsString()
+  reportType?: "surveys" | "convex_full" | "survey_data" | "nagar_panchayat" | "qc_final"
+}
+
+export class WardStatsQueryDto {
+  @ApiPropertyOptional({ default: 8, minimum: 1, maximum: 24 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(24)
+  limit?: number = 8
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  districtId?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  ulbId?: string
 }

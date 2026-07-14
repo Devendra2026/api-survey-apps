@@ -4,7 +4,17 @@ import { PERMISSIONS } from "../common/constants/permissions.js"
 import { CurrentUser } from "../common/decorators/current-user.decorator.js"
 import { RequirePermission } from "../common/decorators/require-permission.decorator.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
-import { CreateSurveyDto, AssignSurveyDto, RejectSurveyDto, SurveyQueryDto, UpdateSurveyDto } from "./dto/survey.dto.js"
+import {
+  AssignSurveyDto,
+  BulkExportSurveysDto,
+  BulkRejectSurveysDto,
+  BulkSurveyIdsDto,
+  CreateSurveyDto,
+  RejectSurveyDto,
+  SurveyQueryDto,
+  UpdateSurveyDto,
+  WardStatsQueryDto,
+} from "./dto/survey.dto.js"
 import { SurveysService } from "./surveys.service.js"
 
 @ApiTags("surveys")
@@ -17,6 +27,34 @@ export class SurveysController {
   @RequirePermission(PERMISSIONS.SURVEY_VIEW)
   findAll(@Query() query: SurveyQueryDto, @CurrentUser() user: AuthenticatedUser) {
     return this.surveysService.findAll(query, user)
+  }
+
+  @Get("ward-stats")
+  @RequirePermission(PERMISSIONS.SURVEY_VIEW)
+  @ApiOperation({ summary: "Ward command-center cards for survey registry" })
+  wardStats(@Query() query: WardStatsQueryDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.surveysService.wardCommandStats(query, user)
+  }
+
+  @Post("bulk/approve")
+  @RequirePermission(PERMISSIONS.SURVEY_APPROVE)
+  @ApiOperation({ summary: "Bulk approve submitted surveys" })
+  bulkApprove(@Body() dto: BulkSurveyIdsDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.surveysService.bulkApprove(dto, user)
+  }
+
+  @Post("bulk/reject")
+  @RequirePermission(PERMISSIONS.SURVEY_REJECT)
+  @ApiOperation({ summary: "Bulk reject submitted surveys (requires qcRemarks)" })
+  bulkReject(@Body() dto: BulkRejectSurveysDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.surveysService.bulkReject(dto, user)
+  }
+
+  @Post("bulk/export")
+  @RequirePermission(PERMISSIONS.REPORT_EXPORT)
+  @ApiOperation({ summary: "Enqueue export for selected survey ids" })
+  bulkExport(@Body() dto: BulkExportSurveysDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.surveysService.bulkExport(dto, user)
   }
 
   @Get(":id")

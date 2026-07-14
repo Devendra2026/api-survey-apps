@@ -1,14 +1,20 @@
-import { apiDelete, apiGet, apiGetPaginated, apiPatch, apiPost } from "@/lib/api/client"
+import { apiDelete, apiGet, apiGetPaginated, apiPatch, apiPost, apiUpload } from "@/lib/api/client"
 import type {
   AuthenticatedProfile,
+  BulkActionResult,
+  BulkExportResult,
   DashboardSummary,
   GeoDistrict,
   GeoState,
   GeoUlb,
   GeoWard,
+  ImportEnqueueResult,
+  ImportJob,
   NotificationItem,
   PaginatedResult,
+  SavedView,
   SurveyListItem,
+  WardCommandStat,
 } from "@/lib/api/types"
 import { useAuthStore } from "@/stores/app-store"
 import { useAuth } from "@clerk/nextjs"
@@ -63,6 +69,19 @@ export function useSurvey(id: string) {
   })
 }
 
+export function useWardCommandStats(params: Record<string, string | number | undefined> = {}) {
+  const searchParams = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== "") searchParams.set(key, String(value))
+  })
+  const qs = searchParams.toString()
+
+  return useQuery({
+    queryKey: ["surveys", "ward-stats", params],
+    queryFn: () => apiGet<WardCommandStat[]>(`/surveys/ward-stats${qs ? `?${qs}` : ""}`),
+  })
+}
+
 export function useSurveyMutations() {
   const qc = useQueryClient()
   const invalidate = () => {
@@ -103,6 +122,67 @@ export function useSurveyMutations() {
     assign: useMutation({
       mutationFn: ({ id, assigneeId }: { id: string; assigneeId: string }) =>
         apiPost(`/surveys/${id}/assign`, { assigneeId }),
+      onSuccess: invalidate,
+    }),
+    bulkApprove: useMutation({
+      mutationFn: (ids: string[]) => apiPost<BulkActionResult>("/surveys/bulk/approve", { ids }),
+      onSuccess: invalidate,
+    }),
+    bulkReject: useMutation({
+      mutationFn: ({ ids, qcRemarks }: { ids: string[]; qcRemarks: string }) =>
+        apiPost<BulkActionResult>("/surveys/bulk/reject", { ids, qcRemarks }),
+      onSuccess: invalidate,
+    }),
+    bulkExport: useMutation({
+      mutationFn: (selectedIds: string[]) =>
+        apiPost<BulkExportResult>("/surveys/bulk/export", { selectedIds, reportType: "survey_data" }),
+    }),
+  }
+}
+
+export function useSavedViews(entity = "surveys") {
+  return useQuery({
+    queryKey: ["saved-views", entity],
+    queryFn: () => apiGet<SavedView[]>(`/saved-views?entity=${entity}`),
+  })
+}
+
+export function useSavedViewMutations() {
+  const qc = useQueryClient()
+  const invalidate = () => void qc.invalidateQueries({ queryKey: ["saved-views"] })
+
+  return {
+    create: useMutation({
+      mutationFn: (body: {
+        name: string
+        entity?: string
+        filters: Record<string, unknown>
+        columns?: Record<string, boolean>
+        sortBy?: string
+        sortOrder?: "asc" | "desc"
+        isDefault?: boolean
+      }) => apiPost<SavedView>("/saved-views", body),
+      onSuccess: invalidate,
+    }),
+    update: useMutation({
+      mutationFn: ({
+        id,
+        body,
+      }: {
+        id: string
+        body: Partial<{
+          name: string
+          filters: Record<string, unknown>
+          columns: Record<string, boolean>
+          sortBy: string
+          sortOrder: "asc" | "desc"
+          isDefault: boolean
+        }>
+      }) => apiPatch<SavedView>(`/saved-views/${id}`, body),
+      onSuccess: invalidate,
+    }),
+    remove: useMutation({
+      mutationFn: (id: string) => apiDelete(`/saved-views/${id}`),
       onSuccess: invalidate,
     }),
   }
@@ -161,10 +241,14 @@ export function useUsers(params: Record<string, string | number | undefined> = {
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== "") searchParams.set(key, String(value))
   })
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canView = hasPermission("user:view")
+  const enabled = Object.keys(params).length > 0 && canView
 
   return useQuery({
     queryKey: ["users", params],
     queryFn: () => apiGetPaginated<AuthenticatedProfile>(`/users?${searchParams}`),
+    enabled,
   })
 }
 
@@ -184,6 +268,53 @@ export async function exportReport(format: "xlsx" | "csv" | "pdf", params: Recor
   const searchParams = new URLSearchParams({ ...params, format })
   const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000"
   return `${base}/reports/export?${searchParams}`
+}
+
+export function useImportJobs() {
+  const { isLoaded, isSignedIn } = useAuth()
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canImport = hasPermission("survey:create")
+
+  return useQuery({
+    queryKey: ["imports", "jobs"],
+    queryFn: () => apiGet<ImportJob[]>("/imports/jobs?take=20"),
+    enabled: isLoaded && Boolean(isSignedIn) && canImport,
+    refetchInterval: (query) => {
+      const jobs = query.state.data
+      if (!jobs?.length) return false
+      const active = jobs.some((job) => job.status === "QUEUED" || job.status === "PROCESSING")
+      return active ? 2000 : false
+    },
+  })
+}
+
+export function useImportJob(jobId: string | null) {
+  return useQuery({
+    queryKey: ["imports", "jobs", jobId],
+    queryFn: () => apiGet<ImportJob>(`/imports/jobs/${jobId}`),
+    enabled: Boolean(jobId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      if (status === "QUEUED" || status === "PROCESSING") return 2000
+      return false
+    },
+  })
+}
+
+export function useImportSurveys() {
+  const qc = useQueryClient()
+
+  return useMutation({
+    mutationFn: (file: File) => {
+      const formData = new FormData()
+      formData.append("file", file)
+      return apiUpload<ImportEnqueueResult>("/imports/surveys", formData)
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["imports", "jobs"] })
+      void qc.invalidateQueries({ queryKey: ["dashboard"] })
+    },
+  })
 }
 
 export type { PaginatedResult }

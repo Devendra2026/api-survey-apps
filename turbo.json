@@ -1,16 +1,34 @@
 {
-  "$schema": "https://v2-10-5.turborepo.dev/schema.json",
+  "$schema": "./node_modules/turbo/schema.json",
   "ui": "tui",
-  "globalDependencies": [".env", ".env.local", ".env.development", ".env.production"],
+  "globalDependencies": [
+    ".env",
+    ".env.local",
+    ".env.development",
+    ".env.production"
+  ],
   "tasks": {
     "db:generate": {
       "cache": false,
-      "outputs": ["src/generated/**"]
+      "outputs": [
+        "src/generated/**"
+      ]
     },
     "build": {
-      "dependsOn": ["^build", "^db:generate", "db:generate"],
-      "inputs": ["$TURBO_DEFAULT$", ".env*"],
-      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+      "dependsOn": [
+        "^build",
+        "^db:generate",
+        "db:generate"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        ".env*"
+      ],
+      "outputs": [
+        ".next/**",
+        "!.next/cache/**",
+        "dist/**"
+      ]
     },
     "db:migrate": {
       "cache": false,
@@ -20,15 +38,25 @@
       "cache": false
     },
     "lint": {
-      "dependsOn": ["^lint"]
+      "dependsOn": [
+        "^lint"
+      ]
     },
     "format": {
-      "dependsOn": ["^format"]
+      "dependsOn": [
+        "^format"
+      ]
     },
     "typecheck": {
-      "dependsOn": ["^typecheck", "^db:generate"]
+      "dependsOn": [
+        "^typecheck",
+        "^db:generate"
+      ]
     },
     "dev": {
+      "dependsOn": [
+        "^build"
+      ],
       "cache": false,
       "persistent": true
     }

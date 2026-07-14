@@ -8,13 +8,15 @@ import { PrismaService } from "./database/prisma.service.js"
 import { ExportWorkerService } from "./exports/export-worker.service.js"
 import { ExportsProcessor } from "./exports/exports.processor.js"
 import { HealthController } from "./health/health.controller.js"
+import { ImageMigrationProcessor } from "./images/image-migration.processor.js"
+import { ImageMigrationService } from "./images/image-migration.service.js"
 import { ImportWorkerService } from "./imports/import-worker.service.js"
 import { ImportsProcessor } from "./imports/imports.processor.js"
-import { RedisHealthService } from "./redis/redis-health.service.js"
 import { redisConnectionOptions } from "./redis/redis-connection.js"
-import { ObjectStorageService } from "./storage/object-storage.service.js"
+import { RedisHealthService } from "./redis/redis-health.service.js"
 import { StorageCleanupProcessor } from "./storage-cleanup/storage-cleanup.processor.js"
 import { StorageCleanupService } from "./storage-cleanup/storage-cleanup.service.js"
+import { ObjectStorageService } from "./storage/object-storage.service.js"
 
 @Module({
   imports: [
@@ -41,7 +43,8 @@ import { StorageCleanupService } from "./storage-cleanup/storage-cleanup.service
     BullModule.registerQueue(
       { name: JOB_QUEUE_NAMES.imports },
       { name: JOB_QUEUE_NAMES.exports },
-      { name: JOB_QUEUE_NAMES.storageCleanup }
+      { name: JOB_QUEUE_NAMES.storageCleanup },
+      { name: JOB_QUEUE_NAMES.imageMigration }
     ),
   ],
   controllers: [HealthController],
@@ -52,9 +55,11 @@ import { StorageCleanupService } from "./storage-cleanup/storage-cleanup.service
     ImportWorkerService,
     ExportWorkerService,
     StorageCleanupService,
+    ImageMigrationService,
     ImportsProcessor,
     ExportsProcessor,
     StorageCleanupProcessor,
+    ImageMigrationProcessor,
   ],
 })
 export class WorkerModule {}

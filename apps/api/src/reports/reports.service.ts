@@ -1,11 +1,14 @@
-import { BadRequestException, Injectable, Logger } from "@nestjs/common"
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common"
 import { ExportFormat as DbExportFormat, JobStatus, type Prisma, type SurveyStatus } from "@workspace/database"
+import { renderConvexFullWorkbook, renderNagarPanchayatWorkbook, renderSurveyDataWorkbook, type SurveyExportBundle } from "@workspace/excel-reports"
+import type { ExportFiltersPayload } from "@workspace/jobs"
 import ExcelJS from "exceljs"
 import PDFDocument from "pdfkit"
 import type { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { JobsService } from "../jobs/jobs.service.js"
 import { PrismaService } from "../prisma/prisma.service.js"
+import { StorageService } from "../storage/storage.service.js"
 import type { ExportFilters, ExportFormat, ExportReportType } from "./export.types.js"
 import { ReportsRepository } from "./reports.repository.js"
 
@@ -19,7 +22,8 @@ export class ReportsService {
   constructor(
     private readonly reportsRepository: ReportsRepository,
     private readonly prisma: PrismaService,
-    private readonly jobsService: JobsService
+    private readonly jobsService: JobsService,
+    private readonly storageService: StorageService
   ) {}
 
   surveyReport(user: AuthenticatedUser, query: PaginationQueryDto & { surveyStatus?: SurveyStatus; ulbId?: string }) {
@@ -96,7 +100,7 @@ export class ReportsService {
         createdById: user.id,
         reportType,
         format: this.toDbExportFormat(format),
-        filters: normalizedFilters,
+        filters: normalizedFilters as Prisma.InputJsonValue,
       },
       select: { id: true, status: true },
     })
@@ -110,7 +114,63 @@ export class ReportsService {
       tenantRoles: user.tenantRoles,
     })
 
+    await this.prisma.db.securityAudit.create({
+      data: {
+        action: "EXPORT_ENQUEUED",
+        actorId: user.id,
+        targetType: "ExportJob",
+        targetId: job.id,
+        metadata: { format, reportType },
+      },
+    })
+
     return { jobId: job.id, status: JobStatus.QUEUED }
+  }
+
+  async getJob(user: AuthenticatedUser, jobId: string) {
+    const job = await this.prisma.db.exportJob.findFirst({
+      where: { id: jobId, createdById: user.id },
+      select: {
+        id: true,
+        status: true,
+        reportType: true,
+        format: true,
+        filename: true,
+        rowCount: true,
+        errorMessage: true,
+        startedAt: true,
+        finishedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    })
+    if (!job) throw new NotFoundException("Export job not found")
+    return job
+  }
+
+  async getJobDownload(user: AuthenticatedUser, jobId: string) {
+    const job = await this.prisma.db.exportJob.findFirst({
+      where: { id: jobId, createdById: user.id, status: JobStatus.SUCCEEDED, objectKey: { not: null } },
+      select: { id: true, objectKey: true, filename: true, rowCount: true },
+    })
+    if (!job?.objectKey) throw new NotFoundException("Completed export job not found")
+    const url = await this.storageService.getPresignedDownloadUrl(job.objectKey)
+    await this.prisma.db.$transaction([
+      this.prisma.db.exportJob.update({
+        where: { id: job.id },
+        data: { downloadCount: { increment: 1 } },
+      }),
+      this.prisma.db.securityAudit.create({
+        data: {
+          action: "EXPORT_DOWNLOAD_URL_ISSUED",
+          actorId: user.id,
+          targetType: "ExportJob",
+          targetId: job.id,
+          metadata: { expiresInSeconds: 900 },
+        },
+      }),
+    ])
+    return { jobId: job.id, filename: job.filename ?? `${job.id}.xlsx`, rowCount: job.rowCount, url }
   }
 
   private assertExportSize<T extends { buffer: Buffer }>(result: T, maxBytes?: number): T {
@@ -120,9 +180,12 @@ export class ReportsService {
     return result
   }
 
-  private normalizeFilters(filters: ExportFilters): Record<string, string> {
+  private normalizeFilters(filters: ExportFilters): ExportFiltersPayload {
     return Object.fromEntries(
-      Object.entries(filters).filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].length > 0)
+      Object.entries(filters).filter(
+        (entry): entry is [string, string | string[]] =>
+          (typeof entry[1] === "string" && entry[1].length > 0) || (Array.isArray(entry[1]) && entry[1].length > 0)
+      )
     )
   }
 
@@ -198,6 +261,10 @@ export class ReportsService {
   }
 
   private async toExcel(rows: Array<Record<string, unknown>>, reportType: string) {
+    const bundles = rows as unknown as SurveyExportBundle[]
+    if (reportType === "convex_full") return renderConvexFullWorkbook(bundles)
+    if (reportType === "nagar_panchayat") return renderNagarPanchayatWorkbook(bundles)
+    if (reportType === "survey_data") return renderSurveyDataWorkbook(bundles)
     const workbook = new ExcelJS.Workbook()
     workbook.creator = "Municipal Property Tax Survey API"
     const sheet = workbook.addWorksheet(reportType)

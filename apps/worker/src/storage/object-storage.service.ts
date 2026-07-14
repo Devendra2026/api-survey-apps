@@ -37,7 +37,8 @@ export class ObjectStorageService {
             endpoint: nonEmpty(configService, "MINIO_ENDPOINT"),
             forcePathStyle: true,
             accessKeyId: nonEmpty(configService, "MINIO_ACCESS_KEY") ?? nonEmpty(configService, "MINIO_ROOT_USER"),
-            secretAccessKey: nonEmpty(configService, "MINIO_SECRET_KEY") ?? nonEmpty(configService, "MINIO_ROOT_PASSWORD"),
+            secretAccessKey:
+              nonEmpty(configService, "MINIO_SECRET_KEY") ?? nonEmpty(configService, "MINIO_ROOT_PASSWORD"),
           })
         : null
       return

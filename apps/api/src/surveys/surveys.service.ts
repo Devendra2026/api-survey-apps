@@ -1,12 +1,24 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common"
-import { OwnershipType, PhotoType, SurveyStatus } from "@workspace/database"
+import { ExportFormat, JobStatus, OwnershipType, PhotoType, SurveyStatus } from "@workspace/database"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { canAccessTenant, resolveTenantScope, userHasPermissionInTenant } from "../common/utils/tenant-scope.util.js"
+import { JobsService } from "../jobs/jobs.service.js"
 import { PrismaService } from "../prisma/prisma.service.js"
-import type { CreateSurveyDto, RejectSurveyDto, SurveyQueryDto, UpdateSurveyDto } from "./dto/survey.dto.js"
+import type {
+  BulkExportSurveysDto,
+  BulkRejectSurveysDto,
+  BulkSurveyIdsDto,
+  CreateSurveyDto,
+  RejectSurveyDto,
+  SurveyQueryDto,
+  UpdateSurveyDto,
+  WardStatsQueryDto,
+} from "./dto/survey.dto.js"
 import { SurveysRepository } from "./surveys.repository.js"
 
 const EDITABLE: SurveyStatus[] = ["DRAFT", "IN_PROGRESS", "REOPENED"]
+
+type BulkItemResult = { id: string; reason: string }
 
 @Injectable()
 export class SurveysService {
@@ -14,11 +26,20 @@ export class SurveysService {
 
   constructor(
     private readonly surveysRepository: SurveysRepository,
-    private readonly prisma: PrismaService
+    private readonly prisma: PrismaService,
+    private readonly jobsService: JobsService
   ) {}
 
   findAll(query: SurveyQueryDto, user: AuthenticatedUser) {
     return this.surveysRepository.findAll(query, user)
+  }
+
+  wardCommandStats(query: WardStatsQueryDto, user: AuthenticatedUser) {
+    return this.surveysRepository.wardCommandStats(user, {
+      limit: query.limit,
+      districtId: query.districtId,
+      ulbId: query.ulbId,
+    })
   }
 
   findById(id: string, user: AuthenticatedUser) {
@@ -154,6 +175,7 @@ export class SurveysService {
         submittedAt: new Date(),
         rejectedAt: null,
         qcRemarks: null,
+        qcStatus: "PENDING",
       },
     })
     this.logger.log(`Survey status SUBMITTED ${id}`)
@@ -175,7 +197,13 @@ export class SurveysService {
       to: "APPROVED",
       changedBy: user.id,
       action: "APPROVED",
-      extra: { approvedAt: new Date(), rejectedAt: null, qcRemarks: null },
+      extra: {
+        approvedAt: new Date(),
+        rejectedAt: null,
+        qcRemarks: null,
+        qcStatus: "APPROVED",
+      },
+      auditNew: { surveyStatus: "APPROVED", qcStatus: "APPROVED" },
     })
     this.logger.log(`Survey status APPROVED ${id}`)
     return updated
@@ -199,11 +227,125 @@ export class SurveysService {
       extra: {
         rejectedAt: new Date(),
         qcRemarks: dto.qcRemarks,
+        qcStatus: "REJECTED",
       },
-      auditNew: { surveyStatus: "REJECTED", qcRemarks: dto.qcRemarks },
+      auditNew: { surveyStatus: "REJECTED", qcStatus: "REJECTED", qcRemarks: dto.qcRemarks },
     })
     this.logger.log(`Survey status REJECTED ${id}`)
     return updated
+  }
+
+  async bulkApprove(dto: BulkSurveyIdsDto, user: AuthenticatedUser) {
+    const succeeded: string[] = []
+    const failed: BulkItemResult[] = []
+
+    for (const id of dto.ids) {
+      try {
+        await this.approve(id, user)
+        succeeded.push(id)
+      } catch (error: unknown) {
+        failed.push({ id, reason: this.errorMessage(error) })
+      }
+    }
+
+    await this.prisma.db.securityAudit.create({
+      data: {
+        action: "SURVEY_BULK_APPROVE",
+        actorId: user.id,
+        targetType: "Survey",
+        targetId: succeeded[0] ?? dto.ids[0] ?? "none",
+        metadata: {
+          requested: dto.ids.length,
+          succeeded,
+          failed,
+        },
+      },
+    })
+
+    this.logger.log(`Bulk approve by ${user.id}: ${succeeded.length}/${dto.ids.length}`)
+    return { succeeded, failed }
+  }
+
+  async bulkReject(dto: BulkRejectSurveysDto, user: AuthenticatedUser) {
+    const succeeded: string[] = []
+    const failed: BulkItemResult[] = []
+
+    for (const id of dto.ids) {
+      try {
+        await this.reject(id, { qcRemarks: dto.qcRemarks }, user)
+        succeeded.push(id)
+      } catch (error: unknown) {
+        failed.push({ id, reason: this.errorMessage(error) })
+      }
+    }
+
+    await this.prisma.db.securityAudit.create({
+      data: {
+        action: "SURVEY_BULK_REJECT",
+        actorId: user.id,
+        targetType: "Survey",
+        targetId: succeeded[0] ?? dto.ids[0] ?? "none",
+        metadata: {
+          requested: dto.ids.length,
+          qcRemarks: dto.qcRemarks,
+          succeeded,
+          failed,
+        },
+      },
+    })
+
+    this.logger.log(`Bulk reject by ${user.id}: ${succeeded.length}/${dto.ids.length}`)
+    return { succeeded, failed }
+  }
+
+  async bulkExport(dto: BulkExportSurveysDto, user: AuthenticatedUser) {
+    const accessible = await this.surveysRepository.findAccessibleByIds(dto.selectedIds, user)
+    const accessibleIds = accessible.map((s) => s.id)
+    if (accessibleIds.length === 0) {
+      throw new BadRequestException("No accessible surveys found for export")
+    }
+
+    const reportType = dto.reportType ?? "survey_data"
+    const filters = { selectedIds: accessibleIds }
+    const job = await this.prisma.db.exportJob.create({
+      data: {
+        createdById: user.id,
+        reportType,
+        format: ExportFormat.XLSX,
+        filters,
+      },
+      select: { id: true, status: true },
+    })
+
+    await this.jobsService.enqueueExport({
+      jobId: job.id,
+      createdById: user.id,
+      format: "xlsx",
+      reportType,
+      filters,
+      tenantRoles: user.tenantRoles,
+    })
+
+    await this.prisma.db.securityAudit.create({
+      data: {
+        action: "SURVEY_BULK_EXPORT",
+        actorId: user.id,
+        targetType: "ExportJob",
+        targetId: job.id,
+        metadata: {
+          reportType,
+          selectedCount: accessibleIds.length,
+          skippedCount: dto.selectedIds.length - accessibleIds.length,
+        },
+      },
+    })
+
+    return { jobId: job.id, status: JobStatus.QUEUED, selectedCount: accessibleIds.length }
+  }
+
+  private errorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message
+    return "Unknown error"
   }
 
   async reopen(id: string, user: AuthenticatedUser) {

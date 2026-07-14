@@ -67,3 +67,15 @@ export type TaxRateZoneDto = z.infer<typeof TaxRateZoneSchema>
 export const AssessmentYearSchema = z.enum(["AY_2025_2026", "AY_2026_2027"])
 
 export type AssessmentYearDto = z.infer<typeof AssessmentYearSchema>
+
+export const SurveyStatusSchema = z.enum(["DRAFT", "IN_PROGRESS", "SUBMITTED", "APPROVED", "REJECTED", "REOPENED"])
+
+export type SurveyStatusDto = z.infer<typeof SurveyStatusSchema>
+
+export const QcStatusSchema = z.enum(["PENDING", "APPROVED", "REJECTED"])
+
+export type QcStatusDto = z.infer<typeof QcStatusSchema>
+
+export const PhotoTypeSchema = z.enum(["FRONT", "SIDE", "INSIDE", "DOCUMENT"])
+
+export type PhotoTypeDto = z.infer<typeof PhotoTypeSchema>

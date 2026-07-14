@@ -1,4 +1,5 @@
-import { Controller, Get, Query, Res, StreamableFile } from "@nestjs/common"
+import { Controller, Get, Param, Query, Res, StreamableFile } from "@nestjs/common"
+import { Throttle } from "@nestjs/throttler"
 import { ApiBearerAuth, ApiOperation, ApiPropertyOptional, ApiTags } from "@nestjs/swagger"
 import { SurveyStatus } from "@workspace/database"
 import { IsBooleanString, IsDateString, IsEnum, IsIn, IsOptional, IsString } from "class-validator"
@@ -30,17 +31,32 @@ class ExportQueryDto {
   format: ExportFormat = "xlsx"
 
   @ApiPropertyOptional({
-    enum: ["surveys", "ward", "ulb", "district", "summary"],
+    enum: ["surveys", "ward", "ulb", "district", "summary", "convex_full", "survey_data", "nagar_panchayat", "qc_final"],
     default: "surveys",
   })
   @IsOptional()
-  @IsIn(["surveys", "ward", "ulb", "district", "summary"])
+  @IsIn(["surveys", "ward", "ulb", "district", "summary", "convex_full", "survey_data", "nagar_panchayat", "qc_final"])
   reportType: ExportReportType = "surveys"
 
   @ApiPropertyOptional({ enum: SurveyStatus })
   @IsOptional()
   @IsEnum(SurveyStatus)
   surveyStatus?: SurveyStatus
+
+  @ApiPropertyOptional({ enum: ["PENDING", "APPROVED", "REJECTED"] })
+  @IsOptional()
+  @IsIn(["PENDING", "APPROVED", "REJECTED"])
+  qcStatus?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  surveyorId?: string
+
+  @ApiPropertyOptional({ description: "Comma-separated survey IDs" })
+  @IsOptional()
+  @IsString()
+  selectedIds?: string
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -97,6 +113,7 @@ export class ReportsController {
 
   @Get("surveys/export")
   @RequirePermission(PERMISSIONS.REPORT_EXPORT)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({ summary: "Legacy JSON export of surveys" })
   exportLegacy(@CurrentUser() user: AuthenticatedUser) {
     return this.reportsService.exportSurveys(user)
@@ -104,6 +121,7 @@ export class ReportsController {
 
   @Get("export")
   @RequirePermission(PERMISSIONS.REPORT_EXPORT)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({ summary: "Export surveys as JSON, Excel, CSV, or PDF" })
   async export(
     @Query() query: ExportQueryDto,
@@ -112,10 +130,13 @@ export class ReportsController {
   ) {
     const filters = {
       surveyStatus: query.surveyStatus,
+      qcStatus: query.qcStatus,
       stateId: query.stateId,
       districtId: query.districtId,
       ulbId: query.ulbId,
       wardId: query.wardId,
+      surveyorId: query.surveyorId,
+      selectedIds: query.selectedIds?.split(",").filter(Boolean),
       search: query.search,
       dateFrom: query.dateFrom,
       dateTo: query.dateTo,
@@ -134,5 +155,40 @@ export class ReportsController {
     }
 
     return result
+  }
+
+  @Get("nagar-panchayat")
+  @RequirePermission(PERMISSIONS.REPORT_EXPORT)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @ApiOperation({ summary: "Queue the Bakewar-compatible Nagar Panchayat Excel preset" })
+  nagarPanchayat(@Query() query: ExportQueryDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.reportsService.enqueueExport(user, "xlsx", "nagar_panchayat", {
+      surveyStatus: query.surveyStatus,
+      qcStatus: query.qcStatus,
+      stateId: query.stateId,
+      districtId: query.districtId,
+      ulbId: query.ulbId,
+      wardId: query.wardId,
+      surveyorId: query.surveyorId,
+      selectedIds: query.selectedIds?.split(",").filter(Boolean),
+      search: query.search,
+      dateFrom: query.dateFrom,
+      dateTo: query.dateTo,
+    })
+  }
+
+  @Get("jobs/:id/download")
+  @RequirePermission(PERMISSIONS.REPORT_EXPORT)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @ApiOperation({ summary: "Get a signed URL for a completed export job" })
+  downloadJob(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.reportsService.getJobDownload(user, id)
+  }
+
+  @Get("jobs/:id")
+  @RequirePermission(PERMISSIONS.REPORT_EXPORT)
+  @ApiOperation({ summary: "Get status for an export job owned by the current user" })
+  getJob(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.reportsService.getJob(user, id)
   }
 }

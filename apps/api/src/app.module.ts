@@ -25,6 +25,7 @@ import { PhotosModule } from "./photos/photos.module.js"
 import { PrismaModule } from "./prisma/prisma.module.js"
 import { ReportsModule } from "./reports/reports.module.js"
 import { RolesModule } from "./roles/roles.module.js"
+import { SavedViewsModule } from "./saved-views/saved-views.module.js"
 import { StatesModule } from "./states/states.module.js"
 import { StorageModule } from "./storage/storage.module.js"
 import { SurveyAuditsModule } from "./survey-audits/survey-audits.module.js"
@@ -62,6 +63,7 @@ import { WardsModule } from "./wards/wards.module.js"
     UlbsModule,
     WardsModule,
     SurveysModule,
+    SavedViewsModule,
     FloorsModule,
     PhotosModule,
     CoOwnersModule,

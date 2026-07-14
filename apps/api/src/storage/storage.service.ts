@@ -168,6 +168,11 @@ export class StorageService {
     })
   }
 
+  async getPresignedDownloadUrl(key: string, expiresIn = 900) {
+    this.assertConfigured()
+    return this.storageService.getSignedDownloadUrl(key, expiresIn)
+  }
+
   extractKey(keyOrUrl: string): string | null {
     if (!keyOrUrl) return null
     if (keyOrUrl.startsWith("uploads/") || keyOrUrl.startsWith("imports/") || keyOrUrl.startsWith("exports/")) {

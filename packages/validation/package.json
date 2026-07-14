@@ -6,16 +6,26 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
+    "build": "tsc",
+    "dev": "tsc -w --preserveWatchOutput",
     "typecheck": "tsc --noEmit"
   },
   "exports": {
-    ".": "./src/index.ts",
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
     "./*": "./src/*.ts"
   },
+  "files": [
+    "dist"
+  ],
   "dependencies": {
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/node": "^26.1.1",
     "@workspace/typescript-config": "workspace:*",
     "typescript": "^5.9.2"
   }

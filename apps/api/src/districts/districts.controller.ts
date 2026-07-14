@@ -23,13 +23,13 @@ export class DistrictsController {
   constructor(private readonly districtsService: DistrictsService) {}
 
   @Get()
-  @RequirePermission(PERMISSIONS.USER_VIEW)
+  @RequirePermission(PERMISSIONS.SURVEY_VIEW)
   findAll(@Query() query: DistrictQueryDto, @CurrentUser() user: AuthenticatedUser) {
     return this.districtsService.findAll(query, user, query.stateId)
   }
 
   @Get(":id")
-  @RequirePermission(PERMISSIONS.USER_VIEW)
+  @RequirePermission(PERMISSIONS.SURVEY_VIEW)
   findOne(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.districtsService.findById(id, user)
   }

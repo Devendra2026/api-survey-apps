@@ -118,6 +118,13 @@ enum SurveyStatus {
   REOPENED
 }
 
+/// Independent QC axis (legacy Convex qcStatus). Approve/reject decisions live here.
+enum QcStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum UsageFactor {
   RESIDENTIAL
   COMMERCIAL
@@ -159,6 +166,8 @@ enum FloorPosition {
 enum PhotoType {
   FRONT
   SIDE
+  INSIDE
+  DOCUMENT
 }
 
 enum UlbType {
@@ -302,6 +311,8 @@ model User {
   securityAuditsActor SecurityAudit[]  @relation("SecurityAuditActor")
   importJobsCreated   ImportJob[]      @relation("ImportJobCreatedBy")
   exportJobsCreated   ExportJob[]      @relation("ExportJobCreatedBy")
+  qcRemarksAuthored   QcRemark[]       @relation("QcRemarkAuthor")
+  savedViews          SavedView[]      @relation("SavedViewOwner")
 
   @@index([isActive])
   @@index([fullName])
@@ -406,17 +417,22 @@ model Survey {
   assignedAt   DateTime?
 
   // Property identification
-  propertyId    String
-  localId       String?
-  propertyIdOld String?
-  parcelNumber  String?
-  unitSubNo     String?
+  propertyId      String
+  localId         String?
+  propertyIdOld   String?
+  parcelNumber    String?
+  unitSubNo       String?
+  sectorNo        String?
+  constructedYear Int?
+  isSlum          Boolean @default(false)
   /// Legacy denormalized ward number from source systems
-  wardNumber    String?
+  wardNumber      String?
   /// Legacy denormalized ULB code from source systems
-  ulbCode       String?
+  ulbCode         String?
   /// Legacy denormalized district name from source systems
-  districtName  String?
+  districtName    String?
+  /// Legacy Convex document id (import provenance)
+  legacySurveyId  String?
 
   // Owner / respondent
   respondentName        String?
@@ -450,26 +466,33 @@ model Survey {
   totalBuiltAreaSqMeter Decimal? @db.Decimal(14, 4)
 
   // Utilities
-  waterConnection      WaterConnection?
-  sourceOfWater        SourceOfWater?
-  sanitationType       SanitationType?
-  solidWasteCollection Boolean?
+  waterConnection       WaterConnection?
+  sourceOfWater         SourceOfWater?
+  sanitationType        SanitationType?
+  solidWasteCollection  Boolean?
+  electricityConsumerNo String?
 
   // GPS capture (Decimal fields are source of truth; gpsCoordinates is legacy)
   latitude          Decimal?       @db.Decimal(9, 6)
   longitude         Decimal?       @db.Decimal(9, 6)
   gpsAccuracyMeters Decimal?       @db.Decimal(8, 2)
   gpsSource         GpsSource?
+  gpsProvider       String?
+  gpsMockLocation   Boolean?
   /// @deprecated Use latitude/longitude
   gpsCoordinates    GPSCordinates?
   capturedAt        DateTime?
 
   // Workflow
-  surveyStatus SurveyStatus @default(DRAFT)
-  submittedAt  DateTime?
-  approvedAt   DateTime?
-  rejectedAt   DateTime?
-  qcRemarks    String?
+  surveyStatus    SurveyStatus @default(DRAFT)
+  qcStatus        QcStatus     @default(PENDING)
+  serverVersion   Int          @default(1)
+  completionPct   Int?
+  clientUpdatedAt DateTime?
+  submittedAt     DateTime?
+  approvedAt      DateTime?
+  rejectedAt      DateTime?
+  qcRemarks       String?
 
   // Audit / soft delete
   createdAt DateTime  @default(now())
@@ -483,23 +506,29 @@ model Survey {
   createdBy  User     @relation("SurveyCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   assignedTo User?    @relation("SurveyAssignedTo", fields: [assignedToId], references: [id], onDelete: Restrict)
 
-  coOwners CoOwner[]
-  floors   Floor[]
-  photos   Photo[]
-  audits   SurveyAudit[]
+  coOwners       CoOwner[]
+  floors         Floor[]
+  photos         Photo[]
+  audits         SurveyAudit[]
+  qcRemarkThread QcRemark[]
 
   @@unique([ulbId, propertyId, assessmentYear])
   @@index([stateId, surveyStatus])
   @@index([districtId, surveyStatus])
   @@index([ulbId, surveyStatus])
   @@index([wardId, surveyStatus])
+  @@index([ulbId, qcStatus])
+  @@index([wardId, qcStatus])
   @@index([createdById, createdAt])
   @@index([assignedToId, surveyStatus])
   @@index([surveyStatus, createdAt])
+  @@index([qcStatus, createdAt])
   @@index([createdAt])
   @@index([deletedAt])
   @@index([mobileNumber])
   @@index([propertyId])
+  @@index([localId])
+  @@index([legacySurveyId])
   @@map("surveys")
 }
 
@@ -507,6 +536,7 @@ model Survey {
 model CoOwner {
   id                  String   @id @default(cuid())
   surveyId            String
+  ownerIndex          Int      @default(1)
   name                String
   fatherOrHusbandName String?
   mobile              String?
@@ -517,6 +547,7 @@ model CoOwner {
   survey Survey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
 
   @@index([surveyId])
+  @@index([surveyId, ownerIndex])
   @@map("co_owners")
 }
 
@@ -524,12 +555,14 @@ model CoOwner {
 model Floor {
   id               String            @id @default(cuid())
   surveyId         String
+  clientFloorId    String?
   floorPosition    FloorPosition
   usageFactor      UsageFactor?
   usageType        UsageType?
   constructionType ConstructionType?
   occupancy        String?
   areaSqFt         Decimal?          @db.Decimal(14, 4)
+  position         Int               @default(0)
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
@@ -537,6 +570,7 @@ model Floor {
 
   @@unique([surveyId, floorPosition])
   @@index([surveyId])
+  @@index([surveyId, clientFloorId])
   @@map("floors")
 }
 
@@ -547,6 +581,8 @@ model Photo {
   photoType       PhotoType
   /// Cached delivery URL (signed/public); prefer objectKey for identity
   url             String
+  sourceUrl       String?
+  importStatus    String?
   storageProvider StorageProvider?
   bucket          String?
   objectKey       String?
@@ -566,7 +602,25 @@ model Photo {
   @@index([surveyId])
   @@index([surveyId, photoType])
   @@index([objectKey])
+  @@index([importStatus])
   @@map("photos")
+}
+
+/// Append-only QC remark thread between supervisor and surveyor.
+model QcRemark {
+  id         String    @id @default(cuid())
+  surveyId   String
+  authorId   String
+  body       String
+  resolvedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  survey Survey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  author User   @relation("QcRemarkAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([surveyId, createdAt])
+  @@index([authorId])
+  @@map("qc_remarks")
 }
 
 /// Field-level / action audit trail for survey changes (immutable; retained).
@@ -612,24 +666,29 @@ model SecurityAudit {
 
 /// Async Excel/CSV import job processed by the background worker.
 model ImportJob {
-  id              String           @id @default(cuid())
-  createdById     String
-  status          JobStatus        @default(QUEUED)
-  originalName    String
-  mimeType        String?
-  storageProvider StorageProvider?
-  bucket          String?
-  objectKey       String?
-  totalRows       Int              @default(0)
-  successCount    Int              @default(0)
-  failureCount    Int              @default(0)
-  errorReportKey  String?
-  resultSummary   Json?
-  errorMessage    String?
-  startedAt       DateTime?
-  finishedAt      DateTime?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  id                String           @id @default(cuid())
+  createdById       String
+  status            JobStatus        @default(QUEUED)
+  originalName      String
+  mimeType          String?
+  storageProvider   StorageProvider?
+  bucket            String?
+  objectKey         String?
+  totalRows         Int              @default(0)
+  processedRows     Int              @default(0)
+  successCount      Int              @default(0)
+  failureCount      Int              @default(0)
+  photoSuccessCount Int              @default(0)
+  photoFailureCount Int              @default(0)
+  checkpoint        Json?
+  errorReportKey    String?
+  resultSummary     Json?
+  errorMessage      String?
+  resumeToken       String?
+  startedAt         DateTime?
+  finishedAt        DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
 
   createdBy User @relation("ImportJobCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
 
@@ -649,7 +708,9 @@ model ExportJob {
   storageProvider StorageProvider?
   bucket          String?
   objectKey       String?
+  filename        String?
   rowCount        Int              @default(0)
+  downloadCount   Int              @default(0)
   errorMessage    String?
   startedAt       DateTime?
   finishedAt      DateTime?
@@ -660,5 +721,27 @@ model ExportJob {
 
   @@index([createdById, createdAt])
   @@index([status, createdAt])
+  @@index([reportType, createdAt])
   @@map("export_jobs")
+}
+
+/// Persisted table filter/column views for survey registry.
+model SavedView {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  entity    String   @default("surveys")
+  filters   Json
+  columns   Json?
+  sortBy    String?
+  sortOrder String?
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation("SavedViewOwner", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, entity, name])
+  @@index([userId, entity])
+  @@map("saved_views")
 }

@@ -1,32 +1,73 @@
-import { BadRequestException, Injectable, Logger } from "@nestjs/common"
-import { AssessmentYear, JobStatus, OwnershipType, PropertyType, PropertyUse, SurveyStatus } from "@workspace/database"
-import ExcelJS from "exceljs"
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common"
+import {
+  AssessmentYear,
+  ConstructionType,
+  FloorPosition,
+  GpsSource,
+  JobStatus,
+  OwnershipType,
+  PhotoType,
+  PropertyType,
+  PropertyUse,
+  QcStatus,
+  RoadType,
+  SanitationType,
+  Situation,
+  SourceOfWater,
+  SurveyStatus,
+  TaxRateZone,
+  UsageFactor,
+  UsageType,
+  WaterConnection,
+  type Prisma,
+} from "@workspace/database"
+import {
+  formatPropertyId,
+  mapAssessmentYear,
+  mapConstructionType,
+  mapFloorPosition,
+  mapGpsSource,
+  mapOwnershipType,
+  mapPhotoType,
+  mapPropertyType,
+  mapPropertyUse,
+  mapQcStatus,
+  mapRoadType,
+  mapSanitationType,
+  mapSituation,
+  mapSourceOfWater,
+  mapSurveyStatus,
+  mapTaxRateZone,
+  mapUsageFactor,
+  mapUsageType,
+  mapWaterConnection,
+  padUlbCode,
+  padWardNo,
+  parseNumber,
+  parseYn,
+  sqFtToSqMeter,
+} from "@workspace/validation"
 import { randomUUID } from "node:crypto"
-import { Readable } from "node:stream"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { canAccessTenant, resolveTenantScope } from "../common/utils/tenant-scope.util.js"
 import { JobsService } from "../jobs/jobs.service.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import { StorageService } from "../storage/storage.service.js"
+import { groupRowsByPropertyId, parseConvexWorkbook, type WorkbookRow } from "./convex-workbook-parser.js"
 
 const SYNC_IMPORT_MAX_ROWS = 500
 const SYNC_IMPORT_MAX_BYTES = 2 * 1024 * 1024
-
-const REQUIRED_COLUMNS = [
-  "propertyId",
-  "stateId",
-  "districtId",
-  "ulbId",
-  "wardId",
-  "assessmentYear",
-  "ownershipType",
-  "propertyUse",
-  "propertyType",
-] as const
+const CHUNK_SIZE = 50
 
 export interface ImportRowError {
   row: number
   propertyId?: string
+  localId?: string
   errors: string[]
 }
 
@@ -34,8 +75,27 @@ export interface ImportSummary {
   totalRows: number
   successCount: number
   failureCount: number
+  photoSuccessCount: number
+  photoFailureCount: number
   createdSurveyIds: string[]
+  updatedSurveyIds: string[]
   errors: ImportRowError[]
+}
+
+interface GeoResolved {
+  stateId: string
+  districtId: string
+  ulbId: string
+  wardId: string
+  ulbCode: string
+  wardNumber: string
+}
+
+interface MappedSurvey {
+  rowNumber: number
+  propertyId: string
+  localId?: string
+  data: Prisma.SurveyUncheckedCreateInput
 }
 
 @Injectable()
@@ -95,7 +155,94 @@ export class ImportsService {
       tenantRoles: user.tenantRoles,
     })
 
+    await this.prisma.db.securityAudit.create({
+      data: {
+        action: "IMPORT_ENQUEUED",
+        actorId: user.id,
+        targetType: "ImportJob",
+        targetId: job.id,
+        metadata: {
+          originalName: file.originalname,
+          sizeBytes: file.size,
+          objectKey: uploaded.key,
+        },
+      },
+    })
+
     return { jobId: job.id, status: JobStatus.QUEUED }
+  }
+
+  async listJobs(user: AuthenticatedUser, take = 50) {
+    const limit = Math.min(Math.max(take, 1), 100)
+    return this.prisma.db.importJob.findMany({
+      where: { createdById: user.id },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      select: {
+        id: true,
+        status: true,
+        originalName: true,
+        totalRows: true,
+        processedRows: true,
+        successCount: true,
+        failureCount: true,
+        photoSuccessCount: true,
+        photoFailureCount: true,
+        errorMessage: true,
+        errorReportKey: true,
+        checkpoint: true,
+        resultSummary: true,
+        startedAt: true,
+        finishedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    })
+  }
+
+  async getJob(user: AuthenticatedUser, jobId: string) {
+    const job = await this.prisma.db.importJob.findFirst({
+      where: { id: jobId, createdById: user.id },
+    })
+    if (!job) throw new NotFoundException("Import job not found")
+    return job
+  }
+
+  async resumeJob(user: AuthenticatedUser, jobId: string) {
+    const job = await this.getJob(user, jobId)
+    if (!job.objectKey || !job.bucket) {
+      throw new BadRequestException("Import job has no stored workbook to resume")
+    }
+    if (job.status === JobStatus.PROCESSING || job.status === JobStatus.QUEUED) {
+      throw new BadRequestException("Import job is already queued or processing")
+    }
+    if (job.status === JobStatus.SUCCEEDED && job.processedRows >= job.totalRows && job.totalRows > 0) {
+      throw new BadRequestException("Import job already completed")
+    }
+
+    await this.prisma.db.importJob.update({
+      where: { id: job.id },
+      data: {
+        status: JobStatus.QUEUED,
+        errorMessage: null,
+        finishedAt: null,
+      },
+    })
+
+    await this.jobsService.enqueueImport({
+      jobId: job.id,
+      createdById: user.id,
+      originalName: job.originalName,
+      mimeType: job.mimeType || undefined,
+      sizeBytes: 0,
+      bucket: job.bucket,
+      storageProvider: job.storageProvider ?? undefined,
+      objectKey: job.objectKey,
+      tenantRoles: user.tenantRoles,
+      resumeFromCheckpoint: true,
+    })
+
+    return { jobId: job.id, status: JobStatus.QUEUED, resumeFromCheckpoint: true }
   }
 
   async importSurveys(
@@ -109,152 +256,427 @@ export class ImportsService {
       throw new BadRequestException("Synchronous imports are capped at 2MB. Retry without ?sync=true.")
     }
 
-    const rows = await this.parseRows(file)
-    if (!rows.length) throw new BadRequestException("Import file has no data rows")
-    if (options.enforceSyncCap && rows.length > SYNC_IMPORT_MAX_ROWS) {
+    let workbook
+    try {
+      workbook = await parseConvexWorkbook(file.buffer, file.originalname)
+    } catch (err) {
+      throw new BadRequestException(err instanceof Error ? err.message : "Failed to parse workbook")
+    }
+
+    if (options.enforceSyncCap && workbook.surveys.length > SYNC_IMPORT_MAX_ROWS) {
       throw new BadRequestException("Synchronous imports are capped at 500 rows. Retry without ?sync=true.")
     }
 
-    const existing = await this.prisma.db.survey.findMany({
-      where: {
-        deletedAt: null,
-        OR: rows
-          .filter((r) => r.propertyId && r.ulbId && r.assessmentYear)
-          .map((r) => ({
-            propertyId: String(r.propertyId).trim(),
-            ulbId: String(r.ulbId).trim(),
-            assessmentYear: r.assessmentYear as AssessmentYear,
-          })),
-      },
-      select: { propertyId: true, ulbId: true, assessmentYear: true },
-    })
-    const existingSet = new Set(existing.map((e) => `${e.ulbId}|${e.propertyId}|${e.assessmentYear}`))
-
+    const coOwnersByPid = groupRowsByPropertyId(workbook.coOwners)
+    const floorsByPid = groupRowsByPropertyId(workbook.floors)
+    const photosByPid = groupRowsByPropertyId(workbook.photos)
     const scope = resolveTenantScope(user.tenantRoles)
+    const geoCache = new Map<string, GeoResolved | null>()
     const errors: ImportRowError[] = []
-    const validRows: Array<Record<string, string>> = []
-
-    const wards = await this.prisma.db.ward.findMany({
-      where: { id: { in: [...new Set(rows.map((r) => String(r.wardId ?? "").trim()).filter(Boolean))] } },
-      include: { ulb: { include: { district: true } } },
-    })
-    const wardById = new Map(wards.map((w) => [w.id, w]))
-
-    rows.forEach((row, index) => {
-      const rowNumber = index + 2
-      const rowErrors: string[] = []
-      for (const col of REQUIRED_COLUMNS) {
-        if (!row[col] || String(row[col]).trim() === "") {
-          rowErrors.push(`Missing required column: ${col}`)
-        }
-      }
-
-      const propertyId = String(row.propertyId ?? "").trim()
-      const ulbId = String(row.ulbId ?? "").trim()
-      const assessmentYear = String(row.assessmentYear ?? "").trim()
-      const identityKey = `${ulbId}|${propertyId}|${assessmentYear}`
-      if (propertyId && ulbId && assessmentYear && existingSet.has(identityKey)) {
-        rowErrors.push(`Property ID already exists for ULB/assessment year: ${propertyId}`)
-      }
-
-      if (row.ownershipType && !Object.values(OwnershipType).includes(row.ownershipType as OwnershipType)) {
-        rowErrors.push(`Invalid ownershipType: ${row.ownershipType}`)
-      }
-      if (row.propertyUse && !Object.values(PropertyUse).includes(row.propertyUse as PropertyUse)) {
-        rowErrors.push(`Invalid propertyUse: ${row.propertyUse}`)
-      }
-      if (row.propertyType && !Object.values(PropertyType).includes(row.propertyType as PropertyType)) {
-        rowErrors.push(`Invalid propertyType: ${row.propertyType}`)
-      }
-      if (row.assessmentYear && !Object.values(AssessmentYear).includes(row.assessmentYear as AssessmentYear)) {
-        rowErrors.push(`Invalid assessmentYear: ${row.assessmentYear}`)
-      }
-
-      const ward = wardById.get(String(row.wardId ?? "").trim())
-      if (row.wardId && !ward) {
-        rowErrors.push("Invalid wardId")
-      } else if (ward) {
-        if (ward.ulbId !== String(row.ulbId ?? "").trim()) rowErrors.push("wardId does not belong to ulbId")
-        if (ward.ulb.districtId !== String(row.districtId ?? "").trim())
-          rowErrors.push("ulbId does not belong to districtId")
-        if (ward.ulb.district.stateId !== String(row.stateId ?? "").trim()) {
-          rowErrors.push("districtId does not belong to stateId")
-        }
-      }
-
-      if (
-        !canAccessTenant(scope, {
-          stateId: row.stateId,
-          districtId: row.districtId,
-          ulbId: row.ulbId,
-          wardId: row.wardId,
-        })
-      ) {
-        rowErrors.push("Row is outside your tenant scope")
-      }
-
-      if (rowErrors.length) {
-        errors.push({ row: rowNumber, propertyId: propertyId || undefined, errors: rowErrors })
-      } else {
-        validRows.push(row)
-        existingSet.add(identityKey)
-      }
-    })
-
     const createdSurveyIds: string[] = []
-    if (validRows.length) {
-      try {
-        await this.prisma.db.$transaction(async (tx) => {
-          for (const row of validRows) {
-            const survey = await tx.survey.create({
-              data: {
-                propertyId: String(row.propertyId).trim(),
-                stateId: String(row.stateId).trim(),
-                districtId: String(row.districtId).trim(),
-                ulbId: String(row.ulbId).trim(),
-                wardId: String(row.wardId).trim(),
-                ownershipType: row.ownershipType as OwnershipType,
-                propertyUse: row.propertyUse as PropertyUse,
-                propertyType: row.propertyType as PropertyType,
-                assessmentYear: row.assessmentYear as AssessmentYear,
-                respondentName: row.respondentName || undefined,
-                mobileNumber: row.mobileNumber || undefined,
-                houseDoorNo: row.houseDoorNo || undefined,
-                locality: row.locality || undefined,
-                surveyStatus: SurveyStatus.DRAFT,
-                createdById: user.id,
-                assignedToId: user.id,
-                assignedAt: new Date(),
+    const updatedSurveyIds: string[] = []
+    let successCount = 0
+    let failureCount = 0
+    let photoSuccessCount = 0
+    let photoFailureCount = 0
+
+    for (let offset = 0; offset < workbook.surveys.length; offset += CHUNK_SIZE) {
+      const chunkRows = workbook.surveys.slice(offset, offset + CHUNK_SIZE)
+      const mappedChunk: MappedSurvey[] = []
+
+      for (const [i, row] of chunkRows.entries()) {
+        const rowNumber = offset + i + 2
+        const mapped = await this.mapSurveyRow(row, rowNumber, user, scope, geoCache, errors)
+        if (mapped) mappedChunk.push(mapped)
+        else failureCount += 1
+      }
+
+      const propertyIds = mappedChunk.map((item) => item.propertyId)
+      const localIds = mappedChunk.map((item) => item.localId).filter((id): id is string => Boolean(id))
+
+      const existingByProperty = propertyIds.length
+        ? await this.prisma.db.survey.findMany({
+            where: { deletedAt: null, propertyId: { in: propertyIds } },
+            select: { id: true, propertyId: true, localId: true },
+          })
+        : []
+      const byPropertyId = new Map(existingByProperty.map((s) => [s.propertyId.toUpperCase(), s]))
+
+      const existingByLocal =
+        localIds.length > 0
+          ? await this.prisma.db.survey.findMany({
+              where: {
+                deletedAt: null,
+                localId: { in: localIds },
+                NOT: propertyIds.length ? { propertyId: { in: propertyIds } } : undefined,
               },
+              select: { id: true, propertyId: true, localId: true },
             })
-            await tx.surveyAudit.create({
-              data: {
-                surveyId: survey.id,
-                action: "IMPORTED",
-                newValue: { propertyId: survey.propertyId },
-                changedBy: user.id,
-              },
-            })
-            createdSurveyIds.push(survey.id)
-          }
-        })
-      } catch (err) {
-        this.logger.error(`Import transaction failed: ${String(err)}`)
-        throw new BadRequestException("Import failed and was rolled back. Fix row errors and retry.")
+          : []
+      const byLocalId = new Map(
+        existingByLocal.filter((s) => s.localId).map((s) => [String(s.localId).toUpperCase(), s])
+      )
+
+      for (const item of mappedChunk) {
+        try {
+          const existing =
+            byPropertyId.get(item.propertyId.toUpperCase()) ??
+            (item.localId ? byLocalId.get(item.localId.toUpperCase()) : undefined)
+
+          const result = await this.prisma.db.$transaction(async (tx) => {
+            let surveyId: string
+            let created = false
+
+            if (existing) {
+              const {
+                createdById: _c,
+                assignedToId: _a,
+                assignedAt: _t,
+                ...updateFields
+              } = item.data
+              await tx.survey.update({
+                where: { id: existing.id },
+                data: updateFields as Prisma.SurveyUncheckedUpdateInput,
+              })
+              surveyId = existing.id
+              await tx.surveyAudit.create({
+                data: {
+                  surveyId,
+                  action: "IMPORT_UPDATED",
+                  newValue: { propertyId: item.propertyId },
+                  changedBy: user.id,
+                },
+              })
+            } else {
+              const createdSurvey = await tx.survey.create({ data: item.data })
+              surveyId = createdSurvey.id
+              created = true
+              await tx.surveyAudit.create({
+                data: {
+                  surveyId,
+                  action: "IMPORTED",
+                  newValue: { propertyId: item.propertyId },
+                  changedBy: user.id,
+                },
+              })
+            }
+
+            await tx.coOwner.deleteMany({ where: { surveyId } })
+            for (const [idx, ownerRow] of (coOwnersByPid.get(item.propertyId.toUpperCase()) ?? []).entries()) {
+              const name = String(ownerRow.Name ?? "").trim()
+              if (!name) continue
+              await tx.coOwner.create({
+                data: {
+                  surveyId,
+                  ownerIndex: parseNumber(ownerRow["Owner Index"]) ?? idx + 1,
+                  name,
+                  fatherOrHusbandName: emptyToUndefined(ownerRow["Father / Husband Name"]),
+                  mobile: emptyToUndefined(ownerRow.Mobile),
+                  alternateMobile: emptyToUndefined(ownerRow["Alt Mobile"]),
+                },
+              })
+            }
+
+            await tx.floor.deleteMany({ where: { surveyId } })
+            const seenPositions = new Set<string>()
+            for (const floorRow of floorsByPid.get(item.propertyId.toUpperCase()) ?? []) {
+              const positionRaw = mapFloorPosition(floorRow.Floor)
+              if (!positionRaw || !isFloorPosition(positionRaw) || seenPositions.has(positionRaw)) continue
+              seenPositions.add(positionRaw)
+              await tx.floor.create({
+                data: {
+                  surveyId,
+                  clientFloorId: emptyToUndefined(floorRow["Client Floor ID"]),
+                  floorPosition: positionRaw,
+                  usageFactor: asEnum(mapUsageFactor(floorRow["Usage Factor"]), isUsageFactor),
+                  usageType: asEnum(mapUsageType(floorRow["Usage Type"]), isUsageType),
+                  constructionType: asEnum(mapConstructionType(floorRow["Construction Type"]), isConstructionType),
+                  occupancy: emptyToUndefined(floorRow.Occupancy),
+                  areaSqFt: parseNumber(floorRow["Area (Sqft)"]),
+                  position: parseNumber(floorRow.Position) ?? 0,
+                },
+              })
+            }
+
+            let photoOk = 0
+            let photoFail = 0
+            for (const photoRow of photosByPid.get(item.propertyId.toUpperCase()) ?? []) {
+              try {
+                const photoTypeRaw = mapPhotoType(photoRow["Slot Key"] || photoRow.Slot)
+                if (!photoTypeRaw || !isPhotoType(photoTypeRaw)) {
+                  photoFail += 1
+                  continue
+                }
+                const sourceUrl = emptyToUndefined(photoRow["Photo URL"])
+                if (!sourceUrl) {
+                  photoFail += 1
+                  continue
+                }
+                const existingPhoto = await tx.photo.findFirst({
+                  where: { surveyId, photoType: photoTypeRaw },
+                })
+                if (existingPhoto) {
+                  await tx.photo.update({
+                    where: { id: existingPhoto.id },
+                    data: {
+                      sourceUrl,
+                      importStatus: "PENDING",
+                      url: sourceUrl,
+                      sizeKB: parseNumber(photoRow["Size (KB)"]),
+                      width: parseNumber(photoRow.Width),
+                      height: parseNumber(photoRow.Height),
+                      capturedAt: parseDate(photoRow["Captured At"]),
+                    },
+                  })
+                } else {
+                  await tx.photo.create({
+                    data: {
+                      surveyId,
+                      photoType: photoTypeRaw,
+                      url: sourceUrl,
+                      sourceUrl,
+                      importStatus: "PENDING",
+                      sizeKB: parseNumber(photoRow["Size (KB)"]),
+                      width: parseNumber(photoRow.Width),
+                      height: parseNumber(photoRow.Height),
+                      capturedAt: parseDate(photoRow["Captured At"]),
+                    },
+                  })
+                }
+                photoOk += 1
+              } catch {
+                photoFail += 1
+              }
+            }
+
+            return { surveyId, created, photoOk, photoFail }
+          })
+
+          if (result.created) createdSurveyIds.push(result.surveyId)
+          else updatedSurveyIds.push(result.surveyId)
+          successCount += 1
+          photoSuccessCount += result.photoOk
+          photoFailureCount += result.photoFail
+        } catch (err) {
+          failureCount += 1
+          errors.push({
+            row: item.rowNumber,
+            propertyId: item.propertyId,
+            localId: item.localId,
+            errors: [err instanceof Error ? err.message : String(err)],
+          })
+        }
       }
     }
 
     const summary: ImportSummary = {
-      totalRows: rows.length,
-      successCount: createdSurveyIds.length,
-      failureCount: errors.length,
+      totalRows: workbook.surveys.length,
+      successCount,
+      failureCount,
+      photoSuccessCount,
+      photoFailureCount,
       createdSurveyIds,
+      updatedSurveyIds,
       errors,
     }
     this.logger.log(
       `Survey import by=${user.id} total=${summary.totalRows} ok=${summary.successCount} fail=${summary.failureCount}`
     )
     return summary
+  }
+
+  private async mapSurveyRow(
+    row: WorkbookRow,
+    rowNumber: number,
+    user: AuthenticatedUser,
+    scope: ReturnType<typeof resolveTenantScope>,
+    geoCache: Map<string, GeoResolved | null>,
+    errors: ImportRowError[]
+  ): Promise<MappedSurvey | null> {
+    const rowErrors: string[] = []
+    const localId = emptyToUndefined(row["Local ID"])
+    const legacySurveyId = emptyToUndefined(row["Survey ID"])
+    const ulbCodeRaw = emptyToUndefined(row["ULB Code"])
+    const wardNumberRaw = emptyToUndefined(row["Ward Number"])
+    const parcelNo = emptyToUndefined(row["Parcel Number"])
+    const unitNo = emptyToUndefined(row["Unit / Sub-No"])
+    const propertyUseMapped = mapPropertyUse(row["Property Use"])
+
+    let propertyId = emptyToUndefined(row["Property ID"])?.toUpperCase()
+    if (!propertyId && ulbCodeRaw && wardNumberRaw && parcelNo && unitNo && propertyUseMapped) {
+      propertyId = formatPropertyId({
+        ulbCode: ulbCodeRaw,
+        wardNo: wardNumberRaw,
+        parcelNo,
+        unitNo,
+        propertyUse: propertyUseMapped,
+      })
+    }
+    if (!propertyId) rowErrors.push("Missing Property ID (and could not derive from ULB/Ward/Parcel/Unit/Use)")
+
+    const assessmentMapped = mapAssessmentYear(row["Assessment Year"])
+    if (emptyToUndefined(row["Assessment Year"]) && !assessmentMapped) {
+      rowErrors.push(`Invalid Assessment Year: ${row["Assessment Year"]}`)
+    }
+    const assessmentYear = (assessmentMapped ?? AssessmentYear.AY_2025_2026) as AssessmentYear
+
+    let geo: GeoResolved | null = null
+    if (ulbCodeRaw && wardNumberRaw) {
+      geo = await this.resolveGeo(ulbCodeRaw, wardNumberRaw, geoCache)
+      if (!geo) rowErrors.push(`Could not resolve ULB code + ward: ${ulbCodeRaw} / ${wardNumberRaw}`)
+    } else {
+      rowErrors.push("Missing ULB Code or Ward Number")
+    }
+
+    const ownershipType = asEnum(mapOwnershipType(row["Ownership Type"]), isOwnershipType)
+    const propertyUse = asEnum(propertyUseMapped, isPropertyUse)
+    const propertyType = asEnum(mapPropertyType(row["Property Type"]), isPropertyType)
+    if (emptyToUndefined(row["Ownership Type"]) && !ownershipType) {
+      rowErrors.push(`Invalid Ownership Type: ${row["Ownership Type"]}`)
+    }
+    if (emptyToUndefined(row["Property Use"]) && !propertyUse) {
+      rowErrors.push(`Invalid Property Use: ${row["Property Use"]}`)
+    }
+    if (emptyToUndefined(row["Property Type"]) && !propertyType) {
+      rowErrors.push(`Invalid Property Type: ${row["Property Type"]}`)
+    }
+
+    if (geo && !canAccessTenant(scope, geo)) {
+      rowErrors.push("Row is outside your tenant scope")
+    }
+
+    if (rowErrors.length || !propertyId || !geo) {
+      errors.push({
+        row: rowNumber,
+        propertyId,
+        localId,
+        errors: rowErrors.length ? rowErrors : ["Invalid survey row"],
+      })
+      return null
+    }
+
+    const plotAreaSqFt = parseNumber(row["Plot Area SqFt"])
+    const plinthAreaSqFt = parseNumber(row["Plinth Area SqFt"])
+    const totalBuiltAreaSqFt = parseNumber(row["Total Built Up Area SqFt"])
+
+    const ynWater = parseYn(row["Water Connection?"])
+    const waterConnection =
+      asEnum(mapWaterConnection(row["Water Connection?"]), isWaterConnection) ??
+      (ynWater === true ? WaterConnection.YES : ynWater === false ? WaterConnection.NO : undefined)
+
+    const data: Prisma.SurveyUncheckedCreateInput = {
+      propertyId,
+      localId,
+      legacySurveyId,
+      propertyIdOld: emptyToUndefined(row["Property ID (Old)"]),
+      parcelNumber: parcelNo,
+      unitSubNo: unitNo,
+      sectorNo: emptyToUndefined(row["Sector / Zone"]),
+      constructedYear: parseNumber(row["Constructed Year"]),
+      isSlum: parseYn(row["Slum Area"]) ?? false,
+      wardNumber: geo.wardNumber,
+      ulbCode: geo.ulbCode,
+      districtName: emptyToUndefined(row.District),
+      stateId: geo.stateId,
+      districtId: geo.districtId,
+      ulbId: geo.ulbId,
+      wardId: geo.wardId,
+      respondentName: emptyToUndefined(row["Respondent Name"]),
+      relationshipWithOwner: emptyToUndefined(row["Relationship with Owner"]),
+      familySize: parseNumber(row["Family Size"]),
+      mobileNumber: emptyToUndefined(row["Mobile Number"]),
+      alternateMobile: emptyToUndefined(row["Alt Mobile"]),
+      houseDoorNo: emptyToUndefined(row["House / Door No"]),
+      locality: emptyToUndefined(row["Locality / Landmark"]),
+      colony: emptyToUndefined(row["Colony / Society"]),
+      city: emptyToUndefined(row.City),
+      pinCode: emptyToUndefined(row["Pin Code"]),
+      assessmentYear,
+      ownershipType,
+      propertyUse,
+      propertyType,
+      situation: asEnum(mapSituation(row.Situation), isSituation),
+      roadType: asEnum(mapRoadType(row["Road Type"]), isRoadType),
+      taxRateZone: asEnum(mapTaxRateZone(row["Tax Rate Zone"]), isTaxRateZone),
+      plotAreaSqFt,
+      plotAreaSqMeter: parseNumber(row["Plot Area SqMeter"]) ?? sqFtToSqMeter(plotAreaSqFt),
+      plinthAreaSqFt,
+      plinthAreaSqMeter: parseNumber(row["Plinth Area SqMeter"]) ?? sqFtToSqMeter(plinthAreaSqFt),
+      totalBuiltAreaSqFt,
+      totalBuiltAreaSqMeter:
+        parseNumber(row["Total Built Up Area SqMeter"]) ?? sqFtToSqMeter(totalBuiltAreaSqFt),
+      waterConnection,
+      sourceOfWater: asEnum(mapSourceOfWater(row["Source of Water"]), isSourceOfWater),
+      sanitationType: asEnum(mapSanitationType(row["Sanitation Type"]), isSanitationType),
+      solidWasteCollection: parseYn(row["Door-to-door Waste Collection"]),
+      electricityConsumerNo: emptyToUndefined(row["Electricity Consumer No"]),
+      latitude: parseNumber(row["GPS Latitude"]),
+      longitude: parseNumber(row["GPS Longitude"]),
+      gpsAccuracyMeters: parseNumber(row["GPS Accuracy (m)"]),
+      gpsProvider: emptyToUndefined(row["GPS Provider"]),
+      gpsMockLocation: parseYn(row["GPS Mock Location"]),
+      gpsSource: asEnum(mapGpsSource("import"), isGpsSource) ?? GpsSource.IMPORT,
+      capturedAt: parseDate(row["GPS Captured At"]),
+      surveyStatus: asEnum(mapSurveyStatus(row["Survey Status"]), isSurveyStatus) ?? SurveyStatus.DRAFT,
+      qcStatus: asEnum(mapQcStatus(row["QC Status"]), isQcStatus) ?? QcStatus.PENDING,
+      serverVersion: parseNumber(row["Server Version"]) ?? 1,
+      clientUpdatedAt: parseDate(row["Client Updated At"]),
+      submittedAt: parseDate(row["Submitted At"]),
+      createdById: user.id,
+      assignedToId: user.id,
+      assignedAt: new Date(),
+    }
+
+    return { rowNumber, propertyId, localId, data }
+  }
+
+  private async resolveGeo(
+    ulbCodeRaw: string,
+    wardNumberRaw: string,
+    cache: Map<string, GeoResolved | null>
+  ): Promise<GeoResolved | null> {
+    const code = padUlbCode(ulbCodeRaw) || ulbCodeRaw.trim()
+    const wardCandidates = uniqueNonEmpty([
+      wardNumberRaw.trim(),
+      padWardNo(wardNumberRaw),
+      String(Number.parseInt(wardNumberRaw.replace(/\D/g, ""), 10) || ""),
+    ])
+    const cacheKey = `${code}|${wardCandidates.join(",")}`
+    if (cache.has(cacheKey)) return cache.get(cacheKey) ?? null
+
+    const ulb =
+      (await this.prisma.db.ulb.findFirst({
+        where: { code },
+        include: { district: true },
+      })) ??
+      (await this.prisma.db.ulb.findFirst({
+        where: { code: ulbCodeRaw.trim() },
+        include: { district: true },
+      }))
+
+    if (!ulb) {
+      cache.set(cacheKey, null)
+      return null
+    }
+
+    const ward = await this.prisma.db.ward.findFirst({
+      where: { ulbId: ulb.id, wardNumber: { in: wardCandidates } },
+    })
+    if (!ward) {
+      cache.set(cacheKey, null)
+      return null
+    }
+
+    const resolved: GeoResolved = {
+      stateId: ulb.district.stateId,
+      districtId: ulb.districtId,
+      ulbId: ulb.id,
+      wardId: ward.id,
+      ulbCode: ulb.code,
+      wardNumber: ward.wardNumber,
+    }
+    cache.set(cacheKey, resolved)
+    return resolved
   }
 
   private validateImportFile(file: Express.Multer.File | undefined): asserts file is Express.Multer.File {
@@ -268,60 +690,77 @@ export class ImportsService {
   private safeObjectName(originalName: string) {
     return originalName.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 160) || "import-file"
   }
+}
 
-  private async parseRows(file: Express.Multer.File): Promise<Array<Record<string, string>>> {
-    const workbook = new ExcelJS.Workbook()
-    if (file.originalname.toLowerCase().endsWith(".csv")) {
-      await workbook.csv.read(Readable.from(file.buffer))
-    } else {
-      await workbook.xlsx.load(file.buffer as never)
-    }
+function emptyToUndefined(value: string | undefined | null): string | undefined {
+  if (value == null) return undefined
+  const trimmed = String(value).trim()
+  return trimmed === "" ? undefined : trimmed
+}
 
-    const sheet = workbook.worksheets[0]
-    if (!sheet) return []
+function uniqueNonEmpty(values: string[]): string[] {
+  return [...new Set(values.map((v) => v.trim()).filter(Boolean))]
+}
 
-    const headerRow = sheet.getRow(1)
-    const headers: string[] = []
-    headerRow.eachCell((cell, col) => {
-      headers[col] = this.cellValueToString(cell.value).trim()
-    })
+function parseDate(raw: string | undefined): Date | undefined {
+  if (!raw || !String(raw).trim()) return undefined
+  const d = new Date(raw)
+  return Number.isNaN(d.getTime()) ? undefined : d
+}
 
-    for (const required of REQUIRED_COLUMNS) {
-      if (!headers.includes(required)) {
-        throw new BadRequestException(`Missing required column header: ${required}`)
-      }
-    }
+function asEnum<T extends string>(value: string | undefined, guard: (v: string) => v is T): T | undefined {
+  if (!value) return undefined
+  return guard(value) ? value : undefined
+}
 
-    const rows: Array<Record<string, string>> = []
-    sheet.eachRow((row, rowNumber) => {
-      if (rowNumber === 1) return
-      const record: Record<string, string> = {}
-      headers.forEach((header, col) => {
-        if (!header) return
-        const value = row.getCell(col).value
-        record[header] = this.cellValueToString(value).trim()
-      })
-      if (Object.values(record).some((v) => v !== "")) {
-        rows.push(record)
-      }
-    })
-    return rows
-  }
-
-  private cellValueToString(value: ExcelJS.CellValue): string {
-    if (value == null) return ""
-    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value instanceof Date) {
-      return String(value)
-    }
-    if ("text" in value && typeof value.text === "string") {
-      return value.text
-    }
-    if ("result" in value) {
-      return this.cellValueToString(value.result)
-    }
-    if ("richText" in value && Array.isArray(value.richText)) {
-      return value.richText.map((part) => part.text).join("")
-    }
-    return ""
-  }
+function isOwnershipType(v: string): v is OwnershipType {
+  return Object.values(OwnershipType).includes(v as OwnershipType)
+}
+function isPropertyUse(v: string): v is PropertyUse {
+  return Object.values(PropertyUse).includes(v as PropertyUse)
+}
+function isPropertyType(v: string): v is PropertyType {
+  return Object.values(PropertyType).includes(v as PropertyType)
+}
+function isSituation(v: string): v is Situation {
+  return Object.values(Situation).includes(v as Situation)
+}
+function isRoadType(v: string): v is RoadType {
+  return Object.values(RoadType).includes(v as RoadType)
+}
+function isTaxRateZone(v: string): v is TaxRateZone {
+  return Object.values(TaxRateZone).includes(v as TaxRateZone)
+}
+function isWaterConnection(v: string): v is WaterConnection {
+  return Object.values(WaterConnection).includes(v as WaterConnection)
+}
+function isSourceOfWater(v: string): v is SourceOfWater {
+  return Object.values(SourceOfWater).includes(v as SourceOfWater)
+}
+function isSanitationType(v: string): v is SanitationType {
+  return Object.values(SanitationType).includes(v as SanitationType)
+}
+function isSurveyStatus(v: string): v is SurveyStatus {
+  return Object.values(SurveyStatus).includes(v as SurveyStatus)
+}
+function isQcStatus(v: string): v is QcStatus {
+  return Object.values(QcStatus).includes(v as QcStatus)
+}
+function isFloorPosition(v: string): v is FloorPosition {
+  return Object.values(FloorPosition).includes(v as FloorPosition)
+}
+function isUsageFactor(v: string): v is UsageFactor {
+  return Object.values(UsageFactor).includes(v as UsageFactor)
+}
+function isUsageType(v: string): v is UsageType {
+  return Object.values(UsageType).includes(v as UsageType)
+}
+function isConstructionType(v: string): v is ConstructionType {
+  return Object.values(ConstructionType).includes(v as ConstructionType)
+}
+function isPhotoType(v: string): v is PhotoType {
+  return Object.values(PhotoType).includes(v as PhotoType)
+}
+function isGpsSource(v: string): v is GpsSource {
+  return Object.values(GpsSource).includes(v as GpsSource)
 }

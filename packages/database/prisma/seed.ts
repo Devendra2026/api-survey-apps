@@ -1,4 +1,5 @@
 import { PrismaPg } from "@prisma/adapter-pg"
+import { loadRootEnv } from "../load-root-env.js"
 import {
   AssessmentYear,
   ConstructionType,
@@ -19,7 +20,6 @@ import {
   usageFactor,
   usageType,
 } from "../src/generated/prisma/client.js"
-import { loadRootEnv } from "../load-root-env.js"
 
 loadRootEnv(import.meta.url)
 
@@ -334,15 +334,15 @@ async function seedUsersAndTenantRoles(db: PrismaClient, geo: Geography, roles: 
     where: { clerkUserId: "user_seed_admin" },
     create: {
       clerkUserId: "user_seed_admin",
-      email: "admin@etm.local",
-      fullName: "Seed Admin",
-      phone: "9000000001",
+      email: "sikarwar2002@gmail.com",
+      fullName: "Tarun Sikarwar",
+      phone: "9760091446",
       isActive: true,
     },
     update: {
-      email: "admin@etm.local",
-      fullName: "Seed Admin",
-      phone: "9000000001",
+      email: "sikarwar2002@gmail.com",
+      fullName: "Tarun Sikarwar",
+      phone: "9760091446",
       isActive: true,
     },
   })
@@ -432,6 +432,31 @@ async function seedUsersAndTenantRoles(db: PrismaClient, geo: Geography, roles: 
     districtId: geo.district.id,
     ulbId: geo.ulb.id,
   })
+
+  const seedAdminClerkId = process.env.SEED_ADMIN_CLERK_USER_ID?.trim()
+  if (seedAdminClerkId) {
+    const realAdmin = await db.user.upsert({
+      where: { clerkUserId: seedAdminClerkId },
+      create: {
+        clerkUserId: seedAdminClerkId,
+        email: `${seedAdminClerkId}@clerk.local`,
+        fullName: "Bootstrap Admin",
+        isActive: true,
+      },
+      update: {
+        isActive: true,
+      },
+    })
+
+    await ensureTenantRole(db, {
+      userId: realAdmin.id,
+      roleId: adminRole.id,
+      assignedBy: admin.id,
+      // null geo = global ADMIN (isGlobal: true)
+    })
+
+    console.log(`Seeded real Clerk admin clerkUserId=${seedAdminClerkId} as global ADMIN`)
+  }
 
   console.log("Seeded 4 demo users and tenant role assignments")
 

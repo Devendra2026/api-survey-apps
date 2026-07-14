@@ -10,6 +10,7 @@ import type {
   PaginatedResult,
   SurveyListItem,
 } from "@/lib/api/types"
+import { useAuthStore } from "@/stores/app-store"
 import { useAuth } from "@clerk/nextjs"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
@@ -30,9 +31,14 @@ export function useCurrentUser() {
 }
 
 export function useDashboardSummary() {
+  const { isLoaded, isSignedIn } = useAuth()
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canView = hasPermission("dashboard:view")
+
   return useQuery({
     queryKey: ["dashboard", "summary"],
     queryFn: () => apiGet<DashboardSummary>("/dashboard/summary"),
+    enabled: isLoaded && Boolean(isSignedIn) && canView,
   })
 }
 
@@ -139,9 +145,14 @@ export function useWards(ulbId?: string) {
 }
 
 export function useNotifications(page = 1) {
+  const { isLoaded, isSignedIn } = useAuth()
+  const profile = useAuthStore((s) => s.profile)
+  const hasAnyRole = Boolean(profile && profile.permissions.length > 0)
+
   return useQuery({
     queryKey: ["notifications", page],
     queryFn: () => apiGetPaginated<NotificationItem>(`/notifications?page=${page}&limit=10`),
+    enabled: isLoaded && Boolean(isSignedIn) && hasAnyRole,
   })
 }
 

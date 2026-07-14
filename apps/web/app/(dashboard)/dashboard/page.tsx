@@ -1,21 +1,14 @@
 "use client"
 
-import Link from "next/link"
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts"
-import { Card, CardContent, CardHeader, CardTitle } from "@workspace/ui/components/card"
-import { Button } from "@workspace/ui/components/button"
-import { useDashboardSummary, useNotifications } from "@/hooks/use-api"
 import { EmptyState, LoadingGrid, PageHeader, StatusBadge } from "@/components/shared/page-elements"
+import { useDashboardSummary, useNotifications } from "@/hooks/use-api"
 import { statusLabels } from "@/lib/navigation"
+import { useAuthStore } from "@/stores/app-store"
+import { Button } from "@workspace/ui/components/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@workspace/ui/components/card"
 import { ClipboardList, FileCheck2, Layers, TrendingUp } from "lucide-react"
+import Link from "next/link"
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 
 function StatCard({
   title,
@@ -30,7 +23,7 @@ function StatCard({
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle className="text-sm font-medium">{title}</CardTitle>
-        <Icon className="text-muted-foreground size-4" />
+        <Icon className="size-4 text-muted-foreground" />
       </CardHeader>
       <CardContent>
         <div className="text-3xl font-bold">{value}</div>
@@ -40,8 +33,14 @@ function StatCard({
 }
 
 export default function DashboardPage() {
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canView = hasPermission("dashboard:view")
   const { data, isLoading, isError } = useDashboardSummary()
   const { data: notifications } = useNotifications(1)
+
+  if (!canView) {
+    return <EmptyState title="Dashboard unavailable" description="You do not have permission to view the dashboard." />
+  }
 
   if (isLoading) return <LoadingGrid count={4} />
   if (isError || !data) {
@@ -106,13 +105,11 @@ export default function DashboardPage() {
             {(notifications?.items ?? []).slice(0, 5).map((n) => (
               <div key={n.id} className="rounded-lg border p-3 text-sm">
                 <p>{n.message}</p>
-                <p className="text-muted-foreground mt-1 text-xs">
-                  {new Date(n.changedAt).toLocaleString()}
-                </p>
+                <p className="mt-1 text-xs text-muted-foreground">{new Date(n.changedAt).toLocaleString()}</p>
               </div>
             ))}
             {!notifications?.items.length ? (
-              <p className="text-muted-foreground text-sm">No recent notifications</p>
+              <p className="text-sm text-muted-foreground">No recent notifications</p>
             ) : null}
           </CardContent>
         </Card>
@@ -129,7 +126,7 @@ export default function DashboardPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-muted-foreground border-b text-left">
+                <tr className="border-b text-left text-muted-foreground">
                   <th className="pb-3 font-medium">Property ID</th>
                   <th className="pb-3 font-medium">Status</th>
                   <th className="pb-3 font-medium">Created</th>
@@ -143,9 +140,7 @@ export default function DashboardPage() {
                     <td className="py-3">
                       <StatusBadge status={survey.surveyStatus} />
                     </td>
-                    <td className="text-muted-foreground py-3">
-                      {new Date(survey.createdAt).toLocaleDateString()}
-                    </td>
+                    <td className="py-3 text-muted-foreground">{new Date(survey.createdAt).toLocaleDateString()}</td>
                     <td className="py-3 text-right">
                       <Button variant="ghost" size="sm" asChild>
                         <Link href={`/surveys/${survey.id}`}>Open</Link>

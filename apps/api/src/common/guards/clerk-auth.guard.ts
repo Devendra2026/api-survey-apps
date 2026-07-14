@@ -5,6 +5,7 @@ import { Reflector } from "@nestjs/core"
 import { PrismaService } from "../../prisma/prisma.service.js"
 import { IS_PUBLIC_KEY } from "../decorators/public.decorator.js"
 import type { AuthenticatedUser } from "../interfaces/authenticated-user.interface.js"
+import { RoleProvisioningService } from "../services/role-provisioning.service.js"
 import { TenantScopeService } from "../services/tenant-scope.service.js"
 
 @Injectable()
@@ -16,7 +17,8 @@ export class ClerkAuthGuard implements CanActivate {
     private readonly reflector: Reflector,
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
-    private readonly tenantScopeService: TenantScopeService
+    private readonly tenantScopeService: TenantScopeService,
+    private readonly roleProvisioning: RoleProvisioningService
   ) {
     const secretKey = this.configService.get<string>("CLERK_SECRET_KEY")
     this.clerk = secretKey ? createClerkClient({ secretKey }) : null
@@ -72,8 +74,15 @@ export class ClerkAuthGuard implements CanActivate {
         .map((p) => p.trim())
         .filter(Boolean)
 
+      // Default Clerk skew is 5s; Windows clocks often drift ~5–15s which rejects
+      // tokens with iat slightly in the future. Allow override via env.
+      const configuredSkew = this.configService.get<number>("CLERK_CLOCK_SKEW_MS")
+      const clockSkewInMs =
+        typeof configuredSkew === "number" && Number.isFinite(configuredSkew) ? configuredSkew : 30_000
+
       const payload = await verifyToken(token, {
         secretKey,
+        clockSkewInMs,
         ...(authorizedParties?.length ? { authorizedParties } : {}),
       })
       if (!payload.sub) throw new UnauthorizedException("Invalid token subject")
@@ -155,6 +164,7 @@ export class ClerkAuthGuard implements CanActivate {
       throw new UnauthorizedException("User account is inactive")
     }
 
+    await this.roleProvisioning.ensureBootstrapAdmin(user.id, user.clerkUserId)
     const ctx = await this.tenantScopeService.loadUserContext(user.id)
 
     return {

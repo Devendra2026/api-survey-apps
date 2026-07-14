@@ -58,5 +58,36 @@ export function ProtectedDashboardLayout({ children }: { children: React.ReactNo
     )
   }
 
+  const permissions = user?.permissions ?? []
+  if (permissions.length === 0) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 p-6 text-center">
+        <p className="text-lg font-semibold">Account pending role assignment</p>
+        <p className="max-w-md text-sm text-muted-foreground">
+          You are signed in, but no application role has been assigned yet. Contact an administrator to grant access, or
+          ensure your Clerk user ID is listed in <code className="text-xs">BOOTSTRAP_ADMIN_CLERK_USER_IDS</code> for
+          first-admin setup.
+        </p>
+        <Button type="button" variant="outline" size="sm" onClick={() => void refetch()}>
+          Refresh profile
+        </Button>
+      </div>
+    )
+  }
+
+  // Keep store in sync before mounting children so permission-gated queries enable immediately
+  const storeProfile = useAuthStore.getState().profile
+  if (
+    user &&
+    (!storeProfile || storeProfile.id !== user.id || storeProfile.permissions.join() !== permissions.join())
+  ) {
+    useAuthStore.getState().setProfile({
+      id: user.id,
+      fullName: user.fullName,
+      email: user.email,
+      permissions,
+    })
+  }
+
   return <DashboardShell>{children}</DashboardShell>
 }

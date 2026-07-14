@@ -56,6 +56,20 @@ export class EnvironmentVariables {
   @IsString()
   CLERK_AUTHORIZED_PARTIES?: string
 
+  /** Comma-separated Clerk user IDs granted ADMIN (global scope) on first login if they have no roles. */
+  @IsOptional()
+  @IsString()
+  BOOTSTRAP_ADMIN_CLERK_USER_IDS?: string
+
+  /** Allowed clock skew (ms) when verifying Clerk JWTs. Defaults to 30000 if unset. */
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(300_000)
+  CLERK_CLOCK_SKEW_MS?: number
+
   @IsOptional()
   @IsBooleanString()
   SWAGGER_ENABLED?: string

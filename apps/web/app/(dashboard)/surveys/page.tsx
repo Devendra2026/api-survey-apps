@@ -25,10 +25,10 @@ import {
 } from "@workspace/ui/components/dialog"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Textarea } from "@workspace/ui/components/textarea"
-import { CheckCircle2, Download, Plus, XCircle } from "lucide-react"
+import { CheckCircle2, Download, Plus, Upload, XCircle } from "lucide-react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { Suspense, useCallback, useMemo, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
 function asStringRecord(value: unknown): Partial<SurveyRegistryFiltersState> {
@@ -67,12 +67,13 @@ function SurveysPageContent() {
   const searchParams = useSearchParams()
   const initialStatus = searchParams.get("surveyStatus") ?? "all"
   const initialWardId = searchParams.get("wardId") ?? ""
+  const initialQuery = searchParams.get("q") ?? ""
   const globalSearch = useUiStore((s) => s.globalSearch)
   const hasPermission = useAuthStore((s) => s.hasPermission)
 
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(50)
-  const [search, setSearch] = useState("")
+  const [search, setSearch] = useState(initialQuery)
   const [filters, setFilters] = useState<SurveyRegistryFiltersState>(() => ({
     ...emptyRegistryFilters(),
     surveyStatus: initialStatus,
@@ -82,6 +83,10 @@ function SurveysPageContent() {
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
   const [rejectOpen, setRejectOpen] = useState(false)
   const [qcRemarks, setQcRemarks] = useState("")
+
+  useEffect(() => {
+    if (initialQuery) setSearch(initialQuery)
+  }, [initialQuery])
 
   const query = useMemo(
     () => ({
@@ -261,8 +266,8 @@ function SurveysPageContent() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Survey registry"
-        description="Filter, review, and act on municipal property surveys"
+        title="Survey Registry"
+        description="Enterprise registry with saved views, bulk QC actions, and exportable selections"
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <SavedViewsMenu
@@ -270,6 +275,19 @@ function SurveysPageContent() {
               currentColumns={columnVisibility as Record<string, boolean>}
               onApply={applyView}
             />
+            {hasPermission("survey:create") ? (
+              <Button asChild size="sm" variant="outline">
+                <Link href="/import">
+                  <Upload className="size-3.5" />
+                  Import
+                </Link>
+              </Button>
+            ) : null}
+            {hasPermission("survey:approve") ? (
+              <Button asChild size="sm" variant="outline">
+                <Link href="/qc?pipeline=pending">QC Portal</Link>
+              </Button>
+            ) : null}
             {hasPermission("survey:create") ? (
               <Button asChild size="sm">
                 <Link href="/surveys/new">
@@ -318,6 +336,7 @@ function SurveysPageContent() {
         getRowId={(row) => row.id}
         columnVisibility={columnVisibility}
         onColumnVisibilityChange={setColumnVisibility}
+        stickyFirstColumns={2}
         footerToolbar={
           selectedIds.length > 0 ? (
             <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2">

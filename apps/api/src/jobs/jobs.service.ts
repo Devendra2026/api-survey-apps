@@ -20,7 +20,10 @@ export class JobsService {
   ) {}
 
   async enqueueImport(payload: ImportJobPayload): Promise<string> {
-    const bullJobId = payload.resumeFromCheckpoint ? `${payload.jobId}-resume-${Date.now()}` : payload.jobId
+    const bullJobId =
+      payload.resumeFromCheckpoint || payload.retryFailedOnly
+        ? `${payload.jobId}-${payload.retryFailedOnly ? "retry" : "resume"}-${Date.now()}`
+        : payload.jobId
     const job = await this.importsQueue.add(JOB_NAMES.processImport, payload, {
       jobId: bullJobId,
     })

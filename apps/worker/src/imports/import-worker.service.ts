@@ -51,7 +51,12 @@ import {
 import { PrismaService } from "../database/prisma.service.js"
 import { ObjectStorageService } from "../storage/object-storage.service.js"
 import { canAccessTenant, resolveTenantScope } from "../tenant/tenant-scope.js"
-import { groupRowsByPropertyId, parseConvexWorkbook, type WorkbookRow } from "./convex-workbook-parser.js"
+import {
+  findWorkbookDuplicates,
+  groupRowsByPropertyId,
+  parseConvexWorkbook,
+  type WorkbookRow,
+} from "./convex-workbook-parser.js"
 
 const CHUNK_SIZE = 50
 
@@ -114,28 +119,68 @@ export class ImportWorkerService {
       const workbook = await parseConvexWorkbook(source, payload.originalName)
       await updateProgress(8)
 
+      const duplicates = findWorkbookDuplicates(workbook.surveys)
+      const duplicatePropertyIds = new Set(
+        duplicates.filter((item) => item.kind === "propertyId").map((item) => item.key)
+      )
+      const duplicateLocalIds = new Set(duplicates.filter((item) => item.kind === "localId").map((item) => item.key))
+
       const checkpoint = payload.resumeFromCheckpoint ? await this.readCheckpoint(payload.jobId) : { processedRows: 0 }
+
+      const retryPropertyIds = new Set((payload.failedPropertyIds ?? []).map((id) => id.toUpperCase()))
+      const retryLocalIds = new Set((payload.failedLocalIds ?? []).map((id) => id.toUpperCase()))
+      const retryRows = new Set(payload.failedRows ?? [])
+      const retryFailedOnly = Boolean(payload.retryFailedOnly)
+
+      let surveys = workbook.surveys
+      if (retryFailedOnly) {
+        surveys = workbook.surveys.filter((row, index) => {
+          const excelRow = index + 2
+          const propertyId = String(row["Property ID"] ?? "")
+            .trim()
+            .toUpperCase()
+          const localId = String(row["Local ID"] ?? "")
+            .trim()
+            .toUpperCase()
+          return (
+            retryRows.has(excelRow) ||
+            (propertyId && retryPropertyIds.has(propertyId)) ||
+            (localId && retryLocalIds.has(localId))
+          )
+        })
+      }
 
       await this.prisma.db.importJob.update({
         where: { id: payload.jobId },
-        data: { totalRows: workbook.surveys.length },
+        data: { totalRows: surveys.length },
       })
 
       const coOwnersByPid = groupRowsByPropertyId(workbook.coOwners)
       const floorsByPid = groupRowsByPropertyId(workbook.floors)
       const photosByPid = groupRowsByPropertyId(workbook.photos)
 
-      const errors: ImportRowError[] = []
+      const errors: ImportRowError[] = duplicates.flatMap((issue) =>
+        issue.rows.map((row) => ({
+          row,
+          propertyId: issue.kind === "propertyId" ? issue.key : undefined,
+          localId: issue.kind === "localId" ? issue.key : undefined,
+          errors: [
+            issue.kind === "propertyId"
+              ? `Duplicate Property ID in workbook: ${issue.key}`
+              : `Duplicate Local ID in workbook: ${issue.key}`,
+          ],
+        }))
+      )
       const createdSurveyIds: string[] = []
       const updatedSurveyIds: string[] = []
       let successCount = 0
-      let failureCount = 0
+      let failureCount = errors.length
       let photoSuccessCount = 0
       let photoFailureCount = 0
-      let processedRows = checkpoint.processedRows
+      let processedRows = retryFailedOnly ? 0 : checkpoint.processedRows
 
-      const startIndex = Math.min(Math.max(checkpoint.processedRows, 0), workbook.surveys.length)
-      const remaining = workbook.surveys.slice(startIndex)
+      const startIndex = retryFailedOnly ? 0 : Math.min(Math.max(checkpoint.processedRows, 0), surveys.length)
+      const remaining = surveys.slice(startIndex)
 
       const geoCache = new Map<string, GeoResolved | null>()
       const scope = resolveTenantScope(payload.tenantRoles)
@@ -146,6 +191,16 @@ export class ImportWorkerService {
 
         for (const [i, row] of chunkRows.entries()) {
           const rowNumber = startIndex + offset + i + 2
+          const propertyId = String(row["Property ID"] ?? "")
+            .trim()
+            .toUpperCase()
+          const localId = String(row["Local ID"] ?? "")
+            .trim()
+            .toUpperCase()
+          if ((propertyId && duplicatePropertyIds.has(propertyId)) || (localId && duplicateLocalIds.has(localId))) {
+            // Already recorded in workbook duplicate validation report.
+            continue
+          }
           const mapped = await this.mapSurveyRow(row, rowNumber, payload, scope, geoCache, errors)
           if (mapped) mappedChunk.push(mapped)
           else failureCount += 1
@@ -347,22 +402,23 @@ export class ImportWorkerService {
           },
         })
 
-        const progress =
-          10 + Math.floor(((startIndex + offset + chunkRows.length) / Math.max(workbook.surveys.length, 1)) * 85)
+        const progress = 10 + Math.floor(((startIndex + offset + chunkRows.length) / Math.max(surveys.length, 1)) * 85)
         await updateProgress(Math.min(progress, 95))
       }
 
       const validationReport = {
         jobId: payload.jobId,
-        totalRows: workbook.surveys.length,
+        totalRows: surveys.length,
         successCount,
         failureCount,
         photoSuccessCount,
         photoFailureCount,
         createdSurveyIds,
         updatedSurveyIds,
+        duplicates,
         errors,
         resumedFrom: checkpoint.processedRows,
+        retryFailedOnly,
       }
       const errorReportKey = await this.writeValidationReport(payload, validationReport)
 
@@ -383,7 +439,7 @@ export class ImportWorkerService {
       })
       await updateProgress(100)
       this.logger.log(
-        `Import job ${payload.jobId} completed total=${workbook.surveys.length} ok=${successCount} fail=${failureCount}`
+        `Import job ${payload.jobId} completed total=${surveys.length} ok=${successCount} fail=${failureCount}`
       )
     } catch (err) {
       await this.prisma.db.importJob.update({

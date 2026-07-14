@@ -1,6 +1,12 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common"
 import { ExportFormat as DbExportFormat, JobStatus, type Prisma, type SurveyStatus } from "@workspace/database"
-import { renderConvexFullWorkbook, renderNagarPanchayatWorkbook, renderSurveyDataWorkbook, type SurveyExportBundle } from "@workspace/excel-reports"
+import {
+  renderConvexFullWorkbook,
+  renderNagarPanchayatWorkbook,
+  renderQcFinalWorkbook,
+  renderSurveyDataWorkbook,
+  type SurveyExportBundle,
+} from "@workspace/excel-reports"
 import type { ExportFiltersPayload } from "@workspace/jobs"
 import ExcelJS from "exceljs"
 import PDFDocument from "pdfkit"
@@ -44,9 +50,15 @@ export class ReportsService {
     | { format: ExportFormat; reportType: ExportReportType; count: number; data: unknown }
     | { contentType: string; filename: string; buffer: Buffer }
   > {
-    const rows = await this.reportsRepository.exportSurveys(user, filters, options.maxRows ? options.maxRows + 1 : undefined)
+    const rows = await this.reportsRepository.exportSurveys(
+      user,
+      filters,
+      options.maxRows ? options.maxRows + 1 : undefined
+    )
     if (options.maxRows && rows.length > options.maxRows) {
-      throw new BadRequestException(`Synchronous exports are capped at ${options.maxRows} rows. Retry without ?sync=true.`)
+      throw new BadRequestException(
+        `Synchronous exports are capped at ${options.maxRows} rows. Retry without ?sync=true.`
+      )
     }
     this.logger.log(`Export format=${format} type=${reportType} rows=${rows.length} by=${user.id}`)
 
@@ -93,7 +105,12 @@ export class ReportsService {
     })
   }
 
-  async enqueueExport(user: AuthenticatedUser, format: ExportFormat, reportType: ExportReportType, filters: ExportFilters) {
+  async enqueueExport(
+    user: AuthenticatedUser,
+    format: ExportFormat,
+    reportType: ExportReportType,
+    filters: ExportFilters
+  ) {
     const normalizedFilters = this.normalizeFilters(filters)
     const job = await this.prisma.db.exportJob.create({
       data: {
@@ -265,6 +282,7 @@ export class ReportsService {
     if (reportType === "convex_full") return renderConvexFullWorkbook(bundles)
     if (reportType === "nagar_panchayat") return renderNagarPanchayatWorkbook(bundles)
     if (reportType === "survey_data") return renderSurveyDataWorkbook(bundles)
+    if (reportType === "qc_final") return renderQcFinalWorkbook(bundles)
     const workbook = new ExcelJS.Workbook()
     workbook.creator = "Municipal Property Tax Survey API"
     const sheet = workbook.addWorksheet(reportType)

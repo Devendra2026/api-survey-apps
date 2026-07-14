@@ -1,7 +1,9 @@
 import {
   BarChart3,
   Building2,
+  ClipboardCheck,
   ClipboardList,
+  Database,
   FileUp,
   LayoutDashboard,
   MapPin,
@@ -17,13 +19,59 @@ export interface NavItem {
   href: string
   icon: LucideIcon
   permission?: string
+  description?: string
 }
 
 export const mainNav: NavItem[] = [
-  { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard, permission: "dashboard:view" },
-  { title: "Surveys", href: "/surveys", icon: ClipboardList, permission: "survey:view" },
-  { title: "Reports", href: "/reports", icon: BarChart3, permission: "report:view" },
-  { title: "Import", href: "/import", icon: FileUp, permission: "survey:create" },
+  {
+    title: "Dashboard",
+    href: "/dashboard",
+    icon: LayoutDashboard,
+    permission: "dashboard:view",
+    description: "Executive overview and system health",
+  },
+  {
+    title: "Field Survey",
+    href: "/surveys/new",
+    icon: ClipboardList,
+    permission: "survey:create",
+    description: "Create and capture property surveys",
+  },
+  {
+    title: "Survey Registry",
+    href: "/surveys",
+    icon: ClipboardList,
+    permission: "survey:view",
+    description: "Search, filter, and manage surveys",
+  },
+  {
+    title: "QC Portal",
+    href: "/qc",
+    icon: ClipboardCheck,
+    permission: "survey:approve",
+    description: "Review, approve, and return surveys",
+  },
+  {
+    title: "Reports",
+    href: "/reports",
+    icon: BarChart3,
+    permission: "report:view",
+    description: "Government and operational exports",
+  },
+  {
+    title: "Import",
+    href: "/import",
+    icon: FileUp,
+    permission: "survey:create",
+    description: "Bulk Excel and CSV import jobs",
+  },
+  {
+    title: "Master Data",
+    href: "/master-data",
+    icon: Database,
+    permission: "role:assign",
+    description: "Reference data and geography",
+  },
 ]
 
 export const adminNav: NavItem[] = [
@@ -45,6 +93,7 @@ export const statusColors: Record<string, string> = {
   PROCESSING: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
   SUCCEEDED: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
   FAILED: "bg-destructive/15 text-destructive",
+  RETURNED: "bg-orange-500/15 text-orange-700 dark:text-orange-300",
 }
 
 export const statusLabels: Record<string, string> = {
@@ -59,6 +108,7 @@ export const statusLabels: Record<string, string> = {
   PROCESSING: "Processing",
   SUCCEEDED: "Succeeded",
   FAILED: "Failed",
+  RETURNED: "Returned",
 }
 
 export { Building2 }

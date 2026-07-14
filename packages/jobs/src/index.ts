@@ -59,6 +59,11 @@ export interface ImportJobPayload extends StoredObjectRef {
   sizeBytes: number
   tenantRoles: TenantRolePayload[]
   resumeFromCheckpoint?: boolean
+  /** When true, only re-process rows listed in failedPropertyIds / failedLocalIds. */
+  retryFailedOnly?: boolean
+  failedPropertyIds?: string[]
+  failedLocalIds?: string[]
+  failedRows?: number[]
 }
 
 export interface ExportJobPayload {

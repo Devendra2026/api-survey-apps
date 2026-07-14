@@ -2,13 +2,14 @@
 
 import { useAuthStore } from "@/stores/app-store"
 import { cn } from "@workspace/ui/lib/utils"
-import { BarChart3, ClipboardList, LayoutDashboard, MoreHorizontal } from "lucide-react"
+import { BarChart3, ClipboardCheck, ClipboardList, LayoutDashboard, MoreHorizontal } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
 const items = [
   { title: "Home", href: "/dashboard", icon: LayoutDashboard, permission: "dashboard:view" },
-  { title: "Surveys", href: "/surveys", icon: ClipboardList, permission: "survey:view" },
+  { title: "Registry", href: "/surveys", icon: ClipboardList, permission: "survey:view" },
+  { title: "QC", href: "/qc", icon: ClipboardCheck, permission: "survey:approve" },
   { title: "Reports", href: "/reports", icon: BarChart3, permission: "report:view" },
   { title: "More", href: "/admin/settings", icon: MoreHorizontal },
 ] as const
@@ -17,21 +18,24 @@ export function MobileBottomNav() {
   const pathname = usePathname()
   const hasPermission = useAuthStore((s) => s.hasPermission)
 
+  const visible = items.filter((item) => !("permission" in item && item.permission) || hasPermission(item.permission))
+
   return (
     <nav
       className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/80 md:hidden"
       aria-label="Mobile navigation"
     >
-      <ul className="grid grid-cols-4 gap-1 px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-        {items.map((item) => {
-          if ("permission" in item && item.permission && !hasPermission(item.permission)) {
-            return <li key={item.href} />
-          }
+      <ul
+        className="grid gap-1 px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+        style={{ gridTemplateColumns: `repeat(${visible.length}, minmax(0, 1fr))` }}
+      >
+        {visible.map((item) => {
           const Icon = item.icon
           const active =
             pathname === item.href ||
             (item.href !== "/admin/settings" && pathname.startsWith(`${item.href}/`)) ||
-            (item.href === "/admin/settings" && pathname.startsWith("/admin"))
+            (item.href === "/admin/settings" &&
+              (pathname.startsWith("/admin") || pathname.startsWith("/master-data") || pathname.startsWith("/import")))
 
           return (
             <li key={item.href}>

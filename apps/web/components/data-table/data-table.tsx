@@ -7,6 +7,7 @@ import {
   getSortedRowModel,
   useReactTable,
   type ColumnDef,
+  type ColumnOrderState,
   type OnChangeFn,
   type RowSelectionState,
   type SortingState,
@@ -59,7 +60,11 @@ interface DataTableProps<TData, TValue> {
   getRowId?: (originalRow: TData, index: number) => string
   columnVisibility?: VisibilityState
   onColumnVisibilityChange?: OnChangeFn<VisibilityState>
+  columnOrder?: ColumnOrderState
+  onColumnOrderChange?: OnChangeFn<ColumnOrderState>
+  stickyFirstColumns?: number
   maxHeightClassName?: string
+  virtualizeThreshold?: number
 }
 
 export function DataTable<TData, TValue>({
@@ -81,16 +86,25 @@ export function DataTable<TData, TValue>({
   getRowId,
   columnVisibility,
   onColumnVisibilityChange,
+  columnOrder,
+  onColumnOrderChange,
+  stickyFirstColumns = 0,
   maxHeightClassName = "max-h-[min(70vh,720px)]",
+  virtualizeThreshold = 80,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [internalVisibility, setInternalVisibility] = React.useState<VisibilityState>({})
   const [internalSelection, setInternalSelection] = React.useState<RowSelectionState>({})
+  const [internalOrder, setInternalOrder] = React.useState<ColumnOrderState>([])
+  const [focusedRow, setFocusedRow] = React.useState(0)
+  const tableRef = React.useRef<HTMLDivElement>(null)
 
   const visibility = columnVisibility ?? internalVisibility
   const setVisibility = onColumnVisibilityChange ?? setInternalVisibility
   const selection = rowSelection ?? internalSelection
   const setSelection = onRowSelectionChange ?? setInternalSelection
+  const order = columnOrder ?? internalOrder
+  const setOrder = onColumnOrderChange ?? setInternalOrder
 
   const table = useReactTable({
     data,
@@ -98,10 +112,12 @@ export function DataTable<TData, TValue>({
     state: {
       sorting,
       columnVisibility: visibility,
+      columnOrder: order,
       ...(enableRowSelection ? { rowSelection: selection } : {}),
     },
     onSortingChange: setSorting,
     onColumnVisibilityChange: setVisibility,
+    onColumnOrderChange: setOrder,
     onRowSelectionChange: enableRowSelection ? setSelection : undefined,
     enableRowSelection,
     getRowId,
@@ -110,7 +126,59 @@ export function DataTable<TData, TValue>({
     manualPagination: Boolean(pagination),
   })
 
+  const rows = table.getRowModel().rows
   const selectedCount = enableRowSelection ? table.getSelectedRowModel().rows.length : 0
+  const shouldVirtualize = rows.length >= virtualizeThreshold
+  const rowHeight = 44
+  const [scrollTop, setScrollTop] = React.useState(0)
+  const viewportHeight = 640
+  const startIndex = shouldVirtualize ? Math.max(0, Math.floor(scrollTop / rowHeight) - 5) : 0
+  const endIndex = shouldVirtualize
+    ? Math.min(rows.length, Math.ceil((scrollTop + viewportHeight) / rowHeight) + 5)
+    : rows.length
+  const visibleRows = shouldVirtualize ? rows.slice(startIndex, endIndex) : rows
+  const topPad = shouldVirtualize ? startIndex * rowHeight : 0
+  const bottomPad = shouldVirtualize ? Math.max(0, (rows.length - endIndex) * rowHeight) : 0
+
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!tableRef.current?.contains(document.activeElement) && document.activeElement !== tableRef.current) {
+        return
+      }
+      if (!rows.length) return
+      if (event.key === "ArrowDown") {
+        event.preventDefault()
+        setFocusedRow((current) => Math.min(rows.length - 1, current + 1))
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault()
+        setFocusedRow((current) => Math.max(0, current - 1))
+      }
+      if (event.key === " " && enableRowSelection) {
+        event.preventDefault()
+        rows[focusedRow]?.toggleSelected()
+      }
+      if (event.key === "Enter") {
+        const link = tableRef.current?.querySelector<HTMLAnchorElement>(`[data-row-index="${focusedRow}"] a[href]`)
+        link?.click()
+      }
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [enableRowSelection, focusedRow, rows])
+
+  const moveColumn = (columnId: string, direction: -1 | 1) => {
+    const current = order.length ? [...order] : table.getAllLeafColumns().map((column) => column.id)
+    const index = current.indexOf(columnId)
+    if (index < 0) return
+    const nextIndex = index + direction
+    if (nextIndex < 0 || nextIndex >= current.length) return
+    const next = [...current]
+    const [item] = next.splice(index, 1)
+    if (!item) return
+    next.splice(nextIndex, 0, item)
+    setOrder(next)
+  }
 
   return (
     <div className={cn("space-y-3", className)}>
@@ -138,21 +206,40 @@ export function DataTable<TData, TValue>({
                 <ChevronDown className="size-3.5 opacity-60" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuLabel>Toggle columns</DropdownMenuLabel>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel>Toggle / reorder</DropdownMenuLabel>
               <DropdownMenuSeparator />
               {table
                 .getAllColumns()
                 .filter((col) => col.getCanHide())
                 .map((col) => (
-                  <DropdownMenuCheckboxItem
-                    key={col.id}
-                    className="capitalize"
-                    checked={col.getIsVisible()}
-                    onCheckedChange={(value) => col.toggleVisibility(Boolean(value))}
-                  >
-                    {col.id}
-                  </DropdownMenuCheckboxItem>
+                  <div key={col.id} className="flex items-center gap-1 px-1">
+                    <DropdownMenuCheckboxItem
+                      className="capitalize"
+                      checked={col.getIsVisible()}
+                      onCheckedChange={(value) => col.toggleVisibility(Boolean(value))}
+                    >
+                      {col.id}
+                    </DropdownMenuCheckboxItem>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-6"
+                      onClick={() => moveColumn(col.id, -1)}
+                      aria-label={`Move ${col.id} left`}
+                    >
+                      ↑
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-6"
+                      onClick={() => moveColumn(col.id, 1)}
+                      aria-label={`Move ${col.id} right`}
+                    >
+                      ↓
+                    </Button>
+                  </div>
                 ))}
             </DropdownMenuContent>
           </DropdownMenu>
@@ -161,14 +248,30 @@ export function DataTable<TData, TValue>({
 
       {footerToolbar}
 
-      <div className="overflow-hidden rounded-xl border">
-        <div className={cn("overflow-auto", maxHeightClassName)}>
+      <div
+        ref={tableRef}
+        tabIndex={0}
+        className="overflow-hidden rounded-xl border outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label="Data table"
+      >
+        <div
+          className={cn("overflow-auto", maxHeightClassName)}
+          onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+        >
           <Table>
-            <TableHeader className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+            <TableHeader className="sticky top-0 z-20 bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/80">
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
-                  {headerGroup.headers.map((header) => (
-                    <TableHead key={header.id} className="whitespace-nowrap">
+                  {headerGroup.headers.map((header, index) => (
+                    <TableHead
+                      key={header.id}
+                      className={cn(
+                        "whitespace-nowrap",
+                        index < stickyFirstColumns &&
+                          "sticky left-0 z-30 bg-background shadow-[1px_0_0_0_hsl(var(--border))]"
+                      )}
+                      style={index < stickyFirstColumns ? { left: index === 0 ? 0 : undefined } : undefined}
+                    >
                       {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                     </TableHead>
                   ))}
@@ -186,16 +289,44 @@ export function DataTable<TData, TValue>({
                     ))}
                   </TableRow>
                 ))
-              ) : table.getRowModel().rows.length ? (
-                table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id} className="whitespace-nowrap">
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))
+              ) : rows.length ? (
+                <>
+                  {topPad > 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={columns.length} style={{ height: topPad }} className="p-0" />
+                    </TableRow>
+                  ) : null}
+                  {visibleRows.map((row, visibleIndex) => {
+                    const absoluteIndex = shouldVirtualize ? startIndex + visibleIndex : visibleIndex
+                    return (
+                      <TableRow
+                        key={row.id}
+                        data-state={row.getIsSelected() && "selected"}
+                        data-row-index={absoluteIndex}
+                        className={cn(absoluteIndex === focusedRow && "bg-muted/50")}
+                        onMouseEnter={() => setFocusedRow(absoluteIndex)}
+                      >
+                        {row.getVisibleCells().map((cell, index) => (
+                          <TableCell
+                            key={cell.id}
+                            className={cn(
+                              "whitespace-nowrap",
+                              index < stickyFirstColumns &&
+                                "sticky left-0 z-10 bg-background shadow-[1px_0_0_0_hsl(var(--border))]"
+                            )}
+                          >
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    )
+                  })}
+                  {bottomPad > 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={columns.length} style={{ height: bottomPad }} className="p-0" />
+                    </TableRow>
+                  ) : null}
+                </>
               ) : (
                 <TableRow>
                   <TableCell colSpan={columns.length} className="p-0">
@@ -216,6 +347,7 @@ export function DataTable<TData, TValue>({
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs text-muted-foreground">
             {pagination.total.toLocaleString()} total · Page {pagination.page} of {Math.max(pagination.totalPages, 1)}
+            {shouldVirtualize ? " · Virtualized rows" : ""}
           </p>
           <div className="flex items-center gap-2">
             {pagination.onPageSizeChange ? (
@@ -223,7 +355,7 @@ export function DataTable<TData, TValue>({
                 value={String(pagination.pageSize ?? 20)}
                 onValueChange={(value) => pagination.onPageSizeChange?.(Number(value))}
               >
-                <SelectTrigger className="h-8 w-[5.5rem]">
+                <SelectTrigger className="h-8 w-22">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -261,6 +393,8 @@ export function DataTable<TData, TValue>({
 export function DataTableSelectColumn<TData>(): ColumnDef<TData> {
   return {
     id: "select",
+    enableHiding: false,
+    enableSorting: false,
     header: ({ table }) => (
       <Checkbox
         checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")}
@@ -275,7 +409,5 @@ export function DataTableSelectColumn<TData>(): ColumnDef<TData> {
         aria-label="Select row"
       />
     ),
-    enableSorting: false,
-    enableHiding: false,
   }
 }

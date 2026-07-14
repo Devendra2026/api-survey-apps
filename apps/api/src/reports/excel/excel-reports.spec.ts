@@ -114,4 +114,20 @@ describe("Excel report templates", () => {
     expect(String(generatedSheet.getCell("AO1").value ?? "")).toBe(String(goldenSheet.getCell("AO1").value ?? ""))
     expect(String(generatedSheet.getCell("BJ1").value ?? "")).toBe(String(goldenSheet.getCell("BJ1").value ?? ""))
   })
+
+  it("renders QC Final Report headers for approved surveys", async () => {
+    const { renderQcFinalWorkbook } = await import("@workspace/excel-reports")
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.load(
+      await renderQcFinalWorkbook([
+        { ...bundle, qcStatus: "APPROVED" },
+        { ...bundle, id: "survey-2", propertyId: "801262-001-00005-001-R", qcStatus: "PENDING" },
+      ])
+    )
+    const sheet = workbook.getWorksheet("QC Final Report")
+    expect(sheet?.getRow(1).values).toEqual(
+      expect.arrayContaining(["Property ID", "Owner", "Ward", "QC Status", "Surveyor"])
+    )
+    expect(sheet?.rowCount).toBe(2)
+  })
 })

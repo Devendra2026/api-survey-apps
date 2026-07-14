@@ -15,11 +15,13 @@ import { Fragment } from "react"
 
 const labelMap: Record<string, string> = {
   dashboard: "Dashboard",
-  surveys: "Surveys",
-  new: "New survey",
+  surveys: "Survey Registry",
+  new: "Field Survey",
+  qc: "QC Portal",
   reports: "Reports",
   import: "Import",
-  admin: "Admin",
+  "master-data": "Master Data",
+  admin: "Administration",
   users: "Users",
   roles: "Roles",
   geography: "Geography",

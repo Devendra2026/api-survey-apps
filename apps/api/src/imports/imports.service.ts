@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from "@nestjs/common"
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common"
 import {
   AssessmentYear,
   ConstructionType,
@@ -245,6 +240,87 @@ export class ImportsService {
     return { jobId: job.id, status: JobStatus.QUEUED, resumeFromCheckpoint: true }
   }
 
+  async retryFailedRows(user: AuthenticatedUser, jobId: string) {
+    const job = await this.getJob(user, jobId)
+    if (!job.objectKey || !job.bucket) {
+      throw new BadRequestException("Import job has no stored workbook to retry")
+    }
+    if (job.status === JobStatus.PROCESSING || job.status === JobStatus.QUEUED) {
+      throw new BadRequestException("Import job is already queued or processing")
+    }
+
+    const summary = job.resultSummary
+    const errors =
+      summary &&
+      typeof summary === "object" &&
+      !Array.isArray(summary) &&
+      Array.isArray((summary as { errors?: unknown }).errors)
+        ? ((summary as { errors: Array<{ row?: number; propertyId?: string; localId?: string }> }).errors ?? [])
+        : []
+
+    if (!errors.length) {
+      throw new BadRequestException("No failed rows recorded for this import job")
+    }
+
+    const failedPropertyIds = [
+      ...new Set(errors.map((error) => error.propertyId).filter((id): id is string => Boolean(id))),
+    ]
+    const failedLocalIds = [...new Set(errors.map((error) => error.localId).filter((id): id is string => Boolean(id)))]
+    const failedRows = [
+      ...new Set(errors.map((error) => error.row).filter((row): row is number => typeof row === "number")),
+    ]
+
+    await this.prisma.db.importJob.update({
+      where: { id: job.id },
+      data: {
+        status: JobStatus.QUEUED,
+        errorMessage: null,
+        finishedAt: null,
+        processedRows: 0,
+        successCount: 0,
+        failureCount: 0,
+      },
+    })
+
+    await this.jobsService.enqueueImport({
+      jobId: job.id,
+      createdById: user.id,
+      originalName: job.originalName,
+      mimeType: job.mimeType || undefined,
+      sizeBytes: 0,
+      bucket: job.bucket,
+      storageProvider: job.storageProvider ?? undefined,
+      objectKey: job.objectKey,
+      tenantRoles: user.tenantRoles,
+      retryFailedOnly: true,
+      failedPropertyIds,
+      failedLocalIds,
+      failedRows,
+    })
+
+    return {
+      jobId: job.id,
+      status: JobStatus.QUEUED,
+      retryFailedOnly: true,
+      failedCount: errors.length,
+    }
+  }
+
+  async getErrorReport(user: AuthenticatedUser, jobId: string) {
+    const job = await this.getJob(user, jobId)
+    if (!job.errorReportKey) {
+      throw new NotFoundException("Validation report is not available for this import job")
+    }
+    const url = await this.storageService.getPresignedDownloadUrl(job.errorReportKey, 900)
+    return {
+      jobId: job.id,
+      errorReportKey: job.errorReportKey,
+      url,
+      expiresInSeconds: 900,
+      resultSummary: job.resultSummary,
+    }
+  }
+
   async importSurveys(
     file: Express.Multer.File,
     user: AuthenticatedUser,
@@ -328,12 +404,7 @@ export class ImportsService {
             let created = false
 
             if (existing) {
-              const {
-                createdById: _c,
-                assignedToId: _a,
-                assignedAt: _t,
-                ...updateFields
-              } = item.data
+              const { createdById: _c, assignedToId: _a, assignedAt: _t, ...updateFields } = item.data
               await tx.survey.update({
                 where: { id: existing.id },
                 data: updateFields as Prisma.SurveyUncheckedUpdateInput,
@@ -603,8 +674,7 @@ export class ImportsService {
       plinthAreaSqFt,
       plinthAreaSqMeter: parseNumber(row["Plinth Area SqMeter"]) ?? sqFtToSqMeter(plinthAreaSqFt),
       totalBuiltAreaSqFt,
-      totalBuiltAreaSqMeter:
-        parseNumber(row["Total Built Up Area SqMeter"]) ?? sqFtToSqMeter(totalBuiltAreaSqFt),
+      totalBuiltAreaSqMeter: parseNumber(row["Total Built Up Area SqMeter"]) ?? sqFtToSqMeter(totalBuiltAreaSqFt),
       waterConnection,
       sourceOfWater: asEnum(mapSourceOfWater(row["Source of Water"]), isSourceOfWater),
       sanitationType: asEnum(mapSanitationType(row["Sanitation Type"]), isSanitationType),

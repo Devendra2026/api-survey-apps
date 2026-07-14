@@ -1,7 +1,7 @@
 import { Controller, Get, Param, Post, Query, UploadedFile, UseInterceptors } from "@nestjs/common"
 import { FileInterceptor } from "@nestjs/platform-express"
-import { Throttle } from "@nestjs/throttler"
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from "@nestjs/swagger"
+import { Throttle } from "@nestjs/throttler"
 import { memoryStorage } from "multer"
 import { PERMISSIONS } from "../common/constants/permissions.js"
 import { CurrentUser } from "../common/decorators/current-user.decorator.js"
@@ -68,5 +68,19 @@ export class ImportsController {
   @ApiOperation({ summary: "Resume a failed/interrupted import from its checkpoint" })
   resumeJob(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.importsService.resumeJob(user, id)
+  }
+
+  @Post("jobs/:id/retry-failed")
+  @RequirePermission(PERMISSIONS.SURVEY_CREATE)
+  @ApiOperation({ summary: "Retry only failed rows from a completed/failed import validation report" })
+  retryFailed(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.importsService.retryFailedRows(user, id)
+  }
+
+  @Get("jobs/:id/error-report")
+  @RequirePermission(PERMISSIONS.SURVEY_CREATE)
+  @ApiOperation({ summary: "Get a signed URL for the import validation/error report" })
+  errorReport(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.importsService.getErrorReport(user, id)
   }
 }

@@ -3,6 +3,7 @@ import { JobStatus, type Prisma, SurveyStatus } from "@workspace/database"
 import {
   renderConvexFullWorkbook,
   renderNagarPanchayatWorkbook,
+  renderQcFinalWorkbook,
   renderSurveyDataWorkbook,
   type SurveyExportBundle,
 } from "@workspace/excel-reports"
@@ -288,6 +289,7 @@ export class ExportWorkerService {
     if (reportType === "convex_full") return renderConvexFullWorkbook(bundles)
     if (reportType === "nagar_panchayat") return renderNagarPanchayatWorkbook(bundles)
     if (reportType === "survey_data") return renderSurveyDataWorkbook(bundles)
+    if (reportType === "qc_final") return renderQcFinalWorkbook(bundles)
     const workbook = new ExcelJS.Workbook()
     workbook.creator = "Municipal Property Tax Survey Worker"
     const sheet = workbook.addWorksheet(reportType)

@@ -12,6 +12,12 @@ export interface ParsedConvexWorkbook {
   guide: WorkbookRow[]
 }
 
+export interface WorkbookDuplicateIssue {
+  key: string
+  rows: number[]
+  kind: "propertyId" | "localId"
+}
+
 function cellValueToString(value: ExcelJS.CellValue): string {
   if (value == null) return ""
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
@@ -65,27 +71,38 @@ function findSheet(workbook: ExcelJS.Workbook, name: string): ExcelJS.Worksheet 
   return workbook.getWorksheet(name) ?? workbook.worksheets.find((sheet) => sheet.name.trim() === name)
 }
 
+async function loadWorkbook(source: Buffer | Readable, originalName: string): Promise<ExcelJS.Workbook> {
+  const workbook = new ExcelJS.Workbook()
+  const lower = originalName.toLowerCase()
+  const stream = Buffer.isBuffer(source) ? Readable.from(source) : source
+
+  if (lower.endsWith(".csv")) {
+    await workbook.csv.read(stream)
+    return workbook
+  }
+
+  await workbook.xlsx.read(stream)
+  return workbook
+}
+
 /**
  * Parses a Convex full-export workbook (Surveys / CoOwners / Floors / Photos / Guide).
  * Surveys sheet is required; other sheets are optional.
  */
 export async function parseConvexWorkbook(
-  buffer: Buffer,
+  source: Buffer | Readable,
   originalName: string
 ): Promise<ParsedConvexWorkbook> {
-  const workbook = new ExcelJS.Workbook()
+  const workbook = await loadWorkbook(source, originalName)
   const lower = originalName.toLowerCase()
 
   if (lower.endsWith(".csv")) {
-    await workbook.csv.read(Readable.from(buffer))
     const surveys = sheetToRows(workbook.worksheets[0])
     if (!surveys.length) {
       throw new Error("Import file has no survey data rows")
     }
     return { surveys, coOwners: [], floors: [], photos: [], guide: [] }
   }
-
-  await workbook.xlsx.load(buffer as never)
 
   const surveysSheet = findSheet(workbook, CONVEX_SHEETS.surveys) ?? workbook.worksheets[0]
   if (!surveysSheet) {
@@ -118,4 +135,38 @@ export function groupRowsByPropertyId(rows: WorkbookRow[]): Map<string, Workbook
     map.set(key, list)
   }
   return map
+}
+
+export function findWorkbookDuplicates(surveys: WorkbookRow[]): WorkbookDuplicateIssue[] {
+  const byProperty = new Map<string, number[]>()
+  const byLocal = new Map<string, number[]>()
+
+  surveys.forEach((row, index) => {
+    const excelRow = index + 2
+    const propertyId = String(row["Property ID"] ?? "")
+      .trim()
+      .toUpperCase()
+    const localId = String(row["Local ID"] ?? "")
+      .trim()
+      .toUpperCase()
+    if (propertyId) {
+      const list = byProperty.get(propertyId) ?? []
+      list.push(excelRow)
+      byProperty.set(propertyId, list)
+    }
+    if (localId) {
+      const list = byLocal.get(localId) ?? []
+      list.push(excelRow)
+      byLocal.set(localId, list)
+    }
+  })
+
+  const issues: WorkbookDuplicateIssue[] = []
+  for (const [key, rows] of byProperty) {
+    if (rows.length > 1) issues.push({ key, rows, kind: "propertyId" })
+  }
+  for (const [key, rows] of byLocal) {
+    if (rows.length > 1) issues.push({ key, rows, kind: "localId" })
+  }
+  return issues
 }

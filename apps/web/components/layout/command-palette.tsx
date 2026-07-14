@@ -11,7 +11,7 @@ import {
   CommandList,
   CommandSeparator,
 } from "@workspace/ui/components/command"
-import { FilePlus2, FileSearch, LayoutDashboard, Upload } from "lucide-react"
+import { ClipboardCheck, FilePlus2, FileSearch, FileSpreadsheet, LayoutDashboard, Upload } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useEffect, useMemo } from "react"
 
@@ -19,6 +19,7 @@ export function CommandPalette() {
   const router = useRouter()
   const open = useUiStore((s) => s.commandOpen)
   const setOpen = useUiStore((s) => s.setCommandOpen)
+  const setGlobalSearch = useUiStore((s) => s.setGlobalSearch)
   const hasPermission = useAuthStore((s) => s.hasPermission)
 
   useEffect(() => {
@@ -42,16 +43,36 @@ export function CommandPalette() {
     router.push(href)
   }
 
+  const searchSurveys = (value: string) => {
+    const query = value.trim()
+    if (!query) return
+    setGlobalSearch(query)
+    setOpen(false)
+    router.push(`/surveys?q=${encodeURIComponent(query)}`)
+  }
+
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
-      <CommandInput placeholder="Search pages, property IDs..." />
+      <CommandInput
+        placeholder="Search pages, property IDs, actions…"
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            const value = (e.target as HTMLInputElement).value
+            if (value.trim().length >= 3) searchSurveys(value)
+          }
+        }}
+      />
       <CommandList>
-        <CommandEmpty>No results found.</CommandEmpty>
+        <CommandEmpty>No results found. Press Enter to search surveys.</CommandEmpty>
         <CommandGroup heading="Navigation">
           {navItems.map((item) => {
             const Icon = item.icon
             return (
-              <CommandItem key={item.href} value={item.title} onSelect={() => run(item.href)}>
+              <CommandItem
+                key={item.href}
+                value={`${item.title} ${item.description ?? ""}`}
+                onSelect={() => run(item.href)}
+              >
                 <Icon />
                 <span>{item.title}</span>
               </CommandItem>
@@ -64,32 +85,32 @@ export function CommandPalette() {
             <LayoutDashboard />
             <span>Go to dashboard</span>
           </CommandItem>
-          <CommandItem
-            value="surveys search"
-            onSelect={() => {
-              setOpen(false)
-              router.push("/surveys")
-            }}
-          >
+          <CommandItem value="surveys search" onSelect={() => run("/surveys")}>
             <FileSearch />
-            <span>Browse surveys</span>
+            <span>Browse survey registry</span>
           </CommandItem>
+          {hasPermission("survey:approve") ? (
+            <CommandItem value="qc portal pending" onSelect={() => run("/qc?pipeline=pending")}>
+              <ClipboardCheck />
+              <span>Open QC pending queue</span>
+            </CommandItem>
+          ) : null}
           {hasPermission("survey:create") ? (
-            <CommandItem value="create survey dashboard" onSelect={() => run("/surveys/new")}>
+            <CommandItem value="create survey" onSelect={() => run("/surveys/new")}>
               <FilePlus2 />
               <span>Create survey</span>
             </CommandItem>
           ) : null}
           {hasPermission("survey:create") ? (
-            <CommandItem value="import surveys dashboard" onSelect={() => run("/import")}>
+            <CommandItem value="import surveys" onSelect={() => run("/import")}>
               <Upload />
               <span>Import surveys</span>
             </CommandItem>
           ) : null}
-          {hasPermission("survey:view") ? (
-            <CommandItem value="review pending qc dashboard" onSelect={() => run("/surveys?surveyStatus=SUBMITTED")}>
-              <FileSearch />
-              <span>Review pending QC</span>
+          {hasPermission("report:view") ? (
+            <CommandItem value="government reports" onSelect={() => run("/reports")}>
+              <FileSpreadsheet />
+              <span>Open report builder</span>
             </CommandItem>
           ) : null}
         </CommandGroup>

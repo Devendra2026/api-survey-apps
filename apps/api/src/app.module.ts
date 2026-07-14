@@ -4,6 +4,7 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core"
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler"
 import { AuthModule } from "./auth/auth.module.js"
 import { CoOwnersModule } from "./co-owners/co-owners.module.js"
+import { CommandCenterModule } from "./command-center/command-center.module.js"
 import { CommonModule } from "./common/common.module.js"
 import { GlobalExceptionFilter } from "./common/filters/global-exception.filter.js"
 import { ClerkAuthGuard } from "./common/guards/clerk-auth.guard.js"
@@ -29,6 +30,7 @@ import { SavedViewsModule } from "./saved-views/saved-views.module.js"
 import { StatesModule } from "./states/states.module.js"
 import { StorageModule } from "./storage/storage.module.js"
 import { SurveyAuditsModule } from "./survey-audits/survey-audits.module.js"
+import { SurveyRegistryModule } from "./survey-registry/survey-registry.module.js"
 import { SurveysModule } from "./surveys/surveys.module.js"
 import { UlbsModule } from "./ulbs/ulbs.module.js"
 import { UsersModule } from "./users/users.module.js"
@@ -63,6 +65,8 @@ import { WardsModule } from "./wards/wards.module.js"
     UlbsModule,
     WardsModule,
     SurveysModule,
+    CommandCenterModule,
+    SurveyRegistryModule,
     SavedViewsModule,
     FloorsModule,
     PhotosModule,

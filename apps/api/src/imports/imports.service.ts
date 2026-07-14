@@ -44,6 +44,7 @@ import {
   padUlbCode,
   padWardNo,
   parseNumber,
+  parsePropertyId,
   parseYn,
   sqFtToSqMeter,
 } from "@workspace/validation"
@@ -567,13 +568,17 @@ export class ImportsService {
     const rowErrors: string[] = []
     const localId = emptyToUndefined(row["Local ID"])
     const legacySurveyId = emptyToUndefined(row["Survey ID"])
-    const ulbCodeRaw = emptyToUndefined(row["ULB Code"])
-    const wardNumberRaw = emptyToUndefined(row["Ward Number"])
-    const parcelNo = emptyToUndefined(row["Parcel Number"])
-    const unitNo = emptyToUndefined(row["Unit / Sub-No"])
+    let parcelNo = emptyToUndefined(row["Parcel Number"])
+    let unitNo = emptyToUndefined(row["Unit / Sub-No"])
     const propertyUseMapped = mapPropertyUse(row["Property Use"])
 
     let propertyId = emptyToUndefined(row["Property ID"])?.toUpperCase()
+    const excelUlbCode = firstRowValue(row, ["ULB Code", "Municipality Code", "municipalityCode", "ULB"])
+    const excelWardNumber = firstRowValue(row, ["Ward Number", "Ward No", "Ward", "wardNo"])
+
+    let ulbCodeRaw = excelUlbCode
+    let wardNumberRaw = excelWardNumber
+
     if (!propertyId && ulbCodeRaw && wardNumberRaw && parcelNo && unitNo && propertyUseMapped) {
       propertyId = formatPropertyId({
         ulbCode: ulbCodeRaw,
@@ -584,6 +589,13 @@ export class ImportsService {
       })
     }
     if (!propertyId) rowErrors.push("Missing Property ID (and could not derive from ULB/Ward/Parcel/Unit/Use)")
+
+    // Property ID encodes ULB (6) + Ward (3); use it when Excel ULB/Ward columns are blank.
+    const parsedPropertyId = parsePropertyId(propertyId)
+    if (!ulbCodeRaw && parsedPropertyId) ulbCodeRaw = parsedPropertyId.ulbCode
+    if (!wardNumberRaw && parsedPropertyId) wardNumberRaw = parsedPropertyId.wardNo
+    if (!parcelNo && parsedPropertyId) parcelNo = parsedPropertyId.parcelNo
+    if (!unitNo && parsedPropertyId) unitNo = parsedPropertyId.unitNo
 
     const assessmentMapped = mapAssessmentYear(row["Assessment Year"])
     if (emptyToUndefined(row["Assessment Year"]) && !assessmentMapped) {
@@ -598,6 +610,20 @@ export class ImportsService {
     } else {
       rowErrors.push("Missing ULB Code or Ward Number")
     }
+
+    console.log({
+      rowNumber,
+      propertyUid: propertyId,
+      excelUlbCode: excelUlbCode ?? null,
+      excelWardNumber: excelWardNumber ?? null,
+      derivedUlbCode: ulbCodeRaw ?? null,
+      derivedWardNumber: wardNumberRaw ?? null,
+      propertyFound: Boolean(propertyId),
+      propertyId: propertyId ?? null,
+      dbUlbCode: geo?.ulbCode ?? null,
+      dbWardNumber: geo?.wardNumber ?? null,
+      validationResult: rowErrors.length ? rowErrors : "ok",
+    })
 
     const ownershipType = asEnum(mapOwnershipType(row["Ownership Type"]), isOwnershipType)
     const propertyUse = asEnum(propertyUseMapped, isPropertyUse)
@@ -766,6 +792,22 @@ function emptyToUndefined(value: string | undefined | null): string | undefined 
   if (value == null) return undefined
   const trimmed = String(value).trim()
   return trimmed === "" ? undefined : trimmed
+}
+
+function firstRowValue(row: WorkbookRow, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = emptyToUndefined(row[key])
+    if (value) return value
+  }
+  // Case-insensitive / whitespace-normalized fallback for excel header drift
+  const normalized = new Map(
+    Object.entries(row).map(([header, value]) => [header.trim().toLowerCase().replace(/\s+/g, " "), value])
+  )
+  for (const key of keys) {
+    const value = emptyToUndefined(normalized.get(key.trim().toLowerCase().replace(/\s+/g, " ")))
+    if (value) return value
+  }
+  return undefined
 }
 
 function uniqueNonEmpty(values: string[]): string[] {

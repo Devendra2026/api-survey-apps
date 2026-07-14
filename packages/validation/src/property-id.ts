@@ -22,6 +22,15 @@ export const PROPERTY_USE_CODES: Record<string, string> = {
   AGRICULTURE: "A",
 }
 
+export type ParsedPropertyId = {
+  ulbCode: string
+  wardNo: string
+  parcelNo: string
+  unitNo: string
+  useLetter: string
+  format: "standard" | "legacy"
+}
+
 export function padUlbCode(code: string): string {
   const digits = code.replace(/\D/g, "")
   if (!digits) return ""
@@ -72,6 +81,42 @@ export function formatPropertyId(parts: {
   const use = propertyUseCode(parts.propertyUse)
   if (!ulb || !ward || !parcel || !unit || !use) return undefined
   return `${ulb}-${ward}-${parcel}-${unit}-${use}`
+}
+
+/**
+ * Parse a Convex/standard Property ID into ULB + ward (+ parcel/unit/use).
+ * Used by Excel import when dedicated ULB Code / Ward Number columns are blank.
+ */
+export function parsePropertyId(raw: string | undefined | null): ParsedPropertyId | null {
+  if (!raw) return null
+  const id = raw.trim().toUpperCase()
+  if (!id) return null
+
+  const standard = id.match(/^(\d{6})-(\d{3})-(\d{5})-(\d{3})-([A-Z])$/)
+  if (standard) {
+    return {
+      ulbCode: standard[1]!,
+      wardNo: standard[2]!,
+      parcelNo: standard[3]!,
+      unitNo: standard[4]!,
+      useLetter: standard[5]!,
+      format: "standard",
+    }
+  }
+
+  const legacy = id.match(/^(\d{6})-(\d{3})-(\d{5})-([A-Z])$/)
+  if (legacy) {
+    return {
+      ulbCode: legacy[1]!,
+      wardNo: legacy[2]!,
+      parcelNo: legacy[3]!,
+      unitNo: "001",
+      useLetter: legacy[4]!,
+      format: "legacy",
+    }
+  }
+
+  return null
 }
 
 export function isNewPropertyIdFormat(id: string): boolean {

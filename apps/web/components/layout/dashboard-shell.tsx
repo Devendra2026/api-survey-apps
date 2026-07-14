@@ -6,19 +6,25 @@ import { CommandPalette } from "@/components/layout/command-palette"
 import { MobileBottomNav } from "@/components/layout/mobile-bottom-nav"
 import { useUiStore } from "@/stores/app-store"
 import { TooltipProvider } from "@workspace/ui/components/tooltip"
+import { cn } from "@workspace/ui/lib/utils"
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed)
 
   return (
     <TooltipProvider>
-      <div className="flex min-h-screen bg-background">
+      <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-50">
         <AppSidebar collapsed={sidebarCollapsed} />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <AppHeader />
-          <main className="flex-1 overflow-auto p-4 pb-20 md:p-6 md:pb-6">{children}</main>
-          <MobileBottomNav />
-        </div>
+        <AppHeader />
+        <main
+          className={cn(
+            "min-h-screen overflow-y-auto bg-background p-4 pt-20 pb-24 md:p-8 md:pt-24 md:pb-8 dark:bg-slate-950",
+            sidebarCollapsed ? "md:ml-18" : "md:ml-64"
+          )}
+        >
+          {children}
+        </main>
+        <MobileBottomNav />
         <CommandPalette />
       </div>
     </TooltipProvider>

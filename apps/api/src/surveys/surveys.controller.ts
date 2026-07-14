@@ -59,8 +59,12 @@ export class SurveysController {
 
   @Get(":id")
   @RequirePermission(PERMISSIONS.SURVEY_VIEW)
+  @ApiOperation({
+    summary: "Survey details (Pro Max read-only view DTO)",
+    description: "Accepts survey cuid or propertyId. Use DEMO-PROP-001 for glassmorphic preview mock data.",
+  })
   findOne(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.surveysService.findById(id, user)
+    return this.surveysService.getSurveyDetails(id, user)
   }
 
   @Get(":id/history")
@@ -68,6 +72,16 @@ export class SurveysController {
   @ApiOperation({ summary: "Survey audit history" })
   history(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.surveysService.history(id, user)
+  }
+
+  @Get(":id/audit-history")
+  @RequirePermission(PERMISSIONS.SURVEY_VIEW)
+  @ApiOperation({
+    summary: "Survey audit history (alias)",
+    description: "Returns DEMO audit trail when propertyId is DEMO-PROP-001.",
+  })
+  auditHistory(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.surveysService.getAuditHistory(id, user)
   }
 
   @Post()

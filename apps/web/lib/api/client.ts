@@ -21,12 +21,31 @@ apiClient.interceptors.request.use(async (config) => {
       config.headers.Authorization = `Bearer ${token}`
     }
   }
+
+  // FormData must use browser-generated multipart boundary. Drop default JSON content-type.
+  if (typeof FormData !== "undefined" && config.data instanceof FormData) {
+    if (typeof config.headers.set === "function") {
+      config.headers.set("Content-Type", false as unknown as string)
+    } else {
+      delete (config.headers as Record<string, unknown>)["Content-Type"]
+    }
+  }
+
   return config
 })
 
 export function getApiErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
-    const data = error.response?.data as ApiResponse | undefined
+    if (!error.response) {
+      if (error.code === "ECONNABORTED") {
+        return "Upload timed out. Try a smaller file or check that the API is running."
+      }
+      if (error.message === "Network Error") {
+        return `Network error — cannot reach API at ${baseURL}. Confirm the API is running and CORS allows this origin.`
+      }
+      return error.message || "Network request failed"
+    }
+    const data = error.response.data as ApiResponse | undefined
     if (data?.message) return data.message
     if (Array.isArray(data?.errors) && data.errors.length > 0) {
       const first = data.errors[0]
@@ -47,10 +66,7 @@ export async function apiGet<T>(url: string, config?: AxiosRequestConfig): Promi
   return data.data as T
 }
 
-export async function apiGetPaginated<T>(
-  url: string,
-  config?: AxiosRequestConfig
-): Promise<PaginatedResult<T>> {
+export async function apiGetPaginated<T>(url: string, config?: AxiosRequestConfig): Promise<PaginatedResult<T>> {
   return apiGet<PaginatedResult<T>>(url, config)
 }
 
@@ -72,14 +88,17 @@ export async function apiDelete<T>(url: string, config?: AxiosRequestConfig): Pr
   return data.data as T
 }
 
-export async function apiUpload<T>(
-  url: string,
-  formData: FormData,
-  config?: AxiosRequestConfig
-): Promise<T> {
+export async function apiUpload<T>(url: string, formData: FormData, config?: AxiosRequestConfig): Promise<T> {
   const { data } = await apiClient.post<ApiResponse<T>>(url, formData, {
+    timeout: 5 * 60_000,
+    maxBodyLength: Infinity,
+    maxContentLength: Infinity,
     ...config,
-    headers: { ...config?.headers, "Content-Type": "multipart/form-data" },
+    // Do not set Content-Type manually — browser must attach multipart boundary.
+    headers: {
+      ...config?.headers,
+      "Content-Type": undefined,
+    },
   })
   if (!data.success) throw new Error(data.message || "Upload failed")
   return data.data as T

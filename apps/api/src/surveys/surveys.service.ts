@@ -4,6 +4,7 @@ import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.
 import { canAccessTenant, resolveTenantScope, userHasPermissionInTenant } from "../common/utils/tenant-scope.util.js"
 import { JobsService } from "../jobs/jobs.service.js"
 import { PrismaService } from "../prisma/prisma.service.js"
+import { getDemoAuditHistory, getDemoSurveyDetails, isDemoSurveyPropertyId } from "./demo-survey-view.data.js"
 import type {
   BulkExportSurveysDto,
   BulkRejectSurveysDto,
@@ -14,6 +15,7 @@ import type {
   UpdateSurveyDto,
   WardStatsQueryDto,
 } from "./dto/survey.dto.js"
+import { mapAuditsToHistoryDto, mapSurveyToDetailsDto } from "./survey-view.mapper.js"
 import { SurveysRepository } from "./surveys.repository.js"
 
 const EDITABLE: SurveyStatus[] = ["DRAFT", "IN_PROGRESS", "REOPENED"]
@@ -44,6 +46,23 @@ export class SurveysService {
 
   findById(id: string, user: AuthenticatedUser) {
     return this.surveysRepository.findById(id, user)
+  }
+
+  async getSurveyDetails(idOrPropertyId: string, user: AuthenticatedUser) {
+    if (isDemoSurveyPropertyId(idOrPropertyId)) {
+      return getDemoSurveyDetails()
+    }
+    const survey = await this.surveysRepository.findById(idOrPropertyId, user)
+    return mapSurveyToDetailsDto(survey)
+  }
+
+  async getAuditHistory(idOrPropertyId: string, user: AuthenticatedUser) {
+    if (isDemoSurveyPropertyId(idOrPropertyId)) {
+      return getDemoAuditHistory()
+    }
+    const survey = await this.surveysRepository.findById(idOrPropertyId, user)
+    const audits = await this.surveysRepository.listAudits(survey.id)
+    return mapAuditsToHistoryDto(survey.propertyId, audits)
   }
 
   async create(dto: CreateSurveyDto, user: AuthenticatedUser) {
@@ -369,8 +388,7 @@ export class SurveysService {
   }
 
   async history(id: string, user: AuthenticatedUser) {
-    await this.surveysRepository.findById(id, user)
-    return this.surveysRepository.listAudits(id)
+    return this.getAuditHistory(id, user)
   }
 
   async assign(id: string, assigneeId: string, user: AuthenticatedUser) {

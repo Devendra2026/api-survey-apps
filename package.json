@@ -4,7 +4,10 @@
   "private": true,
   "scripts": {
     "build": "turbo build",
-    "dev": "turbo dev",
+    "dev": "turbo dev --filter=api --filter=web --filter=worker",
+    "dev:apps": "turbo dev --filter=./apps/*",
+    "dev:libs": "turbo run build --filter=@workspace/validation --filter=@workspace/database --filter=@workspace/jobs --filter=@workspace/excel-reports",
+    "dev:validation": "pnpm --filter @workspace/validation dev:watch",
     "lint": "turbo lint",
     "format": "turbo format",
     "typecheck": "turbo typecheck",
@@ -12,6 +15,7 @@
     "db:migrate": "pnpm --filter @workspace/database db:migrate",
     "db:deploy": "pnpm --filter @workspace/database db:deploy",
     "db:seed": "pnpm --filter @workspace/database db:seed",
+    "verify:dev": "node scripts/verify-dev.mjs",
     "prepare": "node -e \"try{require('fs').accessSync('.git');require('child_process').execSync('husky',{stdio:'inherit'})}catch{}\""
   },
   "devDependencies": {

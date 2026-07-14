@@ -1,23 +1,42 @@
 "use client"
 
-import { adminNav, mainNav, type NavItem } from "@/lib/navigation"
-import { SIDEBAR_WIDTH, useAuthStore, useUiStore } from "@/stores/app-store"
+import { appNav, type NavItem } from "@/lib/navigation"
+import { useAuthStore } from "@/stores/app-store"
 import { Button } from "@workspace/ui/components/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@workspace/ui/components/tooltip"
 import { cn } from "@workspace/ui/lib/utils"
-import { motion } from "framer-motion"
-import { GripVertical } from "lucide-react"
+import { Building2, ChevronDown } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useCallback, useRef } from "react"
+import { useEffect, useMemo, useState } from "react"
 
-function NavLink({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
+function isRouteActive(pathname: string, href: string): boolean {
+  if (href === "/surveys/new") return pathname === "/surveys/new"
+  if (href === "/surveys/command-center") {
+    return pathname === "/surveys/command-center" || pathname.startsWith("/surveys/command-center/")
+  }
+  if (href === "/surveys") {
+    return (
+      pathname === "/surveys" ||
+      (pathname.startsWith("/surveys/") &&
+        !pathname.startsWith("/surveys/new") &&
+        !pathname.startsWith("/surveys/command-center"))
+    )
+  }
+  return pathname === href || pathname.startsWith(`${href}/`)
+}
+
+function isGroupActive(pathname: string, item: NavItem): boolean {
+  if (item.children?.length) {
+    return item.children.some((child) => isRouteActive(pathname, child.href))
+  }
+  return isRouteActive(pathname, item.href)
+}
+
+function NavLink({ item, collapsed, nested = false }: { item: NavItem; collapsed: boolean; nested?: boolean }) {
   const pathname = usePathname()
   const hasPermission = useAuthStore((s) => s.hasPermission)
-  const active =
-    pathname === item.href ||
-    (item.href !== "/surveys/new" && pathname.startsWith(`${item.href}/`)) ||
-    (item.href === "/surveys/new" && pathname === "/surveys/new")
+  const active = isRouteActive(pathname, item.href)
 
   if (item.permission && !hasPermission(item.permission)) return null
 
@@ -27,21 +46,22 @@ function NavLink({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
     <Link
       href={item.href}
       className={cn(
-        "relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+        "relative flex items-center gap-3 rounded-lg text-sm font-medium transition-all duration-300",
+        nested ? "px-3 py-1.5 pl-9" : "px-3 py-2",
         collapsed && "justify-center px-2",
         active
-          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-          : "text-sidebar-foreground/75 hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground"
+          ? "bg-linear-to-r from-violet-600 to-indigo-600 text-white shadow-sm"
+          : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-50"
       )}
       aria-current={active ? "page" : undefined}
     >
-      {active ? <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-sidebar-primary" /> : null}
+      {active ? <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-violet-300" /> : null}
       <Icon className="size-4 shrink-0" />
       {!collapsed ? (
         <span className="min-w-0">
           <span className="block truncate">{item.title}</span>
-          {item.description ? (
-            <span className="mt-0.5 block truncate text-[10px] font-normal text-muted-foreground">
+          {!nested && item.description ? (
+            <span className="mt-0.5 block truncate text-[10px] font-normal text-slate-500 dark:text-slate-400">
               {item.description}
             </span>
           ) : null}
@@ -60,107 +80,134 @@ function NavLink({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
   )
 }
 
-function NavSection({ label, items, collapsed }: { label: string; items: NavItem[]; collapsed: boolean }) {
+function NavGroup({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
+  const pathname = usePathname()
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const children = item.children ?? []
+  const visibleChildren = useMemo(
+    () => children.filter((child) => !child.permission || hasPermission(child.permission)),
+    [children, hasPermission]
+  )
+  const groupActive = isGroupActive(pathname, item)
+  const [open, setOpen] = useState(groupActive)
+
+  useEffect(() => {
+    if (groupActive) setOpen(true)
+  }, [groupActive])
+
+  if (visibleChildren.length === 0) return null
+
+  const Icon = item.icon
+
+  if (collapsed) {
+    return (
+      <div className="space-y-1">
+        {visibleChildren.map((child) => (
+          <NavLink key={child.href} item={child} collapsed />
+        ))}
+      </div>
+    )
+  }
+
   return (
-    <div className="space-y-1">
-      {!collapsed ? (
-        <p className="px-3 pt-1 pb-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
-          {label}
-        </p>
+    <div className="space-y-0.5">
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className={cn(
+          "flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-300",
+          groupActive
+            ? "text-indigo-600 dark:text-indigo-400"
+            : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-50"
+        )}
+        aria-expanded={open}
+      >
+        <Icon className="size-4 shrink-0" />
+        <span className="min-w-0 flex-1 truncate text-left">{item.title}</span>
+        <ChevronDown
+          className={cn(
+            "size-3.5 shrink-0 text-slate-500 transition-transform dark:text-slate-400",
+            open && "rotate-180"
+          )}
+        />
+      </button>
+      {open ? (
+        <div className="space-y-0.5">
+          {visibleChildren.map((child) => (
+            <NavLink key={child.href} item={child} collapsed={false} nested />
+          ))}
+        </div>
       ) : null}
-      {items.map((item) => (
-        <NavLink key={item.href} item={item} collapsed={collapsed} />
-      ))}
     </div>
   )
 }
 
-export function AppSidebar({ collapsed }: { collapsed: boolean }) {
-  const sidebarWidth = useUiStore((s) => s.sidebarWidth)
-  const setSidebarWidth = useUiStore((s) => s.setSidebarWidth)
-  const setSidebarCollapsed = useUiStore((s) => s.setSidebarCollapsed)
-  const dragging = useRef(false)
+function NavItemRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
+  const hasPermission = useAuthStore((s) => s.hasPermission)
 
-  const onPointerDown = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      event.preventDefault()
-      dragging.current = true
-      const startX = event.clientX
-      const startWidth = collapsed ? SIDEBAR_WIDTH.collapsed : sidebarWidth
+  if (item.children?.length) {
+    return <NavGroup item={item} collapsed={collapsed} />
+  }
 
-      const onMove = (moveEvent: PointerEvent) => {
-        if (!dragging.current) return
-        const next = startWidth + (moveEvent.clientX - startX)
-        if (next <= SIDEBAR_WIDTH.min + 24) {
-          setSidebarCollapsed(true)
-          setSidebarWidth(SIDEBAR_WIDTH.collapsed)
-          return
-        }
-        setSidebarCollapsed(false)
-        setSidebarWidth(next)
-      }
+  if (item.permission && !hasPermission(item.permission)) return null
 
-      const onUp = () => {
-        dragging.current = false
-        window.removeEventListener("pointermove", onMove)
-        window.removeEventListener("pointerup", onUp)
-      }
+  return <NavLink item={item} collapsed={collapsed} />
+}
 
-      window.addEventListener("pointermove", onMove)
-      window.addEventListener("pointerup", onUp)
-    },
-    [collapsed, setSidebarCollapsed, setSidebarWidth, sidebarWidth]
-  )
-
-  const width = collapsed ? SIDEBAR_WIDTH.collapsed : sidebarWidth
+export function AppSidebar({ collapsed, variant = "desktop" }: { collapsed: boolean; variant?: "desktop" | "drawer" }) {
+  const isDrawer = variant === "drawer"
 
   return (
-    <motion.aside
-      initial={false}
-      animate={{ width }}
-      transition={{ duration: dragging.current ? 0 : 0.18, ease: "easeOut" }}
+    <aside
       className={cn(
-        "relative hidden h-full shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex"
+        "flex h-screen flex-col overflow-y-auto border-r border-slate-100 bg-white text-slate-900 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-50 dark:shadow-xl",
+        isDrawer ? "relative w-full" : cn("fixed top-0 left-0 z-40 hidden md:flex", collapsed ? "w-18" : "w-64")
       )}
     >
-      <div className={cn("flex h-14 items-center border-b px-4", collapsed && "justify-center px-2")}>
+      <div
+        className={cn(
+          "flex h-16 shrink-0 items-center gap-2.5 border-b border-slate-100 px-4 dark:border-slate-800",
+          collapsed && "justify-center px-2"
+        )}
+      >
         {!collapsed ? (
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold tracking-tight">Survey Portal</p>
-            <p className="truncate text-[11px] text-muted-foreground">Municipal Property Tax</p>
-          </div>
+          <>
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white shadow-sm dark:bg-indigo-500">
+              <Building2 className="size-4" />
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+                SDV EDUTECH
+              </p>
+              <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">Survey Operations</p>
+            </div>
+          </>
         ) : (
-          <span className="flex size-8 items-center justify-center rounded-lg bg-sidebar-primary text-xs font-bold text-sidebar-primary-foreground">
-            SP
+          <span className="flex size-8 items-center justify-center rounded-lg bg-indigo-600 text-white dark:bg-indigo-500">
+            <Building2 className="size-4" />
           </span>
         )}
       </div>
 
-      <nav className="flex flex-1 flex-col gap-5 overflow-y-auto p-2.5">
-        <NavSection label="Operations" items={mainNav} collapsed={collapsed} />
-        <NavSection label="Administration" items={adminNav} collapsed={collapsed} />
+      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-2.5">
+        {appNav.map((item) => (
+          <NavItemRow key={item.title} item={item} collapsed={collapsed} />
+        ))}
       </nav>
 
-      <div className="border-t border-sidebar-border p-2.5">
+      <div className="shrink-0 border-t border-slate-100 p-2.5 dark:border-slate-800">
         <Button
           variant="ghost"
           size="sm"
-          className={cn("w-full", collapsed ? "justify-center px-0" : "justify-start")}
+          className={cn(
+            "w-full text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-50",
+            collapsed ? "justify-center px-0" : "justify-start"
+          )}
           asChild
         >
           <Link href="/admin/settings">{collapsed ? "?" : "Help & settings"}</Link>
         </Button>
       </div>
-
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize sidebar"
-        onPointerDown={onPointerDown}
-        className="absolute inset-y-0 right-0 z-20 flex w-1.5 cursor-col-resize items-center justify-center hover:bg-primary/20"
-      >
-        <GripVertical className="size-3 text-muted-foreground/60 opacity-0 transition-opacity group-hover:opacity-100 hover:opacity-100" />
-      </div>
-    </motion.aside>
+    </aside>
   )
 }

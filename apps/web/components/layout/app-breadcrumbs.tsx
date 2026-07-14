@@ -1,6 +1,6 @@
 "use client"
 
-import { adminNav, mainNav } from "@/lib/navigation"
+import { appNav, findNavTitle } from "@/lib/navigation"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -16,7 +16,8 @@ import { Fragment } from "react"
 const labelMap: Record<string, string> = {
   dashboard: "Dashboard",
   surveys: "Survey Registry",
-  new: "Field Survey",
+  "command-center": "Command Center",
+  new: "New Survey",
   qc: "QC Portal",
   reports: "Reports",
   import: "Import",
@@ -34,12 +35,11 @@ export function AppBreadcrumbs() {
 
   if (segments.length === 0) return null
 
-  const allNav = [...mainNav, ...adminNav]
   const crumbs = segments.map((segment, index) => {
     const href = `/${segments.slice(0, index + 1).join("/")}`
-    const navMatch = allNav.find((n) => n.href === href)
+    const navTitle = findNavTitle(appNav, href)
     const isLast = index === segments.length - 1
-    const label = navMatch?.title ?? labelMap[segment] ?? (segment.length > 12 ? `${segment.slice(0, 8)}…` : segment)
+    const label = navTitle ?? labelMap[segment] ?? (segment.length > 12 ? `${segment.slice(0, 8)}…` : segment)
 
     return { href, label, isLast }
   })

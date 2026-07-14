@@ -232,4 +232,284 @@ export class DashboardRepository {
 
     return buckets.map(({ month, count }) => ({ month, count }))
   }
+
+  async getOrganization(user: AuthenticatedUser) {
+    const scope = resolveTenantScope(user.tenantRoles)
+    const tenantWhere = buildTenantWhere(scope)
+    const surveyWhere: Prisma.SurveyWhereInput = {
+      deletedAt: null,
+      ...(tenantWhere ?? {}),
+    }
+
+    const [surveyorRole, qcRole] = await Promise.all([
+      this.prisma.db.role.findFirst({ where: { name: "SURVEYOR" }, select: { id: true } }),
+      this.prisma.db.role.findFirst({ where: { name: "QC_SUPERVISOR" }, select: { id: true } }),
+    ])
+
+    const activeRoleWhere = (roleId: string | undefined): Prisma.UserTenantRoleWhereInput => ({
+      roleId: roleId ?? "__none__",
+      isActive: true,
+      deactivatedAt: null,
+      user: { isActive: true },
+    })
+
+    const [activeSurveyors, activeQcSupervisors, districtRows, ulbRows] = await Promise.all([
+      surveyorRole
+        ? this.prisma.db.userTenantRole.count({ where: activeRoleWhere(surveyorRole.id) })
+        : Promise.resolve(0),
+      qcRole ? this.prisma.db.userTenantRole.count({ where: activeRoleWhere(qcRole.id) }) : Promise.resolve(0),
+      this.prisma.db.survey.groupBy({
+        by: ["districtId"],
+        where: surveyWhere,
+        _count: { _all: true },
+      }),
+      this.prisma.db.survey.groupBy({
+        by: ["ulbId"],
+        where: surveyWhere,
+        _count: { _all: true },
+      }),
+    ])
+
+    return {
+      activeSurveyors,
+      activeQcSupervisors,
+      districts: districtRows.length,
+      municipalities: ulbRows.length,
+    }
+  }
+
+  async getAnalytics(user: AuthenticatedUser) {
+    const scope = resolveTenantScope(user.tenantRoles)
+    const tenantWhere = buildTenantWhere(scope)
+    const where: Prisma.SurveyWhereInput = {
+      deletedAt: null,
+      ...(tenantWhere ?? {}),
+    }
+
+    const now = new Date()
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 29))
+
+    const [
+      createdRows,
+      approvedRows,
+      rejectedRows,
+      submittedByCreator,
+      approvedByCreator,
+      ulbRows,
+      auditRows,
+      activityRows,
+    ] = await Promise.all([
+      this.prisma.db.survey.findMany({
+        where: { ...where, createdAt: { gte: start } },
+        select: { createdAt: true },
+        take: 20000,
+      }),
+      this.prisma.db.survey.findMany({
+        where: { ...where, approvedAt: { gte: start } },
+        select: { approvedAt: true },
+        take: 20000,
+      }),
+      this.prisma.db.survey.findMany({
+        where: { ...where, rejectedAt: { gte: start } },
+        select: { rejectedAt: true },
+        take: 20000,
+      }),
+      this.prisma.db.survey.groupBy({
+        by: ["createdById"],
+        where: {
+          ...where,
+          surveyStatus: { in: ["SUBMITTED", "APPROVED", "REJECTED", "REOPENED"] },
+        },
+        _count: { _all: true },
+        orderBy: { _count: { createdById: "desc" } },
+        take: 8,
+      }),
+      this.prisma.db.survey.groupBy({
+        by: ["createdById"],
+        where: { ...where, qcStatus: "APPROVED" },
+        _count: { _all: true },
+      }),
+      this.prisma.db.survey.groupBy({
+        by: ["ulbId", "qcStatus"],
+        where,
+        _count: { _all: true },
+      }),
+      this.prisma.db.surveyAudit.groupBy({
+        by: ["changedBy", "action"],
+        where: {
+          action: { in: ["APPROVED", "REJECTED"] },
+          survey: where,
+        },
+        _count: { _all: true },
+      }),
+      this.prisma.db.surveyAudit.findMany({
+        where: {
+          action: "SUBMITTED",
+          survey: where,
+        },
+        orderBy: { changedAt: "desc" },
+        take: 6,
+        select: {
+          id: true,
+          changedAt: true,
+          changer: { select: { fullName: true, email: true } },
+          survey: { select: { propertyId: true } },
+        },
+      }),
+    ])
+
+    const dailyTrend = this.buildDailyTrend(start, now, createdRows, approvedRows, rejectedRows)
+
+    const approvedMap = new Map(approvedByCreator.map((r) => [r.createdById, r._count._all]))
+    const creatorIds = submittedByCreator.map((r) => r.createdById)
+    const creators = creatorIds.length
+      ? await this.prisma.db.user.findMany({
+          where: { id: { in: creatorIds } },
+          select: { id: true, fullName: true, email: true },
+        })
+      : []
+    const creatorName = new Map(creators.map((u) => [u.id, u.fullName || u.email]))
+
+    const surveyorProductivity = submittedByCreator.map((row) => ({
+      name: creatorName.get(row.createdById) ?? "Unknown",
+      submitted: row._count._all,
+      approved: approvedMap.get(row.createdById) ?? 0,
+    }))
+
+    const ulbIds = [...new Set(ulbRows.map((r) => r.ulbId))]
+    const ulbs = ulbIds.length
+      ? await this.prisma.db.ulb.findMany({
+          where: { id: { in: ulbIds } },
+          select: { id: true, name: true },
+        })
+      : []
+    const ulbNames = new Map(ulbs.map((u) => [u.id, u.name]))
+    const ulbAgg = new Map<string, { approved: number; total: number }>()
+    for (const row of ulbRows) {
+      const current = ulbAgg.get(row.ulbId) ?? { approved: 0, total: 0 }
+      current.total += row._count._all
+      if (row.qcStatus === "APPROVED") current.approved += row._count._all
+      ulbAgg.set(row.ulbId, current)
+    }
+    const municipalities = [...ulbAgg.entries()]
+      .map(([id, stats]) => {
+        const percent = stats.total > 0 ? Math.round((stats.approved / stats.total) * 100) : 0
+        return {
+          name: ulbNames.get(id) ?? "Unknown ULB",
+          approved: stats.approved,
+          target: stats.total,
+          percent,
+          accent: (percent === 0 ? "muted" : percent >= 30 ? "amber" : "slate") as "slate" | "amber" | "muted",
+        }
+      })
+      .sort((a, b) => b.percent - a.percent)
+      .slice(0, 8)
+
+    const supervisorMap = new Map<string, { approved: number; rejected: number }>()
+    for (const row of auditRows) {
+      const current = supervisorMap.get(row.changedBy) ?? { approved: 0, rejected: 0 }
+      if (row.action === "APPROVED") current.approved += row._count._all
+      if (row.action === "REJECTED") current.rejected += row._count._all
+      supervisorMap.set(row.changedBy, current)
+    }
+    const supervisorIds = [...supervisorMap.keys()]
+    const supervisors = supervisorIds.length
+      ? await this.prisma.db.user.findMany({
+          where: { id: { in: supervisorIds } },
+          select: { id: true, fullName: true, email: true },
+        })
+      : []
+    const supervisorNames = new Map(supervisors.map((u) => [u.id, u.fullName || u.email]))
+    const qcSupervisors = [...supervisorMap.entries()]
+      .map(([id, stats]) => ({
+        name: supervisorNames.get(id) ?? "Unknown",
+        approved: stats.approved,
+        rejected: stats.rejected,
+        status: stats.approved >= 100 ? ("High Throughput" as const) : undefined,
+      }))
+      .sort((a, b) => b.approved - a.approved)
+      .slice(0, 8)
+
+    // If no QC audits yet, still list active QC supervisors as zero rows
+    if (qcSupervisors.length === 0) {
+      const qcRole = await this.prisma.db.role.findFirst({ where: { name: "QC_SUPERVISOR" }, select: { id: true } })
+      if (qcRole) {
+        const qcUsers = await this.prisma.db.userTenantRole.findMany({
+          where: { roleId: qcRole.id, isActive: true, deactivatedAt: null, user: { isActive: true } },
+          take: 5,
+          select: { user: { select: { fullName: true, email: true } } },
+        })
+        for (const row of qcUsers) {
+          qcSupervisors.push({
+            name: row.user.fullName || row.user.email,
+            approved: 0,
+            rejected: 0,
+            status: undefined,
+          })
+        }
+      }
+    }
+
+    const recentActivity = activityRows.map((row) => ({
+      id: row.id,
+      title: `${row.survey.propertyId} submitted for QC`,
+      actor: row.changer.fullName || row.changer.email,
+      timestamp: row.changedAt.toLocaleString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      }),
+    }))
+
+    return {
+      dailyTrend,
+      surveyorProductivity,
+      qcSupervisors,
+      municipalities,
+      recentActivity,
+    }
+  }
+
+  private buildDailyTrend(
+    start: Date,
+    end: Date,
+    createdRows: Array<{ createdAt: Date }>,
+    approvedRows: Array<{ approvedAt: Date | null }>,
+    rejectedRows: Array<{ rejectedAt: Date | null }>
+  ): Array<{ date: string; created: number; approved: number; rejected: number }> {
+    const buckets: Array<{ key: string; date: string; created: number; approved: number; rejected: number }> = []
+    const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()))
+    const endDay = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()))
+
+    while (cursor <= endDay) {
+      const key = `${cursor.getUTCFullYear()}-${String(cursor.getUTCMonth() + 1).padStart(2, "0")}-${String(cursor.getUTCDate()).padStart(2, "0")}`
+      const date = `${String(cursor.getUTCMonth() + 1).padStart(2, "0")}-${String(cursor.getUTCDate()).padStart(2, "0")}`
+      buckets.push({ key, date, created: 0, approved: 0, rejected: 0 })
+      cursor.setUTCDate(cursor.getUTCDate() + 1)
+    }
+
+    const index = new Map(buckets.map((b) => [b.key, b]))
+    const dayKey = (d: Date) =>
+      `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`
+
+    for (const row of createdRows) {
+      const bucket = index.get(dayKey(row.createdAt))
+      if (bucket) bucket.created += 1
+    }
+    for (const row of approvedRows) {
+      if (!row.approvedAt) continue
+      const bucket = index.get(dayKey(row.approvedAt))
+      if (bucket) bucket.approved += 1
+    }
+    for (const row of rejectedRows) {
+      if (!row.rejectedAt) continue
+      const bucket = index.get(dayKey(row.rejectedAt))
+      if (bucket) bucket.rejected += 1
+    }
+
+    return buckets.map(({ date, created, approved, rejected }) => ({ date, created, approved, rejected }))
+  }
 }

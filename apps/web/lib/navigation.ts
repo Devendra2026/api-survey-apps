@@ -20,66 +20,107 @@ export interface NavItem {
   icon: LucideIcon
   permission?: string
   description?: string
+  children?: NavItem[]
 }
 
-export const mainNav: NavItem[] = [
+/** Flatten nested nav trees for command palette / breadcrumbs. */
+export function flattenNav(items: NavItem[]): NavItem[] {
+  const result: NavItem[] = []
+  for (const item of items) {
+    if (item.children?.length) {
+      result.push(...flattenNav(item.children))
+    } else {
+      result.push(item)
+    }
+  }
+  return result
+}
+
+export function findNavTitle(items: NavItem[], href: string): string | undefined {
+  for (const item of items) {
+    if (item.href === href) return item.title
+    if (item.children?.length) {
+      const nested = findNavTitle(item.children, href)
+      if (nested) return nested
+    }
+  }
+  return undefined
+}
+
+export const appNav: NavItem[] = [
   {
     title: "Dashboard",
     href: "/dashboard",
     icon: LayoutDashboard,
     permission: "dashboard:view",
-    description: "Executive overview and system health",
   },
   {
-    title: "Field Survey",
-    href: "/surveys/new",
-    icon: ClipboardList,
-    permission: "survey:create",
-    description: "Create and capture property surveys",
-  },
-  {
-    title: "Survey Registry",
+    title: "Field Surveys",
     href: "/surveys",
     icon: ClipboardList,
-    permission: "survey:view",
-    description: "Search, filter, and manage surveys",
+    children: [
+      {
+        title: "Command Center",
+        href: "/surveys/command-center",
+        icon: ClipboardList,
+        permission: "survey:view",
+        description: "Ward-wise field progress and filters",
+      },
+      {
+        title: "Survey Registry",
+        href: "/surveys",
+        icon: ClipboardList,
+        permission: "survey:view",
+        description: "Search, filter, and manage surveys",
+      },
+    ],
   },
   {
     title: "QC Portal",
     href: "/qc",
     icon: ClipboardCheck,
     permission: "survey:approve",
-    description: "Review, approve, and return surveys",
   },
   {
     title: "Reports",
     href: "/reports",
     icon: BarChart3,
     permission: "report:view",
-    description: "Government and operational exports",
   },
   {
-    title: "Import",
-    href: "/import",
-    icon: FileUp,
-    permission: "survey:create",
-    description: "Bulk Excel and CSV import jobs",
+    title: "Administration",
+    href: "/admin",
+    icon: Shield,
+    children: [
+      { title: "Users", href: "/admin/users", icon: Users, permission: "user:view" },
+      { title: "Roles", href: "/admin/roles", icon: Shield, permission: "role:assign" },
+      { title: "Geography", href: "/admin/geography", icon: MapPin, permission: "role:assign" },
+      {
+        title: "Import",
+        href: "/import",
+        icon: FileUp,
+        permission: "survey:create",
+      },
+      {
+        title: "Master Data",
+        href: "/master-data",
+        icon: Database,
+        permission: "role:assign",
+      },
+    ],
   },
   {
-    title: "Master Data",
-    href: "/master-data",
-    icon: Database,
-    permission: "role:assign",
-    description: "Reference data and geography",
+    title: "Settings",
+    href: "/admin/settings",
+    icon: Settings,
   },
 ]
 
-export const adminNav: NavItem[] = [
-  { title: "Users", href: "/admin/users", icon: Users, permission: "user:view" },
-  { title: "Roles", href: "/admin/roles", icon: Shield, permission: "role:assign" },
-  { title: "Geography", href: "/admin/geography", icon: MapPin, permission: "role:assign" },
-  { title: "Settings", href: "/admin/settings", icon: Settings },
-]
+/** @deprecated Prefer `appNav` — kept for any residual imports */
+export const mainNav = appNav.filter((item) => item.title !== "Settings" && item.title !== "Administration")
+
+/** @deprecated Prefer `appNav` */
+export const adminNav: NavItem[] = appNav.find((item) => item.title === "Administration")?.children ?? []
 
 export const statusColors: Record<string, string> = {
   DRAFT: "bg-muted text-muted-foreground",

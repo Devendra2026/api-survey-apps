@@ -3,6 +3,11 @@ import type {
   AuthenticatedProfile,
   BulkActionResult,
   BulkExportResult,
+  CommandCenterFilters,
+  CommandCenterKpis,
+  CommandCenterWard,
+  DashboardAnalytics,
+  DashboardOrganization,
   DashboardSummary,
   GeoDistrict,
   GeoState,
@@ -12,8 +17,16 @@ import type {
   ImportJob,
   NotificationItem,
   PaginatedResult,
+  ReassignDraftsPayload,
+  ReassignDraftsResult,
+  RegistryDraftSource,
+  RegistryImportResult,
   SavedView,
+  SurveyAuditHistoryItem,
+  SurveyDetails,
   SurveyListItem,
+  SurveyRegistryFilters,
+  SurveyRegistryResponse,
   WardCommandStat,
 } from "@/lib/api/types"
 import { useAuthStore } from "@/stores/app-store"
@@ -48,6 +61,30 @@ export function useDashboardSummary() {
   })
 }
 
+export function useOrganizationOverview() {
+  const { isLoaded, isSignedIn } = useAuth()
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canView = hasPermission("dashboard:view")
+
+  return useQuery({
+    queryKey: ["dashboard", "organization"],
+    queryFn: () => apiGet<DashboardOrganization>("/dashboard/organization"),
+    enabled: isLoaded && Boolean(isSignedIn) && canView,
+  })
+}
+
+export function useProductivityAnalytics() {
+  const { isLoaded, isSignedIn } = useAuth()
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canView = hasPermission("dashboard:view")
+
+  return useQuery({
+    queryKey: ["dashboard", "analytics"],
+    queryFn: () => apiGet<DashboardAnalytics>("/dashboard/analytics"),
+    enabled: isLoaded && Boolean(isSignedIn) && canView,
+  })
+}
+
 export function useSurveys(params: Record<string, string | number | undefined>) {
   const searchParams = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => {
@@ -62,10 +99,30 @@ export function useSurveys(params: Record<string, string | number | undefined>) 
 }
 
 export function useSurvey(id: string) {
+  return useSurveyDetails(id)
+}
+
+export function useSurveyDetails(propertyId: string, enabled = true) {
+  const { isLoaded, isSignedIn } = useAuth()
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canView = hasPermission("survey:view")
+
   return useQuery({
-    queryKey: ["surveys", id],
-    queryFn: () => apiGet<SurveyListItem & Record<string, unknown>>(`/surveys/${id}`),
-    enabled: Boolean(id),
+    queryKey: ["surveys", "details", propertyId],
+    queryFn: () => apiGet<SurveyDetails>(`/surveys/${propertyId}`),
+    enabled: isLoaded && Boolean(isSignedIn) && canView && Boolean(propertyId) && enabled,
+  })
+}
+
+export function useSurveyAuditHistory(propertyId: string, enabled = true) {
+  const { isLoaded, isSignedIn } = useAuth()
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canView = hasPermission("survey:view")
+
+  return useQuery({
+    queryKey: ["surveys", "audit-history", propertyId],
+    queryFn: () => apiGet<SurveyAuditHistoryItem[]>(`/surveys/${propertyId}/audit-history`),
+    enabled: isLoaded && Boolean(isSignedIn) && canView && Boolean(propertyId) && enabled,
   })
 }
 
@@ -79,6 +136,108 @@ export function useWardCommandStats(params: Record<string, string | number | und
   return useQuery({
     queryKey: ["surveys", "ward-stats", params],
     queryFn: () => apiGet<WardCommandStat[]>(`/surveys/ward-stats${qs ? `?${qs}` : ""}`),
+  })
+}
+
+function toCommandCenterQuery(filters: CommandCenterFilters): string {
+  const searchParams = new URLSearchParams()
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== "" && value !== "any") searchParams.set(key, String(value))
+  })
+  const qs = searchParams.toString()
+  return qs ? `?${qs}` : ""
+}
+
+export function useCommandCenterKPIs(filters: CommandCenterFilters, enabled = true) {
+  const { isLoaded, isSignedIn } = useAuth()
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canView = hasPermission("survey:view")
+
+  return useQuery({
+    queryKey: ["command-center", "kpis", filters],
+    queryFn: () => apiGet<CommandCenterKpis>(`/command-center/kpis${toCommandCenterQuery(filters)}`),
+    enabled: isLoaded && Boolean(isSignedIn) && canView && enabled,
+  })
+}
+
+export function useWardWiseData(filters: CommandCenterFilters, enabled = true) {
+  const { isLoaded, isSignedIn } = useAuth()
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canView = hasPermission("survey:view")
+
+  return useQuery({
+    queryKey: ["command-center", "wards", filters],
+    queryFn: () => apiGet<CommandCenterWard[]>(`/command-center/wards${toCommandCenterQuery(filters)}`),
+    enabled: isLoaded && Boolean(isSignedIn) && canView && enabled,
+  })
+}
+
+function toRegistryQuery(filters: SurveyRegistryFilters): string {
+  const searchParams = new URLSearchParams()
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== "" && value !== "all") searchParams.set(key, String(value))
+  })
+  const qs = searchParams.toString()
+  return qs ? `?${qs}` : ""
+}
+
+export function useRegistryData(filters: SurveyRegistryFilters, enabled = true) {
+  const { isLoaded, isSignedIn } = useAuth()
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canView = hasPermission("survey:view")
+
+  return useQuery({
+    queryKey: ["survey-registry", filters],
+    queryFn: () => apiGet<SurveyRegistryResponse>(`/survey-registry${toRegistryQuery(filters)}`),
+    enabled: isLoaded && Boolean(isSignedIn) && canView && enabled,
+  })
+}
+
+export function useRegistryDraftSources(
+  filters: Pick<SurveyRegistryFilters, "districtId" | "ulbId" | "wardId"> & { orphaned?: boolean },
+  enabled = true
+) {
+  const { isLoaded, isSignedIn } = useAuth()
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canAssign = hasPermission("survey:assign")
+
+  const searchParams = new URLSearchParams()
+  if (filters.districtId) searchParams.set("districtId", filters.districtId)
+  if (filters.ulbId) searchParams.set("ulbId", filters.ulbId)
+  if (filters.wardId) searchParams.set("wardId", filters.wardId)
+  if (filters.orphaned) searchParams.set("orphaned", "true")
+  const qs = searchParams.toString()
+
+  return useQuery({
+    queryKey: ["survey-registry", "draft-sources", filters],
+    queryFn: () => apiGet<RegistryDraftSource[]>(`/survey-registry/draft-sources${qs ? `?${qs}` : ""}`),
+    enabled: isLoaded && Boolean(isSignedIn) && canAssign && enabled,
+  })
+}
+
+export function useReassignDraftsMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: ReassignDraftsPayload) => apiPost<ReassignDraftsResult>("/survey-registry/reassign", payload),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["survey-registry"] })
+      void qc.invalidateQueries({ queryKey: ["surveys"] })
+    },
+  })
+}
+
+export function useRegistryImportMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData()
+      formData.append("file", file)
+      return apiUpload<RegistryImportResult>("/survey-registry/import", formData)
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["survey-registry"] })
+      void qc.invalidateQueries({ queryKey: ["imports"] })
+    },
   })
 }
 

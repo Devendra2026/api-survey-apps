@@ -1,6 +1,6 @@
 "use client"
 
-import { adminNav, mainNav } from "@/lib/navigation"
+import { appNav, flattenNav } from "@/lib/navigation"
 import { useAuthStore, useUiStore } from "@/stores/app-store"
 import {
   CommandDialog,
@@ -34,7 +34,7 @@ export function CommandPalette() {
   }, [open, setOpen])
 
   const navItems = useMemo(
-    () => [...mainNav, ...adminNav].filter((item) => !item.permission || hasPermission(item.permission)),
+    () => flattenNav(appNav).filter((item) => !item.permission || hasPermission(item.permission)),
     [hasPermission]
   )
 

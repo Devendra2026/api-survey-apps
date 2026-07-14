@@ -7,15 +7,29 @@ import { PrismaService } from "../prisma/prisma.service.js"
 import type { CreateSurveyDto, SurveyQueryDto, UpdateSurveyDto } from "./dto/survey.dto.js"
 
 const surveyInclude = {
-  floors: true,
-  photos: true,
-  coOwners: true,
+  floors: { orderBy: { position: "asc" as const } },
+  photos: { orderBy: { createdAt: "asc" as const } },
+  coOwners: { orderBy: { ownerIndex: "asc" as const } },
   createdBy: { select: { id: true, fullName: true, email: true } },
   assignedTo: { select: { id: true, fullName: true, email: true } },
   ward: { select: { id: true, wardName: true, wardNumber: true } },
   ulb: { select: { id: true, name: true } },
   district: { select: { id: true, name: true } },
   state: { select: { id: true, name: true } },
+} as const
+
+const surveyViewInclude = {
+  ...surveyInclude,
+  qcRemarkThread: {
+    orderBy: { createdAt: "desc" as const },
+    take: 50,
+    include: { author: { select: { id: true, fullName: true } } },
+  },
+  audits: {
+    orderBy: { changedAt: "desc" as const },
+    take: 50,
+    include: { changer: { select: { id: true, fullName: true, email: true } } },
+  },
 } as const
 
 type SurveyCursor = {
@@ -142,10 +156,7 @@ export class SurveysRepository {
     return toPaginatedResult(items, total, page, limit)
   }
 
-  async wardCommandStats(
-    user: AuthenticatedUser,
-    opts: { limit?: number; districtId?: string; ulbId?: string } = {}
-  ) {
+  async wardCommandStats(user: AuthenticatedUser, opts: { limit?: number; districtId?: string; ulbId?: string } = {}) {
     const scope = resolveTenantScope(user.tenantRoles)
     const tenantWhere = buildTenantWhere(scope)
     const where: Prisma.SurveyWhereInput = {
@@ -214,14 +225,11 @@ export class SurveysRepository {
     const tenantWhere = buildTenantWhere(scope)
     const survey = await this.prisma.db.survey.findFirst({
       where: {
-        id,
+        OR: [{ id }, { propertyId: id }],
         deletedAt: null,
         ...(tenantWhere ?? {}),
       },
-      include: {
-        ...surveyInclude,
-        audits: { orderBy: { changedAt: "desc" }, take: 50 },
-      },
+      include: surveyViewInclude,
     })
     if (!survey) throw new NotFoundException("Survey not found")
     return survey

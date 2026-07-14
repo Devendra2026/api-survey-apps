@@ -17,4 +17,16 @@ export class DashboardController {
   summary(@CurrentUser() user: AuthenticatedUser) {
     return this.dashboardService.getSummary(user)
   }
+
+  @Get("organization")
+  @RequirePermission(PERMISSIONS.DASHBOARD_VIEW)
+  organization(@CurrentUser() user: AuthenticatedUser) {
+    return this.dashboardService.getOrganization(user)
+  }
+
+  @Get("analytics")
+  @RequirePermission(PERMISSIONS.DASHBOARD_VIEW)
+  analytics(@CurrentUser() user: AuthenticatedUser) {
+    return this.dashboardService.getAnalytics(user)
+  }
 }

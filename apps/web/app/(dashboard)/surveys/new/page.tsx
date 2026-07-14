@@ -1,24 +1,18 @@
 "use client"
 
-import { useRouter } from "next/navigation"
-import { useForm } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
-import { z } from "zod"
-import { toast } from "sonner"
-import { Button } from "@workspace/ui/components/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@workspace/ui/components/card"
-import { Input } from "@workspace/ui/components/input"
-import { Label } from "@workspace/ui/components/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@workspace/ui/components/select"
+import { FormField } from "@/components/forms/form-field"
 import { PageHeader } from "@/components/shared/page-elements"
 import { useDistricts, useStates, useSurveyMutations, useUlbs, useWards } from "@/hooks/use-api"
 import { getApiErrorMessage } from "@/lib/api/client"
+import { zodResolver } from "@hookform/resolvers/zod"
+import { Button } from "@workspace/ui/components/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@workspace/ui/components/card"
+import { Input } from "@workspace/ui/components/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
+import { useRouter } from "next/navigation"
+import { useForm } from "react-hook-form"
+import { toast } from "sonner"
+import { z } from "zod"
 
 const schema = z.object({
   stateId: z.string().min(1, "State is required"),
@@ -51,6 +45,7 @@ export default function NewSurveyPage() {
   const stateId = form.watch("stateId")
   const districtId = form.watch("districtId")
   const ulbId = form.watch("ulbId")
+  const wardId = form.watch("wardId")
 
   const { data: states } = useStates({ limit: 100 })
   const { data: districts } = useDistricts(stateId)
@@ -68,24 +63,23 @@ export default function NewSurveyPage() {
   })
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-3xl space-y-5">
       <PageHeader
         title="New survey"
         description="Create a draft property survey. Add floors, photos, and GPS before submitting."
       />
 
-      <form onSubmit={onSubmit} className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Location</CardTitle>
+      <form onSubmit={onSubmit} className="space-y-4">
+        <Card className="shadow-none">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Location</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label>State</Label>
+            <FormField label="State" required error={form.formState.errors.stateId?.message}>
               <Select
                 value={stateId}
                 onValueChange={(value) => {
-                  form.setValue("stateId", value)
+                  form.setValue("stateId", value, { shouldValidate: true })
                   form.setValue("districtId", "")
                   form.setValue("ulbId", "")
                   form.setValue("wardId", "")
@@ -102,15 +96,14 @@ export default function NewSurveyPage() {
                   ))}
                 </SelectContent>
               </Select>
-            </div>
+            </FormField>
 
-            <div className="space-y-2">
-              <Label>District</Label>
+            <FormField label="District" required error={form.formState.errors.districtId?.message}>
               <Select
                 value={districtId}
                 disabled={!stateId}
                 onValueChange={(value) => {
-                  form.setValue("districtId", value)
+                  form.setValue("districtId", value, { shouldValidate: true })
                   form.setValue("ulbId", "")
                   form.setValue("wardId", "")
                 }}
@@ -126,15 +119,14 @@ export default function NewSurveyPage() {
                   ))}
                 </SelectContent>
               </Select>
-            </div>
+            </FormField>
 
-            <div className="space-y-2">
-              <Label>ULB</Label>
+            <FormField label="ULB" required error={form.formState.errors.ulbId?.message}>
               <Select
                 value={ulbId}
                 disabled={!districtId}
                 onValueChange={(value) => {
-                  form.setValue("ulbId", value)
+                  form.setValue("ulbId", value, { shouldValidate: true })
                   form.setValue("wardId", "")
                 }}
               >
@@ -149,14 +141,13 @@ export default function NewSurveyPage() {
                   ))}
                 </SelectContent>
               </Select>
-            </div>
+            </FormField>
 
-            <div className="space-y-2">
-              <Label>Ward</Label>
+            <FormField label="Ward" required error={form.formState.errors.wardId?.message}>
               <Select
-                value={form.watch("wardId")}
+                value={wardId}
                 disabled={!ulbId}
-                onValueChange={(value) => form.setValue("wardId", value)}
+                onValueChange={(value) => form.setValue("wardId", value, { shouldValidate: true })}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select ward" />
@@ -169,47 +160,45 @@ export default function NewSurveyPage() {
                   ))}
                 </SelectContent>
               </Select>
-            </div>
+            </FormField>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Property details</CardTitle>
+        <Card className="shadow-none">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Property details</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="propertyId">Property ID *</Label>
+            <FormField
+              label="Property ID"
+              htmlFor="propertyId"
+              required
+              className="sm:col-span-2"
+              error={form.formState.errors.propertyId?.message}
+            >
               <Input id="propertyId" {...form.register("propertyId")} />
-              {form.formState.errors.propertyId ? (
-                <p className="text-destructive text-xs">{form.formState.errors.propertyId.message}</p>
-              ) : null}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="respondentName">Respondent name</Label>
+            </FormField>
+            <FormField label="Respondent name" htmlFor="respondentName">
               <Input id="respondentName" {...form.register("respondentName")} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="mobileNumber">Mobile</Label>
+            </FormField>
+            <FormField label="Mobile" htmlFor="mobileNumber">
               <Input id="mobileNumber" {...form.register("mobileNumber")} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="houseDoorNo">House / door no.</Label>
+            </FormField>
+            <FormField label="House / door no." htmlFor="houseDoorNo">
               <Input id="houseDoorNo" {...form.register("houseDoorNo")} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="locality">Locality</Label>
+            </FormField>
+            <FormField label="Locality" htmlFor="locality">
               <Input id="locality" {...form.register("locality")} />
-            </div>
+            </FormField>
           </CardContent>
         </Card>
 
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={() => router.back()}>
+          <Button type="button" variant="outline" size="sm" onClick={() => router.back()}>
             Cancel
           </Button>
-          <Button type="submit" disabled={create.isPending}>
-            {create.isPending ? "Creating..." : "Create draft"}
+          <Button type="submit" size="sm" disabled={create.isPending}>
+            {create.isPending ? "Creating…" : "Create draft"}
           </Button>
         </div>
       </form>

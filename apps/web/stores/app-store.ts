@@ -1,3 +1,4 @@
+import type { TenantRole } from "@/lib/api/types"
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
 
@@ -7,6 +8,8 @@ interface UiState {
   toggleSidebar: () => void
   globalSearch: string
   setGlobalSearch: (value: string) => void
+  commandOpen: boolean
+  setCommandOpen: (open: boolean) => void
 }
 
 export const useUiStore = create<UiState>()(
@@ -17,19 +20,30 @@ export const useUiStore = create<UiState>()(
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       globalSearch: "",
       setGlobalSearch: (globalSearch) => set({ globalSearch }),
+      commandOpen: false,
+      setCommandOpen: (commandOpen) => set({ commandOpen }),
     }),
-    { name: "survey-ui" }
+    {
+      name: "survey-ui",
+      partialize: (state) => ({
+        sidebarCollapsed: state.sidebarCollapsed,
+        globalSearch: state.globalSearch,
+      }),
+    }
   )
 )
 
+interface AuthProfile {
+  id: string
+  fullName: string
+  email: string
+  permissions: string[]
+  tenantRoles: TenantRole[]
+}
+
 interface AuthState {
-  profile: {
-    id: string
-    fullName: string
-    email: string
-    permissions: string[]
-  } | null
-  setProfile: (profile: AuthState["profile"]) => void
+  profile: AuthProfile | null
+  setProfile: (profile: AuthProfile | null) => void
   clearProfile: () => void
   hasPermission: (permission: string) => boolean
 }

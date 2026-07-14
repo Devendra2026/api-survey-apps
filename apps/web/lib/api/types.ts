@@ -55,6 +55,23 @@ export interface DashboardSummary {
     createdAt: string
     submittedAt?: string | null
   }>
+  today: {
+    created: number
+    submitted: number
+    approved: number
+  }
+  pendingApproval: number
+  rejected: number
+  byDistrict: Array<{ id: string; name: string; count: number }>
+  byUlb: Array<{ id: string; name: string; count: number }>
+  byWard: Array<{ id: string; name: string; count: number }>
+  monthlyTrend: Array<{ month: string; count: number }>
+  topSurveyors: Array<{
+    id: string
+    fullName: string
+    email: string
+    count: number
+  }>
 }
 
 export interface SurveyListItem {
@@ -111,10 +128,4 @@ export interface NotificationItem {
   isOwnSurvey: boolean
 }
 
-export type SurveyStatus =
-  | "DRAFT"
-  | "IN_PROGRESS"
-  | "SUBMITTED"
-  | "APPROVED"
-  | "REJECTED"
-  | "REOPENED"
+export type SurveyStatus = "DRAFT" | "IN_PROGRESS" | "SUBMITTED" | "APPROVED" | "REJECTED" | "REOPENED"

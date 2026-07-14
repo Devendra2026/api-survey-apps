@@ -30,6 +30,7 @@ export function ProtectedDashboardLayout({ children }: { children: React.ReactNo
         fullName: user.fullName,
         email: user.email,
         permissions: user.permissions ?? [],
+        tenantRoles: user.tenantRoles ?? [],
       })
     } else {
       clearProfile()
@@ -77,15 +78,20 @@ export function ProtectedDashboardLayout({ children }: { children: React.ReactNo
 
   // Keep store in sync before mounting children so permission-gated queries enable immediately
   const storeProfile = useAuthStore.getState().profile
+  const tenantRoles = user?.tenantRoles ?? []
   if (
     user &&
-    (!storeProfile || storeProfile.id !== user.id || storeProfile.permissions.join() !== permissions.join())
+    (!storeProfile ||
+      storeProfile.id !== user.id ||
+      storeProfile.permissions.join() !== permissions.join() ||
+      storeProfile.tenantRoles.length !== tenantRoles.length)
   ) {
     useAuthStore.getState().setProfile({
       id: user.id,
       fullName: user.fullName,
       email: user.email,
       permissions,
+      tenantRoles,
     })
   }
 

@@ -1,42 +1,26 @@
 "use client"
 
-import Link from "next/link"
-import { useMemo, useState } from "react"
-import {
-  flexRender,
-  getCoreRowModel,
-  useReactTable,
-  type ColumnDef,
-} from "@tanstack/react-table"
-import { Plus } from "lucide-react"
-import { Button } from "@workspace/ui/components/button"
-import { Input } from "@workspace/ui/components/input"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@workspace/ui/components/select"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@workspace/ui/components/table"
+import { DataTable } from "@/components/data-table/data-table"
+import { PageHeader, StatusBadge } from "@/components/shared/page-elements"
 import { useSurveys } from "@/hooks/use-api"
-import { EmptyState, PageHeader, StatusBadge } from "@/components/shared/page-elements"
-import { useUiStore } from "@/stores/app-store"
-import { useAuthStore } from "@/stores/app-store"
 import type { SurveyListItem } from "@/lib/api/types"
+import { useAuthStore, useUiStore } from "@/stores/app-store"
+import type { ColumnDef } from "@tanstack/react-table"
+import { Button } from "@workspace/ui/components/button"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
+import { Skeleton } from "@workspace/ui/components/skeleton"
+import { Plus } from "lucide-react"
+import Link from "next/link"
+import { useSearchParams } from "next/navigation"
+import { Suspense, useMemo, useState } from "react"
 
-export default function SurveysPage() {
+function SurveysPageContent() {
+  const searchParams = useSearchParams()
+  const initialStatus = searchParams.get("surveyStatus") ?? "all"
   const globalSearch = useUiStore((s) => s.globalSearch)
   const hasPermission = useAuthStore((s) => s.hasPermission)
   const [page, setPage] = useState(1)
-  const [status, setStatus] = useState<string>("all")
+  const [status, setStatus] = useState(initialStatus)
   const [search, setSearch] = useState("")
 
   const query = useMemo(
@@ -59,7 +43,7 @@ export default function SurveysPage() {
         accessorKey: "propertyId",
         header: "Property ID",
         cell: ({ row }) => (
-          <Link href={`/surveys/${row.original.id}`} className="text-primary font-medium hover:underline">
+          <Link href={`/surveys/${row.original.id}`} className="font-medium text-primary hover:underline">
             {row.original.propertyId}
           </Link>
         ),
@@ -72,39 +56,44 @@ export default function SurveysPage() {
       {
         id: "location",
         header: "Ward / ULB",
-        cell: ({ row }) =>
-          [row.original.ward?.wardName, row.original.ulb?.name].filter(Boolean).join(", ") || "—",
+        cell: ({ row }) => [row.original.ward?.wardName, row.original.ulb?.name].filter(Boolean).join(", ") || "—",
       },
       {
         accessorKey: "surveyStatus",
+        id: "status",
         header: "Status",
         cell: ({ row }) => <StatusBadge status={row.original.surveyStatus} />,
       },
       {
         accessorKey: "createdAt",
+        id: "created",
         header: "Created",
         cell: ({ row }) => new Date(row.original.createdAt).toLocaleDateString(),
+      },
+      {
+        id: "actions",
+        header: "",
+        enableHiding: false,
+        cell: ({ row }) => (
+          <Button variant="ghost" size="sm" asChild>
+            <Link href={`/surveys/${row.original.id}`}>Open</Link>
+          </Button>
+        ),
       },
     ],
     []
   )
 
-  const table = useReactTable({
-    data: data?.items ?? [],
-    columns,
-    getCoreRowModel: getCoreRowModel(),
-  })
-
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <PageHeader
         title="Surveys"
         description="Manage municipal property tax survey records"
         actions={
           hasPermission("survey:create") ? (
-            <Button asChild>
+            <Button asChild size="sm">
               <Link href="/surveys/new">
-                <Plus className="size-4" />
+                <Plus className="size-3.5" />
                 New survey
               </Link>
             </Button>
@@ -112,107 +101,68 @@ export default function SurveysPage() {
         }
       />
 
-      <div className="flex flex-col gap-3 sm:flex-row">
-        <Input
-          placeholder="Search property ID, respondent..."
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value)
-            setPage(1)
-          }}
-          className="sm:max-w-xs"
-        />
-        <Select
-          value={status}
-          onValueChange={(value) => {
-            setStatus(value)
-            setPage(1)
-          }}
-        >
-          <SelectTrigger className="sm:w-48">
-            <SelectValue placeholder="Filter by status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All statuses</SelectItem>
-            <SelectItem value="DRAFT">Draft</SelectItem>
-            <SelectItem value="IN_PROGRESS">In Progress</SelectItem>
-            <SelectItem value="SUBMITTED">Submitted</SelectItem>
-            <SelectItem value="APPROVED">Approved</SelectItem>
-            <SelectItem value="REJECTED">Rejected</SelectItem>
-            <SelectItem value="REOPENED">Reopened</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      {isError ? <p className="text-sm text-destructive">Failed to load surveys</p> : null}
 
-      <div className="rounded-xl border">
-        <Table>
-          <TableHeader>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id}>
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(header.column.columnDef.header, header.getContext())}
-                  </TableHead>
-                ))}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
-              <TableRow>
-                <TableCell colSpan={columns.length} className="text-muted-foreground h-24 text-center">
-                  Loading surveys...
-                </TableCell>
-              </TableRow>
-            ) : isError ? (
-              <TableRow>
-                <TableCell colSpan={columns.length} className="text-destructive h-24 text-center">
-                  Failed to load surveys
-                </TableCell>
-              </TableRow>
-            ) : table.getRowModel().rows.length ? (
-              table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id}>
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
-            ) : (
-              <TableRow>
-                <TableCell colSpan={columns.length}>
-                  <EmptyState title="No surveys found" description="Adjust filters or create a new survey." />
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
-
-      {data?.meta ? (
-        <div className="flex items-center justify-between">
-          <p className="text-muted-foreground text-sm">
-            Page {data.meta.page} of {data.meta.totalPages} · {data.meta.total} total
-          </p>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-              Previous
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page >= data.meta.totalPages}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
-      ) : null}
+      <DataTable
+        columns={columns}
+        data={data?.items ?? []}
+        isLoading={isLoading}
+        searchPlaceholder="Search property ID, respondent…"
+        searchValue={search}
+        onSearchChange={(value) => {
+          setSearch(value)
+          setPage(1)
+        }}
+        toolbar={
+          <Select
+            value={status}
+            onValueChange={(value) => {
+              setStatus(value)
+              setPage(1)
+            }}
+          >
+            <SelectTrigger className="h-8 w-44">
+              <SelectValue placeholder="Filter by status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              <SelectItem value="DRAFT">Draft</SelectItem>
+              <SelectItem value="IN_PROGRESS">In Progress</SelectItem>
+              <SelectItem value="SUBMITTED">Submitted</SelectItem>
+              <SelectItem value="APPROVED">Approved</SelectItem>
+              <SelectItem value="REJECTED">Rejected</SelectItem>
+              <SelectItem value="REOPENED">Reopened</SelectItem>
+            </SelectContent>
+          </Select>
+        }
+        emptyTitle="No surveys found"
+        emptyDescription="Adjust filters or create a new survey."
+        pagination={
+          data?.meta
+            ? {
+                page: data.meta.page,
+                totalPages: data.meta.totalPages,
+                total: data.meta.total,
+                onPageChange: setPage,
+              }
+            : undefined
+        }
+      />
     </div>
+  )
+}
+
+export default function SurveysPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="space-y-5">
+          <Skeleton className="h-10 w-64" />
+          <Skeleton className="h-64 w-full rounded-xl" />
+        </div>
+      }
+    >
+      <SurveysPageContent />
+    </Suspense>
   )
 }

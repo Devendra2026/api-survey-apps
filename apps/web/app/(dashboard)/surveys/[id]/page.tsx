@@ -1,8 +1,10 @@
 "use client"
 
-import { useParams, useRouter } from "next/navigation"
-import { useState } from "react"
-import { toast } from "sonner"
+import { FormField } from "@/components/forms/form-field"
+import { EmptyState, LoadingGrid, PageHeader, StatusBadge } from "@/components/shared/page-elements"
+import { useSurvey, useSurveyMutations } from "@/hooks/use-api"
+import { getApiErrorMessage } from "@/lib/api/client"
+import { useAuthStore } from "@/stores/app-store"
 import { Button } from "@workspace/ui/components/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@workspace/ui/components/card"
 import {
@@ -14,11 +16,9 @@ import {
   DialogTrigger,
 } from "@workspace/ui/components/dialog"
 import { Textarea } from "@workspace/ui/components/textarea"
-import { Label } from "@workspace/ui/components/label"
-import { useSurvey, useSurveyMutations } from "@/hooks/use-api"
-import { EmptyState, LoadingGrid, PageHeader, StatusBadge } from "@/components/shared/page-elements"
-import { useAuthStore } from "@/stores/app-store"
-import { getApiErrorMessage } from "@/lib/api/client"
+import { useParams, useRouter } from "next/navigation"
+import { useState } from "react"
+import { toast } from "sonner"
 
 export default function SurveyDetailPage() {
   const params = useParams<{ id: string }>()
@@ -53,86 +53,105 @@ export default function SurveyDetailPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title={survey.propertyId}
-        description={[survey.locality, survey.ward?.wardName, survey.ulb?.name].filter(Boolean).join(" · ")}
-        actions={
-          <div className="flex flex-wrap gap-2">
-            <StatusBadge status={status} />
-            {canSubmit ? (
-              <Button onClick={() => runAction(() => submit.mutateAsync(params.id), "Survey submitted")}>
-                Submit
-              </Button>
-            ) : null}
-            {canApprove ? (
-              <Button onClick={() => runAction(() => approve.mutateAsync(params.id), "Survey approved")}>
-                Approve
-              </Button>
-            ) : null}
-            {canReject ? (
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button variant="destructive">Reject</Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Reject survey</DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-2">
-                    <Label htmlFor="remarks">QC remarks</Label>
-                    <Textarea
-                      id="remarks"
-                      value={rejectRemarks}
-                      onChange={(e) => setRejectRemarks(e.target.value)}
-                      placeholder="Explain what needs correction..."
-                    />
-                  </div>
-                  <DialogFooter>
-                    <Button
-                      variant="destructive"
-                      disabled={!rejectRemarks.trim() || reject.isPending}
-                      onClick={() =>
-                        runAction(
-                          () => reject.mutateAsync({ id: params.id, qcRemarks: rejectRemarks }),
-                          "Survey rejected"
-                        )
-                      }
-                    >
-                      Confirm reject
+    <div className="space-y-5">
+      <div className="sticky top-14 z-20 -mx-4 border-b bg-background/95 px-4 py-3 backdrop-blur supports-backdrop-filter:bg-background/80 md:-mx-6 md:px-6">
+        <PageHeader
+          title={survey.propertyId}
+          description={[survey.locality, survey.ward?.wardName, survey.ulb?.name].filter(Boolean).join(" · ")}
+          actions={
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge status={status} />
+              {canSubmit ? (
+                <Button
+                  size="sm"
+                  onClick={() => void runAction(() => submit.mutateAsync(params.id), "Survey submitted")}
+                >
+                  Submit
+                </Button>
+              ) : null}
+              {canApprove ? (
+                <Button
+                  size="sm"
+                  onClick={() => void runAction(() => approve.mutateAsync(params.id), "Survey approved")}
+                >
+                  Approve
+                </Button>
+              ) : null}
+              {canReject ? (
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button variant="destructive" size="sm">
+                      Reject
                     </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            ) : null}
-            {canReopen ? (
-              <Button variant="outline" onClick={() => runAction(() => reopen.mutateAsync(params.id), "Survey reopened")}>
-                Reopen
-              </Button>
-            ) : null}
-            {hasPermission("survey:delete") && status !== "APPROVED" ? (
-              <Button
-                variant="ghost"
-                onClick={() =>
-                  runAction(async () => {
-                    await remove.mutateAsync(params.id)
-                    router.push("/surveys")
-                  }, "Survey deleted")
-                }
-              >
-                Delete
-              </Button>
-            ) : null}
-          </div>
-        }
-      />
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Reject survey</DialogTitle>
+                    </DialogHeader>
+                    <FormField label="QC remarks" htmlFor="remarks" required>
+                      <Textarea
+                        id="remarks"
+                        value={rejectRemarks}
+                        onChange={(e) => setRejectRemarks(e.target.value)}
+                        placeholder="Explain what needs correction..."
+                      />
+                    </FormField>
+                    <DialogFooter>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        disabled={!rejectRemarks.trim() || reject.isPending}
+                        onClick={() =>
+                          void runAction(
+                            () =>
+                              reject.mutateAsync({
+                                id: params.id,
+                                qcRemarks: rejectRemarks,
+                              }),
+                            "Survey rejected"
+                          )
+                        }
+                      >
+                        Confirm reject
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              ) : null}
+              {canReopen ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void runAction(() => reopen.mutateAsync(params.id), "Survey reopened")}
+                >
+                  Reopen
+                </Button>
+              ) : null}
+              {hasPermission("survey:delete") && status !== "APPROVED" ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() =>
+                    void runAction(async () => {
+                      await remove.mutateAsync(params.id)
+                      router.push("/surveys")
+                    }, "Survey deleted")
+                  }
+                >
+                  Delete
+                </Button>
+              ) : null}
+            </div>
+          }
+        />
+      </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Property</CardTitle>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card className="shadow-none">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Property</CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-3 text-sm">
+          <CardContent className="grid gap-2.5 text-sm">
             <Row label="Property ID" value={survey.propertyId} />
             <Row label="Status" value={status} />
             <Row label="Respondent" value={String(survey.respondentName ?? "—")} />
@@ -143,14 +162,17 @@ export default function SurveyDetailPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Workflow</CardTitle>
+        <Card className="shadow-none">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Workflow</CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-3 text-sm">
+          <CardContent className="grid gap-2.5 text-sm">
             <Row label="Created by" value={(survey.createdBy as { fullName?: string })?.fullName ?? "—"} />
             <Row label="Created" value={new Date(survey.createdAt).toLocaleString()} />
-            <Row label="Submitted" value={survey.submittedAt ? new Date(survey.submittedAt as string).toLocaleString() : "—"} />
+            <Row
+              label="Submitted"
+              value={survey.submittedAt ? new Date(survey.submittedAt as string).toLocaleString() : "—"}
+            />
             <Row label="GPS" value={survey.gpsCoordinates ? String(survey.gpsCoordinates) : "Not captured"} />
             <Row label="Floors" value={String((survey.floors as unknown[] | undefined)?.length ?? 0)} />
             <Row label="Photos" value={String((survey.photos as unknown[] | undefined)?.length ?? 0)} />
@@ -160,7 +182,7 @@ export default function SurveyDetailPage() {
       </div>
 
       {!canEdit && status === "APPROVED" ? (
-        <p className="text-muted-foreground text-sm">Approved surveys are read-only.</p>
+        <p className="text-sm text-muted-foreground">Approved surveys are read-only.</p>
       ) : null}
     </div>
   )
@@ -168,7 +190,7 @@ export default function SurveyDetailPage() {
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between gap-4 border-b pb-2 last:border-0">
+    <div className="flex justify-between gap-4 border-b py-1.5 last:border-0">
       <span className="text-muted-foreground">{label}</span>
       <span className="text-right font-medium">{value}</span>
     </div>

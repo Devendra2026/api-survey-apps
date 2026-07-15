@@ -23,6 +23,12 @@ import {
 } from "@workspace/database"
 import type { ImportJobPayload } from "@workspace/jobs"
 import {
+  checkPropertyIdGeoConsistency,
+  collectWorkbookGeoPairs,
+  emptyToUndefinedNormalized,
+  formatDuplicateWorkbookError,
+  formatGeoResolveError,
+  formatMissingUlbMasterAbort,
   formatPropertyId,
   mapAssessmentYear,
   mapConstructionType,
@@ -42,12 +48,14 @@ import {
   mapUsageFactor,
   mapUsageType,
   mapWaterConnection,
-  padUlbCode,
-  padWardNo,
+  normalizeImportString,
   parseNumber,
   parsePropertyId,
   parseYn,
+  resolveImportGeo,
   sqFtToSqMeter,
+  type GeoResolved,
+  type GeoResolveResult,
 } from "@workspace/validation"
 import { PrismaService } from "../database/prisma.service.js"
 import { ObjectStorageService } from "../storage/object-storage.service.js"
@@ -79,15 +87,6 @@ interface ImportRowError {
 interface ImportCheckpoint {
   processedRows: number
   lastPropertyId?: string
-}
-
-interface GeoResolved {
-  stateId: string
-  districtId: string
-  ulbId: string
-  wardId: string
-  ulbCode: string
-  wardNumber: string
 }
 
 interface MappedSurvey {
@@ -165,11 +164,7 @@ export class ImportWorkerService {
           row,
           propertyId: issue.kind === "propertyId" ? issue.key : undefined,
           localId: issue.kind === "localId" ? issue.key : undefined,
-          errors: [
-            issue.kind === "propertyId"
-              ? `Duplicate Property ID in workbook: ${issue.key}`
-              : `Duplicate Local ID in workbook: ${issue.key}`,
-          ],
+          errors: [formatDuplicateWorkbookError(issue.kind, issue.key, issue.rows)],
         }))
       )
       const createdSurveyIds: string[] = []
@@ -183,8 +178,70 @@ export class ImportWorkerService {
       const startIndex = retryFailedOnly ? 0 : Math.min(Math.max(checkpoint.processedRows, 0), surveys.length)
       const remaining = surveys.slice(startIndex)
 
-      const geoCache = new Map<string, GeoResolved | null>()
+      const geoCache = new Map<string, GeoResolveResult>()
       const scope = resolveTenantScope(payload.tenantRoles)
+
+      const missingMasterPairs: Array<{
+        ulbCode: string
+        wardNumber: string
+        reason: string
+        sampleRows: number[]
+      }> = []
+      const geoPairs = collectWorkbookGeoPairs(surveys, {
+        skipPropertyIds: duplicatePropertyIds,
+        skipLocalIds: duplicateLocalIds,
+      })
+      const missingUlbCodes: string[] = []
+      for (const pair of geoPairs) {
+        const resolved = await resolveImportGeo(this.prisma.db, pair.ulbCode, pair.wardNumber, geoCache)
+        if (!resolved.ok) {
+          missingMasterPairs.push({
+            ulbCode: pair.ulbCode,
+            wardNumber: pair.wardNumber,
+            reason: resolved.message,
+            sampleRows: pair.sampleRows,
+          })
+          if (resolved.reason === "ULB_NOT_FOUND") {
+            missingUlbCodes.push(resolved.lookupCode || pair.ulbCode)
+          }
+          errors.push({
+            row: pair.sampleRows[0] ?? 0,
+            errors: [`Master data missing: ${resolved.message} (sample rows ${pair.sampleRows.join(", ")})`],
+          })
+        }
+      }
+
+      // Fail closed: stop the job when ULB masters referenced by the workbook are absent.
+      if (missingUlbCodes.length) {
+        const abortMessage = formatMissingUlbMasterAbort(missingUlbCodes)
+        const validationReport = {
+          jobId: payload.jobId,
+          aborted: true,
+          reason: "ULB_MASTER_MISSING",
+          message: abortMessage,
+          missingUlbCodes: [...new Set(missingUlbCodes)],
+          missingMasterPairs,
+          duplicates,
+          duplicatePropertyIdCount: duplicatePropertyIds.size,
+          duplicateLocalIdCount: duplicateLocalIds.size,
+          errors,
+        }
+        const errorReportKey = await this.writeValidationReport(payload, validationReport)
+        await this.prisma.db.importJob.update({
+          where: { id: payload.jobId },
+          data: {
+            status: JobStatus.FAILED,
+            errorMessage: abortMessage,
+            failureCount: errors.length,
+            errorReportKey,
+            resultSummary: validationReport as unknown as Prisma.InputJsonValue,
+            finishedAt: new Date(),
+          },
+        })
+        this.logger.warn(`Import job ${payload.jobId} aborted: ${abortMessage}`)
+        await updateProgress(100)
+        return
+      }
 
       for (let offset = 0; offset < remaining.length; offset += CHUNK_SIZE) {
         const chunkRows = remaining.slice(offset, offset + CHUNK_SIZE)
@@ -192,12 +249,8 @@ export class ImportWorkerService {
 
         for (const [i, row] of chunkRows.entries()) {
           const rowNumber = startIndex + offset + i + 2
-          const propertyId = String(row["Property ID"] ?? "")
-            .trim()
-            .toUpperCase()
-          const localId = String(row["Local ID"] ?? "")
-            .trim()
-            .toUpperCase()
+          const propertyId = normalizeImportString(row["Property ID"]).toUpperCase()
+          const localId = normalizeImportString(row["Local ID"]).toUpperCase()
           if ((propertyId && duplicatePropertyIds.has(propertyId)) || (localId && duplicateLocalIds.has(localId))) {
             // Already recorded in workbook duplicate validation report.
             continue
@@ -417,6 +470,9 @@ export class ImportWorkerService {
         createdSurveyIds,
         updatedSurveyIds,
         duplicates,
+        duplicatePropertyIdCount: duplicatePropertyIds.size,
+        duplicateLocalIdCount: duplicateLocalIds.size,
+        missingMasterPairs,
         errors,
         resumedFrom: checkpoint.processedRows,
         retryFailedOnly,
@@ -494,7 +550,7 @@ export class ImportWorkerService {
     rowNumber: number,
     payload: ImportJobPayload,
     scope: ReturnType<typeof resolveTenantScope>,
-    geoCache: Map<string, GeoResolved | null>,
+    geoCache: Map<string, GeoResolveResult>,
     errors: ImportRowError[]
   ): Promise<MappedSurvey | null> {
     const rowErrors: string[] = []
@@ -522,6 +578,13 @@ export class ImportWorkerService {
     }
     if (!propertyId) rowErrors.push("Missing Property ID (and could not derive from ULB/Ward/Parcel/Unit/Use)")
 
+    const consistencyError = checkPropertyIdGeoConsistency({
+      propertyId,
+      excelUlbCode,
+      excelWardNumber,
+    })
+    if (consistencyError) rowErrors.push(consistencyError)
+
     const parsedPropertyId = parsePropertyId(propertyId)
     if (!ulbCodeRaw && parsedPropertyId) ulbCodeRaw = parsedPropertyId.ulbCode
     if (!wardNumberRaw && parsedPropertyId) wardNumberRaw = parsedPropertyId.wardNo
@@ -535,21 +598,23 @@ export class ImportWorkerService {
 
     let geo: GeoResolved | null = null
     if (ulbCodeRaw && wardNumberRaw) {
-      geo = await this.resolveGeo(ulbCodeRaw, wardNumberRaw, geoCache)
-      if (!geo) rowErrors.push(`Could not resolve ULB code + ward: ${ulbCodeRaw} / ${wardNumberRaw}`)
+      const geoResult = await resolveImportGeo(this.prisma.db, ulbCodeRaw, wardNumberRaw, geoCache)
+      if (geoResult.ok) {
+        geo = geoResult.geo
+      } else {
+        rowErrors.push(formatGeoResolveError(geoResult))
+      }
     } else {
       rowErrors.push("Missing ULB Code or Ward Number")
     }
 
-    console.log({
+    this.logger.debug({
       rowNumber,
-      propertyUid: propertyId,
+      propertyId: propertyId ?? null,
       excelUlbCode: excelUlbCode ?? null,
       excelWardNumber: excelWardNumber ?? null,
       derivedUlbCode: ulbCodeRaw ?? null,
       derivedWardNumber: wardNumberRaw ?? null,
-      propertyFound: Boolean(propertyId),
-      propertyId: propertyId ?? null,
       dbUlbCode: geo?.ulbCode ?? null,
       dbWardNumber: geo?.wardNumber ?? null,
       validationResult: rowErrors.length ? rowErrors : "ok",
@@ -664,55 +729,6 @@ export class ImportWorkerService {
     return { rowNumber, propertyId, localId, legacySurveyId, geo, data }
   }
 
-  private async resolveGeo(
-    ulbCodeRaw: string,
-    wardNumberRaw: string,
-    cache: Map<string, GeoResolved | null>
-  ): Promise<GeoResolved | null> {
-    const code = padUlbCode(ulbCodeRaw) || ulbCodeRaw.trim()
-    const wardCandidates = uniqueNonEmpty([
-      wardNumberRaw.trim(),
-      padWardNo(wardNumberRaw),
-      String(Number.parseInt(wardNumberRaw.replace(/\D/g, ""), 10) || ""),
-    ])
-    const cacheKey = `${code}|${wardCandidates.join(",")}`
-    if (cache.has(cacheKey)) return cache.get(cacheKey) ?? null
-
-    const ulb =
-      (await this.prisma.db.ulb.findFirst({
-        where: { code },
-        include: { district: true },
-      })) ??
-      (await this.prisma.db.ulb.findFirst({
-        where: { code: ulbCodeRaw.trim() },
-        include: { district: true },
-      }))
-
-    if (!ulb) {
-      cache.set(cacheKey, null)
-      return null
-    }
-
-    const ward = await this.prisma.db.ward.findFirst({
-      where: { ulbId: ulb.id, wardNumber: { in: wardCandidates } },
-    })
-    if (!ward) {
-      cache.set(cacheKey, null)
-      return null
-    }
-
-    const resolved: GeoResolved = {
-      stateId: ulb.district.stateId,
-      districtId: ulb.districtId,
-      ulbId: ulb.id,
-      wardId: ward.id,
-      ulbCode: ulb.code,
-      wardNumber: ward.wardNumber,
-    }
-    cache.set(cacheKey, resolved)
-    return resolved
-  }
-
   private async writeValidationReport(payload: ImportJobPayload, report: Record<string, unknown>): Promise<string> {
     const key = ["imports", payload.createdById, payload.jobId, "validation-report.json"].join("/")
     await this.storageService.putObject({
@@ -727,9 +743,7 @@ export class ImportWorkerService {
 }
 
 function emptyToUndefined(value: string | undefined | null): string | undefined {
-  if (value == null) return undefined
-  const trimmed = String(value).trim()
-  return trimmed === "" ? undefined : trimmed
+  return emptyToUndefinedNormalized(value)
 }
 
 function firstRowValue(row: WorkbookRow, keys: string[]): string | undefined {
@@ -738,17 +752,16 @@ function firstRowValue(row: WorkbookRow, keys: string[]): string | undefined {
     if (value) return value
   }
   const normalized = new Map(
-    Object.entries(row).map(([header, value]) => [header.trim().toLowerCase().replace(/\s+/g, " "), value])
+    Object.entries(row).map(([header, value]) => [
+      normalizeImportString(header).toLowerCase().replace(/\s+/g, " "),
+      value,
+    ])
   )
   for (const key of keys) {
     const value = emptyToUndefined(normalized.get(key.trim().toLowerCase().replace(/\s+/g, " ")))
     if (value) return value
   }
   return undefined
-}
-
-function uniqueNonEmpty(values: string[]): string[] {
-  return [...new Set(values.map((v) => v.trim()).filter(Boolean))]
 }
 
 function parseDate(raw: string | undefined): Date | undefined {

@@ -7,6 +7,7 @@ import { PERMISSIONS } from "../common/constants/permissions.js"
 import { CurrentUser } from "../common/decorators/current-user.decorator.js"
 import { RequirePermission } from "../common/decorators/require-permission.decorator.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
+import { GeoCatalogImportService } from "./geo-catalog-import.service.js"
 import { ImportsService } from "./imports.service.js"
 
 const ASYNC_IMPORT_MAX_BYTES = 100 * 1024 * 1024
@@ -15,7 +16,10 @@ const ASYNC_IMPORT_MAX_BYTES = 100 * 1024 * 1024
 @ApiBearerAuth()
 @Controller("imports")
 export class ImportsController {
-  constructor(private readonly importsService: ImportsService) {}
+  constructor(
+    private readonly importsService: ImportsService,
+    private readonly geoCatalogImportService: GeoCatalogImportService
+  ) {}
 
   @Post("surveys")
   @RequirePermission(PERMISSIONS.SURVEY_CREATE)
@@ -46,6 +50,32 @@ export class ImportsController {
       return this.importsService.importSurveys(file, user, { enforceSyncCap: true })
     }
     return this.importsService.enqueueSurveyImport(file, user)
+  }
+
+  @Post("geo-catalog")
+  @RequirePermission(PERMISSIONS.ROLE_ASSIGN)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiOperation({
+    summary: "Upsert State/District/ULB/Ward master data from GeoCatalog Excel/CSV (required before survey import)",
+  })
+  @ApiConsumes("multipart/form-data")
+  @ApiBody({
+    schema: {
+      type: "object",
+      required: ["file"],
+      properties: {
+        file: { type: "string", format: "binary" },
+      },
+    },
+  })
+  @UseInterceptors(
+    FileInterceptor("file", {
+      storage: memoryStorage(),
+      limits: { fileSize: 20 * 1024 * 1024 },
+    })
+  )
+  importGeoCatalog(@UploadedFile() file: Express.Multer.File) {
+    return this.geoCatalogImportService.importCatalog(file)
   }
 
   @Get("jobs")

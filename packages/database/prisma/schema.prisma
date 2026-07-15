@@ -247,11 +247,12 @@ model District {
 
 /// Urban Local Body (Municipality / Nagar Nigam / Nagar Palika / Town Panchayat).
 /// Operational multi-tenant grain for most RBAC and survey filtering.
+/// LGD / municipality codes are globally unique.
 model Ulb {
   id         String   @id @default(cuid())
   districtId String
   name       String
-  code       String
+  code       String   @unique
   type       UlbType
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -263,7 +264,6 @@ model Ulb {
 
   @@unique([districtId, name])
   @@index([districtId])
-  @@index([code])
   @@map("ulbs")
 }
 

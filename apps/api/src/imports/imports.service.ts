@@ -21,7 +21,14 @@ import {
   WaterConnection,
   type Prisma,
 } from "@workspace/database"
+import type { ImageMigrationPayload } from "@workspace/jobs"
 import {
+  checkPropertyIdGeoConsistency,
+  collectWorkbookGeoPairs,
+  emptyToUndefinedNormalized,
+  formatDuplicateWorkbookError,
+  formatGeoResolveError,
+  formatMissingUlbMasterAbort,
   formatPropertyId,
   mapAssessmentYear,
   mapConstructionType,
@@ -41,12 +48,14 @@ import {
   mapUsageFactor,
   mapUsageType,
   mapWaterConnection,
-  padUlbCode,
-  padWardNo,
+  normalizeImportString,
   parseNumber,
   parsePropertyId,
   parseYn,
+  resolveImportGeo,
   sqFtToSqMeter,
+  type GeoResolved,
+  type GeoResolveResult,
 } from "@workspace/validation"
 import { randomUUID } from "node:crypto"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
@@ -54,7 +63,12 @@ import { canAccessTenant, resolveTenantScope } from "../common/utils/tenant-scop
 import { JobsService } from "../jobs/jobs.service.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import { StorageService } from "../storage/storage.service.js"
-import { groupRowsByPropertyId, parseConvexWorkbook, type WorkbookRow } from "./convex-workbook-parser.js"
+import {
+  findWorkbookDuplicates,
+  groupRowsByPropertyId,
+  parseConvexWorkbook,
+  type WorkbookRow,
+} from "./convex-workbook-parser.js"
 
 const SYNC_IMPORT_MAX_ROWS = 500
 const SYNC_IMPORT_MAX_BYTES = 2 * 1024 * 1024
@@ -73,18 +87,13 @@ export interface ImportSummary {
   failureCount: number
   photoSuccessCount: number
   photoFailureCount: number
+  photoMigrationEnqueued?: number
+  duplicatePropertyIdCount?: number
+  duplicateLocalIdCount?: number
+  missingMasterPairs?: Array<{ ulbCode: string; wardNumber: string; reason: string; sampleRows: number[] }>
   createdSurveyIds: string[]
   updatedSurveyIds: string[]
   errors: ImportRowError[]
-}
-
-interface GeoResolved {
-  stateId: string
-  districtId: string
-  ulbId: string
-  wardId: string
-  ulbCode: string
-  wardNumber: string
 }
 
 interface MappedSurvey {
@@ -348,7 +357,7 @@ export class ImportsService {
     const floorsByPid = groupRowsByPropertyId(workbook.floors)
     const photosByPid = groupRowsByPropertyId(workbook.photos)
     const scope = resolveTenantScope(user.tenantRoles)
-    const geoCache = new Map<string, GeoResolved | null>()
+    const geoCache = new Map<string, GeoResolveResult>()
     const errors: ImportRowError[] = []
     const createdSurveyIds: string[] = []
     const updatedSurveyIds: string[] = []
@@ -357,12 +366,74 @@ export class ImportsService {
     let photoSuccessCount = 0
     let photoFailureCount = 0
 
+    const duplicates = findWorkbookDuplicates(workbook.surveys)
+    const duplicatePropertyIds = new Set(
+      duplicates.filter((item) => item.kind === "propertyId").map((item) => item.key)
+    )
+    const duplicateLocalIds = new Set(duplicates.filter((item) => item.kind === "localId").map((item) => item.key))
+    const duplicatePropertyIdCount = duplicatePropertyIds.size
+    const duplicateLocalIdCount = duplicateLocalIds.size
+
+    for (const issue of duplicates) {
+      for (const row of issue.rows) {
+        errors.push({
+          row,
+          propertyId: issue.kind === "propertyId" ? issue.key : undefined,
+          localId: issue.kind === "localId" ? issue.key : undefined,
+          errors: [formatDuplicateWorkbookError(issue.kind, issue.key, issue.rows)],
+        })
+      }
+    }
+    failureCount = errors.length
+
+    const missingMasterPairs: ImportSummary["missingMasterPairs"] = []
+    const geoPairs = collectWorkbookGeoPairs(workbook.surveys, {
+      skipPropertyIds: duplicatePropertyIds,
+      skipLocalIds: duplicateLocalIds,
+    })
+    const missingUlbCodes: string[] = []
+    for (const pair of geoPairs) {
+      const resolved = await resolveImportGeo(this.prisma.db, pair.ulbCode, pair.wardNumber, geoCache)
+      if (!resolved.ok) {
+        missingMasterPairs.push({
+          ulbCode: pair.ulbCode,
+          wardNumber: pair.wardNumber,
+          reason: resolved.message,
+          sampleRows: pair.sampleRows,
+        })
+        if (resolved.reason === "ULB_NOT_FOUND") {
+          missingUlbCodes.push(resolved.lookupCode || pair.ulbCode)
+        }
+        errors.push({
+          row: pair.sampleRows[0] ?? 0,
+          errors: [`Master data missing: ${resolved.message} (sample rows ${pair.sampleRows.join(", ")})`],
+        })
+      }
+    }
+
+    // Fail closed: do not process survey rows when required ULB masters are absent.
+    if (missingUlbCodes.length) {
+      throw new BadRequestException({
+        message: formatMissingUlbMasterAbort(missingUlbCodes),
+        missingUlbCodes: [...new Set(missingUlbCodes)],
+        missingMasterPairs,
+        duplicatePropertyIdCount,
+        duplicateLocalIdCount,
+        errors: errors.slice(0, 50),
+      })
+    }
+
     for (let offset = 0; offset < workbook.surveys.length; offset += CHUNK_SIZE) {
       const chunkRows = workbook.surveys.slice(offset, offset + CHUNK_SIZE)
       const mappedChunk: MappedSurvey[] = []
 
       for (const [i, row] of chunkRows.entries()) {
         const rowNumber = offset + i + 2
+        const propertyId = normalizeImportString(row["Property ID"]).toUpperCase()
+        const localId = normalizeImportString(row["Local ID"]).toUpperCase()
+        if ((propertyId && duplicatePropertyIds.has(propertyId)) || (localId && duplicateLocalIds.has(localId))) {
+          continue
+        }
         const mapped = await this.mapSurveyRow(row, rowNumber, user, scope, geoCache, errors)
         if (mapped) mappedChunk.push(mapped)
         else failureCount += 1
@@ -541,20 +612,55 @@ export class ImportsService {
       }
     }
 
+    const surveyIdsForPhotos = [...createdSurveyIds, ...updatedSurveyIds]
+    let photoMigrationEnqueued = 0
+    if (surveyIdsForPhotos.length) {
+      photoMigrationEnqueued = await this.enqueuePendingPhotoMigrations(surveyIdsForPhotos, user.id)
+    }
+
     const summary: ImportSummary = {
       totalRows: workbook.surveys.length,
       successCount,
       failureCount,
       photoSuccessCount,
       photoFailureCount,
+      photoMigrationEnqueued,
+      duplicatePropertyIdCount,
+      duplicateLocalIdCount,
+      missingMasterPairs,
       createdSurveyIds,
       updatedSurveyIds,
       errors,
     }
     this.logger.log(
-      `Survey import by=${user.id} total=${summary.totalRows} ok=${summary.successCount} fail=${summary.failureCount}`
+      `Survey import by=${user.id} total=${summary.totalRows} ok=${summary.successCount} fail=${summary.failureCount} photosQueued=${photoMigrationEnqueued}`
     )
     return summary
+  }
+
+  private async enqueuePendingPhotoMigrations(surveyIds: string[], createdById: string): Promise<number> {
+    const photos = await this.prisma.db.photo.findMany({
+      where: {
+        surveyId: { in: surveyIds },
+        importStatus: "PENDING",
+        sourceUrl: { not: null },
+      },
+      select: { id: true, surveyId: true, sourceUrl: true, photoType: true },
+      take: 50_000,
+    })
+    const payloads: ImageMigrationPayload[] = photos
+      .filter((p): p is typeof p & { sourceUrl: string } => Boolean(p.sourceUrl))
+      .map((p) => ({
+        // Empty: sync imports have no ImportJob row for photo success counters.
+        importJobId: "",
+        surveyId: p.surveyId,
+        photoId: p.id,
+        sourceUrl: p.sourceUrl,
+        photoType: p.photoType,
+        createdById,
+      }))
+    if (!payloads.length) return 0
+    return this.jobsService.enqueueImageMigrationBulk(payloads)
   }
 
   private async mapSurveyRow(
@@ -562,7 +668,7 @@ export class ImportsService {
     rowNumber: number,
     user: AuthenticatedUser,
     scope: ReturnType<typeof resolveTenantScope>,
-    geoCache: Map<string, GeoResolved | null>,
+    geoCache: Map<string, GeoResolveResult>,
     errors: ImportRowError[]
   ): Promise<MappedSurvey | null> {
     const rowErrors: string[] = []
@@ -590,6 +696,13 @@ export class ImportsService {
     }
     if (!propertyId) rowErrors.push("Missing Property ID (and could not derive from ULB/Ward/Parcel/Unit/Use)")
 
+    const consistencyError = checkPropertyIdGeoConsistency({
+      propertyId,
+      excelUlbCode,
+      excelWardNumber,
+    })
+    if (consistencyError) rowErrors.push(consistencyError)
+
     // Property ID encodes ULB (6) + Ward (3); use it when Excel ULB/Ward columns are blank.
     const parsedPropertyId = parsePropertyId(propertyId)
     if (!ulbCodeRaw && parsedPropertyId) ulbCodeRaw = parsedPropertyId.ulbCode
@@ -605,21 +718,23 @@ export class ImportsService {
 
     let geo: GeoResolved | null = null
     if (ulbCodeRaw && wardNumberRaw) {
-      geo = await this.resolveGeo(ulbCodeRaw, wardNumberRaw, geoCache)
-      if (!geo) rowErrors.push(`Could not resolve ULB code + ward: ${ulbCodeRaw} / ${wardNumberRaw}`)
+      const geoResult = await resolveImportGeo(this.prisma.db, ulbCodeRaw, wardNumberRaw, geoCache)
+      if (geoResult.ok) {
+        geo = geoResult.geo
+      } else {
+        rowErrors.push(formatGeoResolveError(geoResult))
+      }
     } else {
       rowErrors.push("Missing ULB Code or Ward Number")
     }
 
-    console.log({
+    this.logger.debug({
       rowNumber,
-      propertyUid: propertyId,
+      propertyId: propertyId ?? null,
       excelUlbCode: excelUlbCode ?? null,
       excelWardNumber: excelWardNumber ?? null,
       derivedUlbCode: ulbCodeRaw ?? null,
       derivedWardNumber: wardNumberRaw ?? null,
-      propertyFound: Boolean(propertyId),
-      propertyId: propertyId ?? null,
       dbUlbCode: geo?.ulbCode ?? null,
       dbWardNumber: geo?.wardNumber ?? null,
       validationResult: rowErrors.length ? rowErrors : "ok",
@@ -726,55 +841,6 @@ export class ImportsService {
     return { rowNumber, propertyId, localId, data }
   }
 
-  private async resolveGeo(
-    ulbCodeRaw: string,
-    wardNumberRaw: string,
-    cache: Map<string, GeoResolved | null>
-  ): Promise<GeoResolved | null> {
-    const code = padUlbCode(ulbCodeRaw) || ulbCodeRaw.trim()
-    const wardCandidates = uniqueNonEmpty([
-      wardNumberRaw.trim(),
-      padWardNo(wardNumberRaw),
-      String(Number.parseInt(wardNumberRaw.replace(/\D/g, ""), 10) || ""),
-    ])
-    const cacheKey = `${code}|${wardCandidates.join(",")}`
-    if (cache.has(cacheKey)) return cache.get(cacheKey) ?? null
-
-    const ulb =
-      (await this.prisma.db.ulb.findFirst({
-        where: { code },
-        include: { district: true },
-      })) ??
-      (await this.prisma.db.ulb.findFirst({
-        where: { code: ulbCodeRaw.trim() },
-        include: { district: true },
-      }))
-
-    if (!ulb) {
-      cache.set(cacheKey, null)
-      return null
-    }
-
-    const ward = await this.prisma.db.ward.findFirst({
-      where: { ulbId: ulb.id, wardNumber: { in: wardCandidates } },
-    })
-    if (!ward) {
-      cache.set(cacheKey, null)
-      return null
-    }
-
-    const resolved: GeoResolved = {
-      stateId: ulb.district.stateId,
-      districtId: ulb.districtId,
-      ulbId: ulb.id,
-      wardId: ward.id,
-      ulbCode: ulb.code,
-      wardNumber: ward.wardNumber,
-    }
-    cache.set(cacheKey, resolved)
-    return resolved
-  }
-
   private validateImportFile(file: Express.Multer.File | undefined): asserts file is Express.Multer.File {
     if (!file) throw new BadRequestException("Import file is required")
     const name = file.originalname.toLowerCase()
@@ -789,9 +855,7 @@ export class ImportsService {
 }
 
 function emptyToUndefined(value: string | undefined | null): string | undefined {
-  if (value == null) return undefined
-  const trimmed = String(value).trim()
-  return trimmed === "" ? undefined : trimmed
+  return emptyToUndefinedNormalized(value)
 }
 
 function firstRowValue(row: WorkbookRow, keys: string[]): string | undefined {
@@ -801,17 +865,16 @@ function firstRowValue(row: WorkbookRow, keys: string[]): string | undefined {
   }
   // Case-insensitive / whitespace-normalized fallback for excel header drift
   const normalized = new Map(
-    Object.entries(row).map(([header, value]) => [header.trim().toLowerCase().replace(/\s+/g, " "), value])
+    Object.entries(row).map(([header, value]) => [
+      normalizeImportString(header).toLowerCase().replace(/\s+/g, " "),
+      value,
+    ])
   )
   for (const key of keys) {
     const value = emptyToUndefined(normalized.get(key.trim().toLowerCase().replace(/\s+/g, " ")))
     if (value) return value
   }
   return undefined
-}
-
-function uniqueNonEmpty(values: string[]): string[] {
-  return [...new Set(values.map((v) => v.trim()).filter(Boolean))]
 }
 
 function parseDate(raw: string | undefined): Date | undefined {

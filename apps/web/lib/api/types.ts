@@ -217,6 +217,97 @@ export interface CommandCenterFilters {
   month?: string
 }
 
+export interface QcCommandCenterFilters {
+  districtId?: string
+  ulbId?: string
+  wardId?: string
+  dateFrom?: string
+  dateTo?: string
+  month?: string
+}
+
+export interface QcMetrics {
+  pipeline: {
+    pending: number
+    inReview: number
+    approved: number
+    returned: number
+  }
+  pendingQc: number
+  pendingQcRemaining: number
+  submittedTotal: number
+  approvedQc: number
+  queueTotal: number
+  qcProgressPct: number
+  fieldDrafts: number
+  draftsSubmittedToday: number
+}
+
+export interface QcWard {
+  wardId: string
+  wardName: string
+  wardNumber: string
+  label: string
+  totalProperty: number
+  fieldDrafts: number
+  qcPending: number
+  qcApproved: number
+  pending: number
+}
+
+export type QcPipelineStage = "pending" | "inReview" | "approved" | "returned"
+
+export type QcRegistryTab = "pendingApproved" | "pendingQc" | "approved" | "returned" | "parcelShared" | "all"
+
+export interface QcRegistryRecord {
+  id: string
+  propertyId: string
+  status: string
+  surveyStatus: string
+  qcStatus?: string | null
+  surveyorName: string
+  wardNumber: string
+  parcelNumber: string
+  propertyUse?: string | null
+  ownerName: string
+  mobile: string
+  date: string
+  createdAt?: string
+}
+
+export interface QcRegistryCounts {
+  pendingApproved: number
+  pendingQc: number
+  approved: number
+  returned: number
+  parcelShared: number
+  all: number
+}
+
+export interface QcRegistryScope {
+  districtName?: string | null
+  ulbName?: string | null
+  wardName?: string | null
+  label: string
+}
+
+export interface QcRegistryResponse extends PaginatedResult<QcRegistryRecord> {
+  counts: QcRegistryCounts
+  scope: QcRegistryScope | null
+}
+
+export interface QcRegistryFilters {
+  page?: number
+  limit?: number
+  search?: string
+  status?: QcRegistryTab
+  districtId?: string
+  ulbId?: string
+  wardId?: string
+  sortBy?: string
+  sortOrder?: "asc" | "desc"
+}
+
 export type SurveyRegistryTab = "all" | "draft" | "submitted" | "qcPending" | "qcApproved" | "rejected"
 
 export interface SurveyRegistryRecord {
@@ -391,6 +482,58 @@ export interface SurveyAuditHistoryItem {
   when: string
   action: string
   actor: string
+}
+
+export interface QcSurveyFloorEditable {
+  id: string
+  floorPosition: string
+  usageType: string | null
+  usageFactor: string | null
+  constructionType: string | null
+  areaSqFt: number | null
+  position: number
+}
+
+export interface QcSurveyEditable {
+  respondentName: string | null
+  mobileNumber: string | null
+  alternateMobile: string | null
+  relationshipWithOwner: string | null
+  familySize: number | null
+  houseDoorNo: string | null
+  colony: string | null
+  locality: string | null
+  city: string | null
+  pinCode: string | null
+  ownershipType: string | null
+  propertyUse: string | null
+  propertyType: string | null
+  situation: string | null
+  roadType: string | null
+  taxRateZone: string | null
+  assessmentYear: string
+  floors: QcSurveyFloorEditable[]
+}
+
+export interface QcSurveyDetail extends SurveyDetails {
+  editable: QcSurveyEditable
+}
+
+export type QcSurveyAction = "reopen" | "approve" | "delete" | "correct" | "reject"
+
+export interface QcSurveyActionPayload {
+  action: QcSurveyAction
+  qcRemarks?: string
+  patch?: Partial<Omit<QcSurveyEditable, "floors">> & {
+    floors?: Array<{
+      id?: string
+      floorPosition: string
+      usageType?: string | null
+      usageFactor?: string | null
+      constructionType?: string | null
+      areaSqFt?: number | null
+    }>
+  }
 }
 
 export interface WardCommandStat {

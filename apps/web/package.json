@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify:google-maps-key": "node ../../scripts/verify-google-maps-key.mjs"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.5.17",
@@ -21,6 +22,7 @@
     "@workspace/validation": "workspace:*",
     "axios": "^1.18.1",
     "cmdk": "^1.1.1",
+    "date-fns": "^4.4.0",
     "framer-motion": "^12.42.2",
     "lucide-react": "^1.24.0",
     "next": "16.2.6",

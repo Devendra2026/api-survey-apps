@@ -167,7 +167,7 @@ export function CommandCenterFiltersPanel({
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">State</Label>
-            <Select value={stateId || undefined} onValueChange={onStateChange}>
+            <Select value={stateId || ""} onValueChange={onStateChange}>
               <SelectTrigger className="h-9 border-slate-200 dark:border-slate-800">
                 <SelectValue placeholder="Select state" />
               </SelectTrigger>
@@ -184,7 +184,7 @@ export function CommandCenterFiltersPanel({
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">District</Label>
             <Select
-              value={filters.districtId || undefined}
+              value={filters.districtId || ""}
               onValueChange={(districtId) => {
                 defaultsApplied.current.ulb = false
                 defaultsApplied.current.ward = false
@@ -213,7 +213,7 @@ export function CommandCenterFiltersPanel({
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">ULB</Label>
             <Select
-              value={filters.ulbId || undefined}
+              value={filters.ulbId || ""}
               onValueChange={(ulbId) => {
                 defaultsApplied.current.ward = false
                 onChange({ ...filters, ulbId, wardId: undefined })

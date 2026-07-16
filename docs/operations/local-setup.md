@@ -11,6 +11,8 @@
 
 Copy `.env.development.example` to `.env.development` for non-secret local defaults, then keep real secrets in `.env.local`, which remains ignored.
 
+For GIS maps, set `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` in repo-root `.env.local` (not `apps/web/.env.local`). Enable Maps Embed API + billing in Google Cloud, allow HTTP referrers `http://localhost:3000/*` and `http://127.0.0.1:3000/*`, then run `npm run verify:google-maps-key -- --referer http://localhost:3000/`.
+
 For host-run app development, start only infrastructure with the default compose file, then run Turbo on the host:
 
 ```bash

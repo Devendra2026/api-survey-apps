@@ -23,6 +23,15 @@ function isRouteActive(pathname: string, href: string): boolean {
         !pathname.startsWith("/surveys/command-center"))
     )
   }
+  if (href === "/qc/command-center") {
+    return pathname === "/qc/command-center" || pathname.startsWith("/qc/command-center/")
+  }
+  if (href === "/qc/registry") {
+    return pathname === "/qc/registry" || pathname.startsWith("/qc/registry/") || pathname.startsWith("/qc/review/")
+  }
+  if (href === "/qc") {
+    return pathname === "/qc"
+  }
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 

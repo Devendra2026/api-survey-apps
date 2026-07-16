@@ -85,7 +85,8 @@ describe("SurveysService workflow", () => {
   }
 
   const jobs = { enqueueExport: jest.fn() }
-  const service = new SurveysService(repo as never, prisma as never, jobs as never)
+  const storage = { isConfigured: jest.fn().mockReturnValue(false), getPresignedDownloadUrl: jest.fn() }
+  const service = new SurveysService(repo as never, prisma as never, jobs as never, storage as never)
 
   beforeEach(() => {
     jest.clearAllMocks()
@@ -128,6 +129,60 @@ describe("SurveysService workflow", () => {
   it("blocks self-approval", async () => {
     repo.findById.mockResolvedValue({ ...baseSurvey, surveyStatus: "SUBMITTED" })
     await expect(service.approve("s1", user)).rejects.toThrow(ForbiddenException)
+  })
+
+  it("allows ADMIN to approve their own survey", async () => {
+    const admin: AuthenticatedUser = {
+      ...user,
+      permissions: ["survey:approve", "survey:reject", "survey:view"],
+      tenantRoles: [
+        {
+          id: "tr-admin",
+          roleId: "r-admin",
+          roleName: "ADMIN",
+          permissions: ["survey:approve", "survey:reject", "survey:view"],
+          stateId: null,
+          districtId: null,
+          ulbId: null,
+          wardId: null,
+          isActive: true,
+        },
+      ],
+    }
+    repo.findById.mockResolvedValue({ ...baseSurvey, surveyStatus: "SUBMITTED" })
+    repo.transitionStatus.mockResolvedValue({
+      survey: { ...baseSurvey, surveyStatus: "APPROVED" },
+    })
+    const result = await service.approve("s1", admin)
+    expect(repo.transitionStatus).toHaveBeenCalledWith(expect.objectContaining({ to: "APPROVED", action: "APPROVED" }))
+    expect(result.surveyStatus).toBe("APPROVED")
+  })
+
+  it("allows ADMIN to reject their own survey", async () => {
+    const admin: AuthenticatedUser = {
+      ...user,
+      permissions: ["survey:approve", "survey:reject", "survey:view"],
+      tenantRoles: [
+        {
+          id: "tr-admin",
+          roleId: "r-admin",
+          roleName: "ADMIN",
+          permissions: ["survey:approve", "survey:reject", "survey:view"],
+          stateId: null,
+          districtId: null,
+          ulbId: null,
+          wardId: null,
+          isActive: true,
+        },
+      ],
+    }
+    repo.findById.mockResolvedValue({ ...baseSurvey, surveyStatus: "SUBMITTED" })
+    repo.transitionStatus.mockResolvedValue({
+      survey: { ...baseSurvey, surveyStatus: "REJECTED" },
+    })
+    const result = await service.reject("s1", { qcRemarks: "Incomplete" }, admin)
+    expect(repo.transitionStatus).toHaveBeenCalledWith(expect.objectContaining({ to: "REJECTED", action: "REJECTED" }))
+    expect(result.surveyStatus).toBe("REJECTED")
   })
 
   it("rejects SUBMITTED into REJECTED", async () => {

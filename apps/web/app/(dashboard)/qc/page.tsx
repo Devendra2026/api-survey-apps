@@ -201,7 +201,7 @@ function QcPortalContent() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="QC Command Center"
+        title="QC Review Queue"
         description="Pipeline review for pending, approved, and returned municipal surveys"
       />
 

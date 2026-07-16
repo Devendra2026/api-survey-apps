@@ -118,7 +118,7 @@ export default function MasterDataPage() {
         <TabsContent value="hierarchy" className="space-y-4">
           <div className="grid gap-3 md:grid-cols-3">
             <Select
-              value={stateId || undefined}
+              value={stateId || ""}
               onValueChange={(value) => {
                 setStateId(value)
                 setDistrictId("")
@@ -138,7 +138,7 @@ export default function MasterDataPage() {
             </Select>
 
             <Select
-              value={districtId || undefined}
+              value={districtId || ""}
               onValueChange={(value) => {
                 setDistrictId(value)
                 setUlbId("")
@@ -157,7 +157,7 @@ export default function MasterDataPage() {
               </SelectContent>
             </Select>
 
-            <Select value={ulbId || undefined} onValueChange={setUlbId} disabled={!districtId}>
+            <Select value={ulbId || ""} onValueChange={setUlbId} disabled={!districtId}>
               <SelectTrigger>
                 <SelectValue placeholder="Select municipality / ULB" />
               </SelectTrigger>

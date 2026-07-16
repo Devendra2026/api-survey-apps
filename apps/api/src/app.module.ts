@@ -24,6 +24,7 @@ import { NotificationsModule } from "./notifications/notifications.module.js"
 import { PermissionsModule } from "./permissions/permissions.module.js"
 import { PhotosModule } from "./photos/photos.module.js"
 import { PrismaModule } from "./prisma/prisma.module.js"
+import { QcModule } from "./qc/qc.module.js"
 import { ReportsModule } from "./reports/reports.module.js"
 import { RolesModule } from "./roles/roles.module.js"
 import { SavedViewsModule } from "./saved-views/saved-views.module.js"
@@ -66,6 +67,7 @@ import { WardsModule } from "./wards/wards.module.js"
     WardsModule,
     SurveysModule,
     CommandCenterModule,
+    QcModule,
     SurveyRegistryModule,
     SavedViewsModule,
     FloorsModule,

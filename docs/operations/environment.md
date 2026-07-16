@@ -22,6 +22,26 @@ Do not commit `.env`, `.env.local`, `.env.development`, or `.env.production`.
 
 The API fails fast when production Clerk values are missing, Redis is missing, or storage-specific values are incomplete.
 
+## Google Maps (GIS embeds)
+
+Optional for local/prod GIS maps on survey view and QC review. Browser-exposed via `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`.
+
+- Set the key in **repo-root** `.env.local` only. Do **not** set a different value in `apps/web/.env.local` — Next may prefer the app-local file and break embeds.
+- For Docker/GHCR images, pass the key as a **build-arg** (`NEXT_PUBLIC_*` is inlined at `next build` time). Release workflow uses `secrets.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`.
+- Enable **billing** and the **Maps Embed API** on the Google Cloud project that owns the key. Optionally enable **Maps Static API**.
+- Restrict the key with **HTTP referrers** (not IP restrictions):
+  - `http://localhost:3000/*`
+  - `http://127.0.0.1:3000/*`
+  - your production origin(s)
+- Verify locally:
+
+```bash
+npm run verify:google-maps-key
+npm run verify:google-maps-key -- --referer http://localhost:3000/
+```
+
+After changing the key, restart `pnpm dev` and clear `apps/web/.next` if the iframe still shows a stale/invalid key.
+
 ## Storage
 
 For local MinIO:

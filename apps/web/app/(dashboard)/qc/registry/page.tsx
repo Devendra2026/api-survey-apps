@@ -1,0 +1,106 @@
+"use client"
+
+import { emptyQcScope, QcRegistryHeader, type QcRegistryScopeState } from "@/components/qc/qc-registry-header"
+import { QcRegistryTable } from "@/components/qc/qc-registry-table"
+import { EmptyState } from "@/components/shared/page-elements"
+import { useDistricts, useQcRegistry, useUlbs, useWards } from "@/hooks/use-api"
+import type { QcRegistryTab } from "@/lib/api/types"
+import { useAuthStore } from "@/stores/app-store"
+import { Skeleton } from "@workspace/ui/components/skeleton"
+import { useCallback, useMemo, useState } from "react"
+
+export default function QcReviewRegistryPage() {
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canApprove = hasPermission("survey:approve")
+
+  const [scope, setScope] = useState<QcRegistryScopeState>(emptyQcScope)
+  const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState(50)
+  const [search, setSearch] = useState("")
+  const [tab, setTab] = useState<QcRegistryTab>("pendingApproved")
+
+  const onScopeChange = useCallback((next: QcRegistryScopeState) => {
+    setScope(next)
+    setPage(1)
+  }, [])
+
+  const filters = useMemo(
+    () => ({
+      page,
+      limit,
+      search: search || undefined,
+      status: tab,
+      districtId: scope.districtId || undefined,
+      ulbId: scope.ulbId || undefined,
+      wardId: scope.wardId || undefined,
+      sortBy: "createdAt",
+      sortOrder: "desc" as const,
+    }),
+    [page, limit, search, tab, scope.districtId, scope.ulbId, scope.wardId]
+  )
+
+  const registryQuery = useQcRegistry(filters, Boolean(canApprove))
+
+  const { data: districts } = useDistricts(scope.stateId || undefined)
+  const { data: ulbs } = useUlbs(scope.districtId || undefined)
+  const { data: wards } = useWards(scope.ulbId || undefined)
+
+  const scopeLabel = useMemo(() => {
+    if (registryQuery.data?.scope?.label) return registryQuery.data.scope.label
+    const districtName = districts?.items?.find((d) => d.id === scope.districtId)?.name
+    const ulbName = ulbs?.items?.find((u) => u.id === scope.ulbId)?.name
+    const ward = wards?.items?.find((w) => w.id === scope.wardId)
+    const wardName = ward ? ward.wardName || `Ward ${ward.wardNumber}` : undefined
+    return [districtName, ulbName, wardName].filter(Boolean).join(" - ")
+  }, [registryQuery.data?.scope?.label, districts?.items, ulbs?.items, wards?.items, scope])
+
+  if (!canApprove) {
+    return (
+      <EmptyState
+        title="QC Review Registry unavailable"
+        description="You need survey approval permission to review and approve submitted surveys."
+      />
+    )
+  }
+
+  const rows = registryQuery.data?.items ?? []
+
+  return (
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
+      <QcRegistryHeader scopeLabel={scopeLabel} scope={scope} onScopeChange={onScopeChange} />
+
+      {registryQuery.isLoading && !registryQuery.data ? (
+        <div className="space-y-4">
+          <Skeleton className="h-10 w-full rounded-full" />
+          <Skeleton className="h-72 w-full rounded-xl" />
+        </div>
+      ) : (
+        <QcRegistryTable
+          data={rows}
+          isLoading={registryQuery.isFetching}
+          isError={registryQuery.isError}
+          search={search}
+          onSearchChange={(value) => {
+            setSearch(value)
+            setPage(1)
+          }}
+          tab={tab}
+          onTabChange={(next) => {
+            setTab(next)
+            setPage(1)
+          }}
+          counts={registryQuery.data?.counts}
+          page={page}
+          limit={limit}
+          totalPages={registryQuery.data?.meta.totalPages ?? 1}
+          total={registryQuery.data?.meta.total ?? 0}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setLimit(size)
+            setPage(1)
+          }}
+        />
+      )}
+    </div>
+  )
+}

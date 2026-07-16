@@ -9,7 +9,7 @@ import { usePathname } from "next/navigation"
 const items = [
   { title: "Home", href: "/dashboard", icon: LayoutDashboard, permission: "dashboard:view" },
   { title: "Registry", href: "/surveys", icon: ClipboardList, permission: "survey:view" },
-  { title: "QC", href: "/qc", icon: ClipboardCheck, permission: "survey:approve" },
+  { title: "QC", href: "/qc/registry", icon: ClipboardCheck, permission: "survey:approve" },
   { title: "Reports", href: "/reports", icon: BarChart3, permission: "report:view" },
   { title: "More", href: "/admin/settings", icon: MoreHorizontal },
 ] as const
@@ -33,7 +33,8 @@ export function MobileBottomNav() {
           const Icon = item.icon
           const active =
             pathname === item.href ||
-            (item.href !== "/admin/settings" && pathname.startsWith(`${item.href}/`)) ||
+            (item.href !== "/admin/settings" && item.href !== "/qc/registry" && pathname.startsWith(`${item.href}/`)) ||
+            (item.href === "/qc/registry" && pathname.startsWith("/qc")) ||
             (item.href === "/admin/settings" &&
               (pathname.startsWith("/admin") || pathname.startsWith("/master-data") || pathname.startsWith("/import")))
 

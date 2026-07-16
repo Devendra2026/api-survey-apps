@@ -17,6 +17,13 @@ import type {
   ImportJob,
   NotificationItem,
   PaginatedResult,
+  QcCommandCenterFilters,
+  QcMetrics,
+  QcRegistryFilters,
+  QcRegistryResponse,
+  QcSurveyActionPayload,
+  QcSurveyDetail,
+  QcWard,
   ReassignDraftsPayload,
   ReassignDraftsResult,
   RegistryDraftSource,
@@ -31,7 +38,7 @@ import type {
 } from "@/lib/api/types"
 import { useAuthStore } from "@/stores/app-store"
 import { useAuth } from "@clerk/nextjs"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 export function useCurrentUser() {
   const { isLoaded, isSignedIn, getToken } = useAuth()
@@ -170,6 +177,127 @@ export function useWardWiseData(filters: CommandCenterFilters, enabled = true) {
     queryFn: () => apiGet<CommandCenterWard[]>(`/command-center/wards${toCommandCenterQuery(filters)}`),
     enabled: isLoaded && Boolean(isSignedIn) && canView && enabled,
   })
+}
+
+function toQcQuery(filters: QcCommandCenterFilters): string {
+  const searchParams = new URLSearchParams()
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== "" && value !== "any") searchParams.set(key, String(value))
+  })
+  const qs = searchParams.toString()
+  return qs ? `?${qs}` : ""
+}
+
+export function useQcMetrics(filters: QcCommandCenterFilters, enabled = true) {
+  const { isLoaded, isSignedIn } = useAuth()
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canApprove = hasPermission("survey:approve")
+
+  return useQuery({
+    queryKey: ["qc", "metrics", filters],
+    queryFn: () => apiGet<QcMetrics>(`/qc/metrics${toQcQuery(filters)}`),
+    enabled: isLoaded && Boolean(isSignedIn) && canApprove && enabled,
+  })
+}
+
+export function useQcWards(filters: QcCommandCenterFilters, enabled = true) {
+  const { isLoaded, isSignedIn } = useAuth()
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canApprove = hasPermission("survey:approve")
+
+  return useQuery({
+    queryKey: ["qc", "wards", filters],
+    queryFn: () => apiGet<QcWard[]>(`/qc/wards${toQcQuery(filters)}`),
+    enabled: isLoaded && Boolean(isSignedIn) && canApprove && enabled,
+  })
+}
+
+function toQcRegistryQuery(filters: QcRegistryFilters): string {
+  const searchParams = new URLSearchParams()
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value === undefined || value === "") return
+    // Always send status (including "all") — backend defaults to pendingApproved when omitted
+    searchParams.set(key, String(value))
+  })
+  const qs = searchParams.toString()
+  return qs ? `?${qs}` : ""
+}
+
+export function useQcRegistry(filters: QcRegistryFilters, enabled = true) {
+  const { isLoaded, isSignedIn } = useAuth()
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canApprove = hasPermission("survey:approve")
+
+  return useQuery({
+    queryKey: ["qc", "registry", filters],
+    queryFn: () => apiGet<QcRegistryResponse>(`/qc/registry${toQcRegistryQuery(filters)}`),
+    enabled: isLoaded && Boolean(isSignedIn) && canApprove && enabled,
+  })
+}
+
+export function useQcSurveyDetail(id: string, enabled = true) {
+  const { isLoaded, isSignedIn } = useAuth()
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canApprove = hasPermission("survey:approve")
+
+  return useQuery({
+    queryKey: ["qc", "survey", id],
+    queryFn: () => apiGet<QcSurveyDetail>(`/qc/survey/${encodeURIComponent(id)}`),
+    enabled: isLoaded && Boolean(isSignedIn) && canApprove && Boolean(id) && enabled,
+    staleTime: 60_000,
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useQcSurveyAuditHistory(id: string, enabled = true) {
+  const { isLoaded, isSignedIn } = useAuth()
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canApprove = hasPermission("survey:approve")
+
+  return useQuery({
+    queryKey: ["qc", "survey", id, "audits"],
+    queryFn: () => apiGet<SurveyAuditHistoryItem[]>(`/qc/survey/${encodeURIComponent(id)}/audit-history`),
+    enabled: isLoaded && Boolean(isSignedIn) && canApprove && Boolean(id) && enabled,
+    staleTime: 60_000,
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useQcSurveyActions() {
+  const qc = useQueryClient()
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: ["qc"] })
+    void qc.invalidateQueries({ queryKey: ["surveys"] })
+    void qc.invalidateQueries({ queryKey: ["dashboard"] })
+  }
+
+  const runAction = (id: string, payload: QcSurveyActionPayload) =>
+    apiPost<QcSurveyDetail | Record<string, unknown>>(`/qc/survey/${encodeURIComponent(id)}/action`, payload)
+
+  return {
+    reopen: useMutation({
+      mutationFn: (id: string) => runAction(id, { action: "reopen" }),
+      onSuccess: invalidate,
+    }),
+    approve: useMutation({
+      mutationFn: (id: string) => runAction(id, { action: "approve" }),
+      onSuccess: invalidate,
+    }),
+    reject: useMutation({
+      mutationFn: ({ id, qcRemarks }: { id: string; qcRemarks: string }) =>
+        runAction(id, { action: "reject", qcRemarks }),
+      onSuccess: invalidate,
+    }),
+    remove: useMutation({
+      mutationFn: (id: string) => runAction(id, { action: "delete" }),
+      onSuccess: invalidate,
+    }),
+    correct: useMutation({
+      mutationFn: ({ id, patch }: { id: string; patch: NonNullable<QcSurveyActionPayload["patch"]> }) =>
+        runAction(id, { action: "correct", patch }),
+      onSuccess: invalidate,
+    }),
+  }
 }
 
 function toRegistryQuery(filters: SurveyRegistryFilters): string {

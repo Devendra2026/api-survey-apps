@@ -4,6 +4,7 @@ import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.
 import { canAccessTenant, resolveTenantScope, userHasPermissionInTenant } from "../common/utils/tenant-scope.util.js"
 import { JobsService } from "../jobs/jobs.service.js"
 import { PrismaService } from "../prisma/prisma.service.js"
+import { StorageService } from "../storage/storage.service.js"
 import { getDemoAuditHistory, getDemoSurveyDetails, isDemoSurveyPropertyId } from "./demo-survey-view.data.js"
 import type {
   BulkExportSurveysDto,
@@ -15,6 +16,7 @@ import type {
   UpdateSurveyDto,
   WardStatsQueryDto,
 } from "./dto/survey.dto.js"
+import { refreshSurveyPhotoUrls } from "./survey-photo-urls.js"
 import { mapAuditsToHistoryDto, mapSurveyToDetailsDto } from "./survey-view.mapper.js"
 import { SurveysRepository } from "./surveys.repository.js"
 
@@ -29,7 +31,8 @@ export class SurveysService {
   constructor(
     private readonly surveysRepository: SurveysRepository,
     private readonly prisma: PrismaService,
-    private readonly jobsService: JobsService
+    private readonly jobsService: JobsService,
+    private readonly storageService: StorageService
   ) {}
 
   findAll(query: SurveyQueryDto, user: AuthenticatedUser) {
@@ -53,7 +56,8 @@ export class SurveysService {
       return getDemoSurveyDetails()
     }
     const survey = await this.surveysRepository.findById(idOrPropertyId, user)
-    return mapSurveyToDetailsDto(survey)
+    const detail = mapSurveyToDetailsDto(survey)
+    return refreshSurveyPhotoUrls(this.storageService, detail, survey.photos, this.logger)
   }
 
   async getAuditHistory(idOrPropertyId: string, user: AuthenticatedUser) {
@@ -206,7 +210,8 @@ export class SurveysService {
     if (survey.surveyStatus !== "SUBMITTED") {
       throw new BadRequestException("Only SUBMITTED surveys can be approved")
     }
-    if (survey.createdById === user.id) {
+    const isAdmin = user.tenantRoles.some((r) => r.isActive && r.roleName === "ADMIN")
+    if (survey.createdById === user.id && !isAdmin) {
       throw new ForbiddenException("Creators cannot approve their own surveys")
     }
 
@@ -233,7 +238,8 @@ export class SurveysService {
     if (survey.surveyStatus !== "SUBMITTED") {
       throw new BadRequestException("Only SUBMITTED surveys can be rejected")
     }
-    if (survey.createdById === user.id) {
+    const isAdmin = user.tenantRoles.some((r) => r.isActive && r.roleName === "ADMIN")
+    if (survey.createdById === user.id && !isAdmin) {
       throw new ForbiddenException("Creators cannot reject their own surveys")
     }
 

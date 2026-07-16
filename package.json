@@ -13,6 +13,7 @@
     "db:deploy": "pnpm --filter @workspace/database db:deploy",
     "db:seed": "pnpm --filter @workspace/database db:seed",
     "verify:dev": "node scripts/verify-dev.mjs",
+    "verify:google-maps-key": "node ./scripts/verify-google-maps-key.mjs",
     "prepare": "node -e \"try{require('fs').accessSync('.git');require('child_process').execSync('husky',{stdio:'inherit'})}catch{}\""
   },
   "devDependencies": {

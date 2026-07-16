@@ -138,7 +138,7 @@ export function SurveyRegistryHeader({
             <div className="space-y-1.5">
               <Label>State</Label>
               <Select
-                value={draft.stateId || undefined}
+                value={draft.stateId || ""}
                 onValueChange={(stateId) => setDraft({ stateId, districtId: "", ulbId: "", wardId: "" })}
               >
                 <SelectTrigger>
@@ -156,7 +156,7 @@ export function SurveyRegistryHeader({
             <div className="space-y-1.5">
               <Label>District</Label>
               <Select
-                value={draft.districtId || undefined}
+                value={draft.districtId || ""}
                 onValueChange={(districtId) => setDraft({ ...draft, districtId, ulbId: "", wardId: "" })}
                 disabled={!draft.stateId}
               >
@@ -175,7 +175,7 @@ export function SurveyRegistryHeader({
             <div className="space-y-1.5">
               <Label>ULB</Label>
               <Select
-                value={draft.ulbId || undefined}
+                value={draft.ulbId || ""}
                 onValueChange={(ulbId) => setDraft({ ...draft, ulbId, wardId: "" })}
                 disabled={!draft.districtId}
               >

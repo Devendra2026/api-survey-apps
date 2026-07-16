@@ -77,9 +77,24 @@ export const appNav: NavItem[] = [
   },
   {
     title: "QC Portal",
-    href: "/qc",
+    href: "/qc/command-center",
     icon: ClipboardCheck,
-    permission: "survey:approve",
+    children: [
+      {
+        title: "QC Command Center",
+        href: "/qc/command-center",
+        icon: ClipboardCheck,
+        permission: "survey:approve",
+        description: "Ward-wise QC pipeline and smart filters",
+      },
+      {
+        title: "QC Review Registry",
+        href: "/qc/registry",
+        icon: ClipboardCheck,
+        permission: "survey:approve",
+        description: "Search and open surveys for QC verification",
+      },
+    ],
   },
   {
     title: "Reports",

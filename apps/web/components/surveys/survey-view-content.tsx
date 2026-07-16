@@ -1,5 +1,6 @@
 "use client"
 
+import { GisMap } from "@/components/shared/gis-map"
 import {
   glassInsetClass,
   glassPanelClass,
@@ -13,7 +14,7 @@ import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@workspace/ui/components/table"
 import { cn } from "@workspace/ui/lib/utils"
-import { ArrowLeft, ImageIcon, MapPin } from "lucide-react"
+import { ArrowLeft, ImageIcon } from "lucide-react"
 import Link from "next/link"
 import { useMemo, useState } from "react"
 
@@ -97,25 +98,28 @@ function GlassTable<T>({ columns, data, empty }: { columns: ColumnDef<T>[]; data
   )
 }
 
-function AnimatedMapPin({ coordinates }: { coordinates: string }) {
+function SurveyPhotoCard({ label, url, caption }: { label: string; url: string; caption: string }) {
+  const [failed, setFailed] = useState(false)
+
   return (
-    <div className="relative flex h-64 items-center justify-center overflow-hidden rounded-xl border border-white/40 bg-linear-to-br from-sky-100/80 via-indigo-50/60 to-violet-100/70 md:h-72 dark:border-white/10 dark:from-slate-900 dark:via-indigo-950/40 dark:to-violet-950/50">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(99,102,241,0.18),transparent_45%),radial-gradient(circle_at_70%_80%,rgba(16,185,129,0.14),transparent_40%)]" />
-      <div className="absolute inset-[12%] rounded-[1.5rem] border border-dashed border-indigo-300/40 dark:border-indigo-400/20" />
-      <div className="relative z-10 flex flex-col items-center gap-3">
-        <span className="relative flex size-14 items-center justify-center">
-          <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400/30" />
-          <span className="absolute inset-2 animate-pulse rounded-full bg-emerald-400/20" />
-          <span className="relative flex size-12 items-center justify-center rounded-full border border-white/60 bg-white/70 shadow-lg backdrop-blur-md dark:border-white/20 dark:bg-slate-900/70">
-            <MapPin className="size-6 text-emerald-600 dark:text-emerald-400" />
-          </span>
-        </span>
-        <p className="max-w-[16rem] text-center text-xs font-medium text-slate-700 dark:text-slate-200">
-          {coordinates}
-        </p>
-      </div>
-      <div className="absolute right-3 bottom-3 left-3 rounded-lg border border-white/50 bg-white/70 px-3 py-2 text-[11px] font-medium text-slate-700 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/60 dark:text-slate-200">
-        Field GPS capture · static visual pin overlay
+    <div className="group relative overflow-hidden rounded-2xl border border-white/40 bg-white/30 shadow-lg backdrop-blur-md dark:border-white/10 dark:bg-white/5">
+      {failed ? (
+        <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 text-slate-500 dark:text-slate-400">
+          <ImageIcon className="size-8 opacity-50" />
+          <span className="text-xs">Image unavailable</span>
+        </div>
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element -- external/demo photo URLs
+        <img
+          src={url}
+          alt={label}
+          onError={() => setFailed(true)}
+          className="aspect-video w-full object-cover transition-transform duration-500 group-hover:scale-110"
+        />
+      )}
+      <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-slate-950/80 via-slate-950/40 to-transparent p-4 text-white">
+        <p className="text-sm font-semibold">{label}</p>
+        <p className="mt-0.5 text-xs text-white/85">{caption}</p>
       </div>
     </div>
   )
@@ -287,7 +291,7 @@ export function SurveyViewContent({ survey, audits }: { survey: SurveyDetails; a
         </GlassSection>
 
         <GlassSection title="GIS Mapping" subtitle="Captured field location coordinates.">
-          <AnimatedMapPin coordinates={survey.coordinates} />
+          <GisMap latitude={survey.latitude} longitude={survey.longitude} coordinates={survey.coordinates} />
         </GlassSection>
       </div>
 
@@ -341,23 +345,12 @@ export function SurveyViewContent({ survey, audits }: { survey: SurveyDetails; a
         {photoItems.length ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {photoItems.map((photo) => (
-              <div
+              <SurveyPhotoCard
                 key={photo.id}
-                className="group relative overflow-hidden rounded-2xl border border-white/40 bg-white/30 shadow-lg backdrop-blur-md dark:border-white/10 dark:bg-white/5"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element -- external/demo photo URLs */}
-                <img
-                  src={photo.url}
-                  alt={photo.label}
-                  className="aspect-video w-full object-cover transition-transform duration-500 group-hover:scale-110"
-                />
-                <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-slate-950/80 via-slate-950/40 to-transparent p-4 text-white">
-                  <p className="text-sm font-semibold">{photo.label}</p>
-                  <p className="mt-0.5 text-xs text-white/85">
-                    {[photo.capturedAt, photo.surveyorName].filter(Boolean).join(" · ") || survey.surveyor}
-                  </p>
-                </div>
-              </div>
+                label={photo.label}
+                url={photo.url}
+                caption={[photo.capturedAt, photo.surveyorName].filter(Boolean).join(" · ") || survey.surveyor}
+              />
             ))}
           </div>
         ) : (

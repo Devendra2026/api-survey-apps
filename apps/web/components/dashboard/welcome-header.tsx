@@ -24,7 +24,7 @@ export function WelcomeHeader({
       <div className="flex flex-wrap items-center gap-2">
         {canApprove ? (
           <Button variant="outline" className="cursor-pointer border-slate-100 dark:border-slate-800" asChild>
-            <Link href="/qc?pipeline=pending">
+            <Link href="/qc/registry">
               <ClipboardCheck className="size-4" />
               Open QC Queue
             </Link>

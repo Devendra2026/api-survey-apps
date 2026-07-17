@@ -71,6 +71,8 @@ export default function ImportPage() {
     if (watchedJob.status === "SUCCEEDED") {
       toastedJobId.current = watchedJob.id
       toast.success(jobResultMessage(watchedJob))
+      // Sync local UI with completed import job from the API watcher.
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clearing pending state after external job settles
       setPendingJobId(null)
       setFile(null)
     } else if (watchedJob.status === "FAILED") {

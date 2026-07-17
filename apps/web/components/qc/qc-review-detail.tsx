@@ -20,7 +20,7 @@ import {
 } from "@workspace/ui/components/dialog"
 import { Textarea } from "@workspace/ui/components/textarea"
 import { useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { toast } from "sonner"
 
 export function QcReviewDetail({ propertyId }: { propertyId: string }) {
@@ -32,21 +32,21 @@ export function QcReviewDetail({ propertyId }: { propertyId: string }) {
   const auditQuery = useQcSurveyAuditHistory(propertyId, Boolean(canApprove) && Boolean(propertyId))
   const actions = useQcSurveyActions()
 
+  const survey = detailQuery.data
+  const editable = survey?.editable
   const [editMode, setEditMode] = useState(false)
   const [draft, setDraft] = useState<QcSurveyEditable | null>(null)
+  const [trackedEditable, setTrackedEditable] = useState(editable)
   const [reopenOpen, setReopenOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [rejectOpen, setRejectOpen] = useState(false)
   const [demandOpen, setDemandOpen] = useState(false)
   const [qcRemarks, setQcRemarks] = useState("")
 
-  const survey = detailQuery.data
-
-  useEffect(() => {
-    if (survey?.editable) {
-      setDraft(survey.editable)
-    }
-  }, [survey?.editable])
+  if (trackedEditable !== editable) {
+    setTrackedEditable(editable)
+    if (editable) setDraft(editable)
+  }
 
   if (!canApprove) {
     return (

@@ -90,9 +90,10 @@ export function SurveyRegistryHeader({
     }
   }, [wards?.items, scope, onScopeChange])
 
-  useEffect(() => {
-    if (open) setDraft(scope)
-  }, [open, scope])
+  function openScopeDialog() {
+    setDraft(scope)
+    setOpen(true)
+  }
 
   return (
     <div className="space-y-4">
@@ -121,14 +122,20 @@ export function SurveyRegistryHeader({
             type="button"
             variant="link"
             className="h-auto cursor-pointer px-0 text-violet-600 dark:text-violet-400"
-            onClick={() => setOpen(true)}
+            onClick={openScopeDialog}
           >
             Change scope
           </Button>
         </CardContent>
       </Card>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          if (next) setDraft(scope)
+          setOpen(next)
+        }}
+      >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Change survey scope</DialogTitle>

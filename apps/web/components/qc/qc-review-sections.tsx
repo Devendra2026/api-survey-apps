@@ -48,6 +48,7 @@ function GlassSection({
 }
 
 function GlassTable<T>({ columns, data, empty }: { columns: ColumnDef<T>[]; data: T[]; empty: string }) {
+  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Table returns unstable function identities
   const table = useReactTable({
     data,
     columns,

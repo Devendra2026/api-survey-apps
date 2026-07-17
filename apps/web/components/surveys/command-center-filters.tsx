@@ -51,10 +51,10 @@ export function CommandCenterFiltersPanel({
   const { data: ulbs } = useUlbs(filters.districtId)
   const { data: wards } = useWards(filters.ulbId)
 
-  const districtItems = districts?.items ?? []
-  const ulbItems = ulbs?.items ?? []
-  const wardItems = wards?.items ?? []
-  const stateItems = states?.items ?? []
+  const districtItems = useMemo(() => districts?.items ?? [], [districts?.items])
+  const ulbItems = useMemo(() => ulbs?.items ?? [], [ulbs?.items])
+  const wardItems = useMemo(() => wards?.items ?? [], [wards?.items])
+  const stateItems = useMemo(() => states?.items ?? [], [states?.items])
 
   const defaultsApplied = useRef({ state: false, district: false, ulb: false, ward: false })
 

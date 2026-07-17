@@ -175,7 +175,7 @@ export const proMaxDashboardMock: ProMaxDashboardMock = {
       accent: "amber",
       badge: "Backlogged",
       actionLabel: "Open QC Queue",
-      actionHref: "/qc?pipeline=pending",
+      actionHref: "/qc/registry",
     },
   ],
   orgOverview: [
@@ -374,7 +374,7 @@ export function applySummaryToProMaxDashboard(
         accent: summary.queueHealth === "Healthy" ? "emerald" : "amber",
         badge: summary.queueHealth,
         actionLabel: "Open QC Queue",
-        actionHref: "/qc?pipeline=pending",
+        actionHref: "/qc/registry",
       },
     ],
   }

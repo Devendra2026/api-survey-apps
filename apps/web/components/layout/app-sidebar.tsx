@@ -8,7 +8,7 @@ import { cn } from "@workspace/ui/lib/utils"
 import { Building2, ChevronDown } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 
 function isRouteActive(pathname: string, href: string): boolean {
   if (href === "/surveys/new") return pathname === "/surveys/new"
@@ -28,9 +28,6 @@ function isRouteActive(pathname: string, href: string): boolean {
   }
   if (href === "/qc/registry") {
     return pathname === "/qc/registry" || pathname.startsWith("/qc/registry/") || pathname.startsWith("/qc/review/")
-  }
-  if (href === "/qc") {
-    return pathname === "/qc"
   }
   return pathname === href || pathname.startsWith(`${href}/`)
 }
@@ -92,17 +89,20 @@ function NavLink({ item, collapsed, nested = false }: { item: NavItem; collapsed
 function NavGroup({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
   const pathname = usePathname()
   const hasPermission = useAuthStore((s) => s.hasPermission)
-  const children = item.children ?? []
   const visibleChildren = useMemo(
-    () => children.filter((child) => !child.permission || hasPermission(child.permission)),
-    [children, hasPermission]
+    () => (item.children ?? []).filter((child) => !child.permission || hasPermission(child.permission)),
+    [item.children, hasPermission]
   )
   const groupActive = isGroupActive(pathname, item)
-  const [open, setOpen] = useState(groupActive)
+  const [userOpen, setUserOpen] = useState<boolean | null>(null)
+  const [prevGroupActive, setPrevGroupActive] = useState(groupActive)
 
-  useEffect(() => {
-    if (groupActive) setOpen(true)
-  }, [groupActive])
+  if (prevGroupActive !== groupActive) {
+    setPrevGroupActive(groupActive)
+    if (groupActive) setUserOpen(null)
+  }
+
+  const open = userOpen ?? groupActive
 
   if (visibleChildren.length === 0) return null
 
@@ -122,7 +122,7 @@ function NavGroup({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
     <div className="space-y-0.5">
       <button
         type="button"
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={() => setUserOpen(!(userOpen ?? groupActive))}
         className={cn(
           "flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-300",
           groupActive

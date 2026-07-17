@@ -106,6 +106,7 @@ export function DataTable<TData, TValue>({
   const order = columnOrder ?? internalOrder
   const setOrder = onColumnOrderChange ?? setInternalOrder
 
+  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Table returns unstable function identities
   const table = useReactTable({
     data,
     columns,

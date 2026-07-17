@@ -3,6 +3,8 @@
 import { MapPin } from "lucide-react"
 import { useEffect, useState } from "react"
 
+type EmbedCoordsKey = string
+
 function GisFallback({ coordinates, message }: { coordinates: string; message: string }) {
   return (
     <div className="relative flex h-64 items-center justify-center overflow-hidden rounded-xl border border-white/40 bg-linear-to-br from-sky-100/80 via-indigo-50/60 to-violet-100/70 md:h-72 dark:border-white/10 dark:from-slate-900 dark:via-indigo-950/40 dark:to-violet-950/50">
@@ -44,11 +46,14 @@ export function GisMap({
 }) {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
   const hasCoords = latitude != null && longitude != null
+  const coordsKey: EmbedCoordsKey = `${latitude ?? ""}:${longitude ?? ""}:${apiKey ?? ""}`
   const [embedFailed, setEmbedFailed] = useState(false)
+  const [trackedCoordsKey, setTrackedCoordsKey] = useState(coordsKey)
 
-  useEffect(() => {
+  if (trackedCoordsKey !== coordsKey) {
+    setTrackedCoordsKey(coordsKey)
     setEmbedFailed(false)
-  }, [latitude, longitude, apiKey])
+  }
 
   useEffect(() => {
     if (!apiKey || !hasCoords) return

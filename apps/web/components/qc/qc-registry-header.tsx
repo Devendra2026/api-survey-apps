@@ -80,9 +80,10 @@ export function QcRegistryHeader({
     }
   }, [ulbs?.items, scope, onScopeChange])
 
-  useEffect(() => {
-    if (open) setDraft(scope)
-  }, [open, scope])
+  function openScopeDialog() {
+    setDraft(scope)
+    setOpen(true)
+  }
 
   return (
     <div className="space-y-4">
@@ -116,14 +117,20 @@ export function QcRegistryHeader({
             variant="outline"
             size="sm"
             className="h-8 shrink-0 cursor-pointer border-teal-300 text-teal-700 hover:bg-teal-50 dark:border-teal-800 dark:text-teal-300 dark:hover:bg-teal-950/40"
-            onClick={() => setOpen(true)}
+            onClick={openScopeDialog}
           >
             Change ward
           </Button>
         </CardContent>
       </Card>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          if (next) setDraft(scope)
+          setOpen(next)
+        }}
+      >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Change QC ward</DialogTitle>

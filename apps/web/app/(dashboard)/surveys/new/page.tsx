@@ -42,7 +42,7 @@ export default function NewSurveyPage() {
     },
   })
 
-  const stateId = form.watch("stateId")
+  const stateId = form.watch("stateId") // eslint-disable-line react-hooks/incompatible-library -- React Hook Form watch()
   const districtId = form.watch("districtId")
   const ulbId = form.watch("ulbId")
   const wardId = form.watch("wardId")

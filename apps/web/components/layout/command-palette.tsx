@@ -90,7 +90,7 @@ export function CommandPalette() {
             <span>Browse survey registry</span>
           </CommandItem>
           {hasPermission("survey:approve") ? (
-            <CommandItem value="qc portal pending" onSelect={() => run("/qc?pipeline=pending")}>
+            <CommandItem value="qc portal pending" onSelect={() => run("/qc/registry")}>
               <ClipboardCheck />
               <span>Open QC pending queue</span>
             </CommandItem>

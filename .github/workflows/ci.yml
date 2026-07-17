@@ -62,7 +62,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 24.10.0
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
@@ -84,7 +84,7 @@ jobs:
         run: pnpm db:deploy
 
       - name: Run API tests
-        run: pnpm --filter api test -- --runInBand
+        run: pnpm --filter api test -- --runInBand --ci
 
       - name: Build apps
         run: pnpm build

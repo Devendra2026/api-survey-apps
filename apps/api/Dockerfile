@@ -6,13 +6,13 @@ WORKDIR /app
 
 FROM base AS builder
 ENV DATABASE_URL=postgresql://postgres:postgres@localhost:5432/survey?schema=public
+ENV DIRECT_URL=postgresql://postgres:postgres@localhost:5432/survey?schema=public
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY apps ./apps
 COPY packages ./packages
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @workspace/database db:generate
-RUN pnpm --filter @workspace/database build
-RUN pnpm --filter api build
+RUN pnpm turbo build --filter=api...
 
 FROM node:22-alpine AS runner
 WORKDIR /app
@@ -26,8 +26,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/package.json ./apps/api/
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/dist ./apps/api/dist
-COPY --from=builder --chown=nestjs:nodejs /app/packages/database ./packages/database
-COPY --from=builder --chown=nestjs:nodejs /app/packages/typescript-config ./packages/typescript-config
+COPY --from=builder --chown=nestjs:nodejs /app/packages ./packages
 COPY apps/api/docker-entrypoint.sh /app/apps/api/docker-entrypoint.sh
 COPY apps/api/docker-entrypoint.migrate.sh /app/apps/api/docker-entrypoint.migrate.sh
 RUN chmod +x /app/apps/api/docker-entrypoint.sh /app/apps/api/docker-entrypoint.migrate.sh && chown -R nestjs:nodejs /app

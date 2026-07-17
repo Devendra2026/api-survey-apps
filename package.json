@@ -35,8 +35,6 @@
     "node": ">=22.12"
   },
   "dependencies": {
-    "@jest/globals": "^30.4.1",
-    "api": "link:/api",
     "turbo-cli": "^0.39.6"
   }
 }

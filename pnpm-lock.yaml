@@ -8,12 +8,6 @@ importers:
 
   .:
     dependencies:
-      '@jest/globals':
-        specifier: ^30.4.1
-        version: 30.4.1
-      api:
-        specifier: link:/api
-        version: link:../../../../api
       turbo-cli:
         specifier: ^0.39.6
         version: 0.39.6
@@ -15756,7 +15750,7 @@ snapshots:
     dependencies:
       bytes: 3.1.2
       http-errors: 2.0.1
-      iconv-lite: 0.7.2
+      iconv-lite: 0.7.3
       unpipe: 1.0.0
 
   rc9@3.0.1:

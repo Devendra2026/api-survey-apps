@@ -1,12 +1,13 @@
-import { Injectable, NotFoundException } from "@nestjs/common"
-import type { Prisma } from "@workspace/database"
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common"
+import { OwnershipType, type Prisma } from "@workspace/database"
+import { formatPropertyId, padParcelNo } from "@workspace/validation"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
 import { buildTenantWhere, resolveTenantScope } from "../common/utils/tenant-scope.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import type { QcFiltersDto } from "./dto/qc-filters.dto.js"
 import type { QcRegistryQueryDto } from "./dto/qc-registry.dto.js"
-import type { QcFloorInputDto, QcSurveyCorrectionDto } from "./dto/qc-survey-action.dto.js"
+import type { QcCoOwnerInputDto, QcFloorInputDto, QcSurveyCorrectionDto } from "./dto/qc-survey-action.dto.js"
 
 const QC_REGISTRY_STATUSES = ["SUBMITTED", "APPROVED", "REJECTED", "REOPENED"] as const
 
@@ -42,8 +43,8 @@ export class QcRepository {
 
     if (filters.month && /^\d{4}-\d{2}$/.test(filters.month)) {
       const [y, m] = filters.month.split("-").map(Number)
-      dateFrom = new Date(Date.UTC(y!, m! - 1, 1))
-      dateTo = new Date(Date.UTC(y!, m!, 1))
+      dateFrom = new Date(Date.UTC(y, m - 1, 1))
+      dateTo = new Date(Date.UTC(y, m, 1))
     } else {
       if (filters.dateFrom) dateFrom = new Date(`${filters.dateFrom}T00:00:00.000Z`)
       if (filters.dateTo) {
@@ -373,9 +374,90 @@ export class QcRepository {
       where: { id, deletedAt: null },
       include: {
         floors: { orderBy: { position: "asc" } },
+        coOwners: { orderBy: { ownerIndex: "asc" } },
+        ward: { select: { id: true, wardName: true, wardNumber: true } },
+        ulb: { select: { id: true, name: true, code: true } },
       },
     })
     if (!existing) throw new NotFoundException("Survey not found")
+
+    const canCorrect = existing.surveyStatus === "SUBMITTED" && (existing.qcStatus === "PENDING" || !existing.qcStatus)
+    if (!canCorrect) {
+      throw new BadRequestException("QC corrections are only allowed while the survey is Pending QC")
+    }
+
+    let coOwnersPatch = patch.coOwners
+    if (patch.fatherHusbandName !== undefined) {
+      const base =
+        coOwnersPatch ??
+        existing.coOwners.map((o) => ({
+          id: o.id,
+          name: o.name,
+          fatherOrHusbandName: o.fatherOrHusbandName ?? undefined,
+          mobile: o.mobile ?? undefined,
+          alternateMobile: o.alternateMobile ?? undefined,
+        }))
+      if (base.length > 0) {
+        const first = base[0]
+        coOwnersPatch = [{ ...first, fatherOrHusbandName: patch.fatherHusbandName }, ...base.slice(1)]
+      } else if (patch.fatherHusbandName.trim()) {
+        coOwnersPatch = [
+          {
+            name: (patch.respondentName ?? existing.respondentName ?? "Owner").trim() || "Owner",
+            fatherOrHusbandName: patch.fatherHusbandName,
+          },
+        ]
+      }
+    }
+
+    const effectiveOwnership = patch.ownershipType ?? existing.ownershipType
+    const effectiveCoOwners =
+      coOwnersPatch ??
+      existing.coOwners.map((o) => ({
+        id: o.id,
+        name: o.name,
+        fatherOrHusbandName: o.fatherOrHusbandName ?? undefined,
+        mobile: o.mobile ?? undefined,
+        alternateMobile: o.alternateMobile ?? undefined,
+      }))
+
+    if (effectiveOwnership === OwnershipType.JOINT && effectiveCoOwners.length === 0) {
+      throw new BadRequestException("JOINT ownership requires at least one co-owner")
+    }
+
+    const effectiveParcel = patch.parcelNumber !== undefined ? patch.parcelNumber : (existing.parcelNumber ?? "")
+    const effectiveUnit = patch.unitSubNo !== undefined ? patch.unitSubNo : (existing.unitSubNo ?? "")
+    const effectiveUse = patch.propertyUse !== undefined ? patch.propertyUse : existing.propertyUse
+    const ulbCode = existing.ulbCode ?? existing.ulb?.code ?? ""
+    const wardNo = existing.wardNumber ?? existing.ward?.wardNumber ?? ""
+
+    let nextPropertyId = existing.propertyId
+    if (ulbCode && wardNo && effectiveParcel && effectiveUnit && effectiveUse) {
+      const formatted = formatPropertyId({
+        ulbCode,
+        wardNo,
+        parcelNo: effectiveParcel,
+        unitNo: effectiveUnit,
+        propertyUse: effectiveUse,
+      })
+      if (formatted) nextPropertyId = formatted
+    }
+
+    if (nextPropertyId !== existing.propertyId) {
+      const conflict = await this.prisma.db.survey.findFirst({
+        where: {
+          ulbId: existing.ulbId,
+          propertyId: nextPropertyId,
+          assessmentYear: patch.assessmentYear ?? existing.assessmentYear,
+          deletedAt: null,
+          NOT: { id: existing.id },
+        },
+        select: { id: true },
+      })
+      if (conflict) {
+        throw new ConflictException(`Property ID ${nextPropertyId} already exists for this ULB and assessment year`)
+      }
+    }
 
     const scalarData: Prisma.SurveyUpdateInput = {}
     if (patch.respondentName !== undefined) scalarData.respondentName = patch.respondentName
@@ -388,6 +470,15 @@ export class QcRepository {
     if (patch.locality !== undefined) scalarData.locality = patch.locality
     if (patch.city !== undefined) scalarData.city = patch.city
     if (patch.pinCode !== undefined) scalarData.pinCode = patch.pinCode
+    if (patch.sectorNo !== undefined) scalarData.sectorNo = patch.sectorNo
+    if (patch.unitSubNo !== undefined) scalarData.unitSubNo = patch.unitSubNo
+    if (patch.parcelNumber !== undefined) {
+      const digits = patch.parcelNumber.replace(/\D/g, "")
+      scalarData.parcelNumber = digits ? padParcelNo(digits) : patch.parcelNumber
+    }
+    if (patch.propertyIdOld !== undefined) scalarData.propertyIdOld = patch.propertyIdOld
+    if (patch.constructedYear !== undefined) scalarData.constructedYear = patch.constructedYear
+    if (patch.isSlum !== undefined) scalarData.isSlum = patch.isSlum
     if (patch.ownershipType !== undefined) scalarData.ownershipType = patch.ownershipType
     if (patch.propertyUse !== undefined) scalarData.propertyUse = patch.propertyUse
     if (patch.propertyType !== undefined) scalarData.propertyType = patch.propertyType
@@ -395,8 +486,21 @@ export class QcRepository {
     if (patch.roadType !== undefined) scalarData.roadType = patch.roadType
     if (patch.taxRateZone !== undefined) scalarData.taxRateZone = patch.taxRateZone
     if (patch.assessmentYear !== undefined) scalarData.assessmentYear = patch.assessmentYear
+    if (patch.plotAreaSqFt !== undefined) scalarData.plotAreaSqFt = patch.plotAreaSqFt
+    if (patch.plinthAreaSqFt !== undefined) scalarData.plinthAreaSqFt = patch.plinthAreaSqFt
+    if (patch.waterConnection !== undefined) scalarData.waterConnection = patch.waterConnection
+    if (patch.sourceOfWater !== undefined) scalarData.sourceOfWater = patch.sourceOfWater
+    if (patch.sanitationType !== undefined) scalarData.sanitationType = patch.sanitationType
+    if (patch.solidWasteCollection !== undefined) scalarData.solidWasteCollection = patch.solidWasteCollection
+    if (patch.latitude !== undefined) scalarData.latitude = patch.latitude
+    if (patch.longitude !== undefined) scalarData.longitude = patch.longitude
+    if (nextPropertyId !== existing.propertyId) {
+      scalarData.propertyId = nextPropertyId
+    }
 
     const oldValue = {
+      propertyId: existing.propertyId,
+      parcelNumber: existing.parcelNumber,
       respondentName: existing.respondentName,
       mobileNumber: existing.mobileNumber,
       alternateMobile: existing.alternateMobile,
@@ -407,6 +511,11 @@ export class QcRepository {
       locality: existing.locality,
       city: existing.city,
       pinCode: existing.pinCode,
+      sectorNo: existing.sectorNo,
+      unitSubNo: existing.unitSubNo,
+      propertyIdOld: existing.propertyIdOld,
+      constructedYear: existing.constructedYear,
+      isSlum: existing.isSlum,
       ownershipType: existing.ownershipType,
       propertyUse: existing.propertyUse,
       propertyType: existing.propertyType,
@@ -414,6 +523,14 @@ export class QcRepository {
       roadType: existing.roadType,
       taxRateZone: existing.taxRateZone,
       assessmentYear: existing.assessmentYear,
+      plotAreaSqFt: existing.plotAreaSqFt != null ? Number(existing.plotAreaSqFt.toString()) : null,
+      plinthAreaSqFt: existing.plinthAreaSqFt != null ? Number(existing.plinthAreaSqFt.toString()) : null,
+      waterConnection: existing.waterConnection,
+      sourceOfWater: existing.sourceOfWater,
+      sanitationType: existing.sanitationType,
+      solidWasteCollection: existing.solidWasteCollection,
+      latitude: existing.latitude != null ? Number(existing.latitude.toString()) : null,
+      longitude: existing.longitude != null ? Number(existing.longitude.toString()) : null,
       floors: existing.floors.map((f) => ({
         id: f.id,
         floorPosition: f.floorPosition,
@@ -422,6 +539,14 @@ export class QcRepository {
         constructionType: f.constructionType,
         areaSqFt: f.areaSqFt != null ? Number(f.areaSqFt.toString()) : null,
       })),
+      coOwners: existing.coOwners.map((o) => ({
+        id: o.id,
+        name: o.name,
+        fatherOrHusbandName: o.fatherOrHusbandName,
+        mobile: o.mobile,
+        alternateMobile: o.alternateMobile,
+        ownerIndex: o.ownerIndex,
+      })),
     }
 
     return this.prisma.db.$transaction(async (tx) => {
@@ -429,12 +554,8 @@ export class QcRepository {
         await tx.survey.update({ where: { id }, data: scalarData })
       }
 
-      if (patch.floors?.length) {
-        let position = 0
-        for (const floor of patch.floors) {
-          await this.upsertFloor(tx, id, floor, position)
-          position += 1
-        }
+      if (patch.floors !== undefined) {
+        await this.syncFloors(tx, id, patch.floors)
 
         const floors = await tx.floor.findMany({ where: { surveyId: id } })
         const totalBuilt = floors.reduce((sum, f) => {
@@ -447,14 +568,20 @@ export class QcRepository {
         })
       }
 
+      if (coOwnersPatch !== undefined) {
+        await this.syncCoOwners(tx, id, coOwnersPatch)
+      }
+
       await tx.surveyAudit.create({
         data: {
           surveyId: id,
           action: "survey.qc_corrected",
-          oldValue: oldValue as Prisma.InputJsonValue,
+          oldValue: oldValue,
           newValue: {
+            propertyId: nextPropertyId,
             patch: scalarData,
             floors: patch.floors ?? null,
+            coOwners: coOwnersPatch ?? null,
           } as Prisma.InputJsonValue,
           changedBy,
         },
@@ -477,7 +604,66 @@ export class QcRepository {
     })
   }
 
-  private async upsertFloor(tx: Prisma.TransactionClient, surveyId: string, floor: QcFloorInputDto, position: number) {
+  private async syncFloors(tx: Prisma.TransactionClient, surveyId: string, floors: QcFloorInputDto[]) {
+    const keptIds: string[] = []
+    let position = 0
+    for (const floor of floors) {
+      const id = await this.upsertFloor(tx, surveyId, floor, position)
+      if (id) keptIds.push(id)
+      position += 1
+    }
+
+    await tx.floor.deleteMany({
+      where: {
+        surveyId,
+        ...(keptIds.length > 0 ? { id: { notIn: keptIds } } : {}),
+      },
+    })
+  }
+
+  private async syncCoOwners(tx: Prisma.TransactionClient, surveyId: string, coOwners: QcCoOwnerInputDto[]) {
+    const keptIds: string[] = []
+    let ownerIndex = 0
+    for (const owner of coOwners) {
+      const data = {
+        name: owner.name,
+        fatherOrHusbandName: owner.fatherOrHusbandName ?? null,
+        mobile: owner.mobile ?? null,
+        alternateMobile: owner.alternateMobile ?? null,
+        ownerIndex,
+      }
+
+      if (owner.id) {
+        const existing = await tx.coOwner.findFirst({ where: { id: owner.id, surveyId } })
+        if (existing) {
+          await tx.coOwner.update({ where: { id: owner.id }, data })
+          keptIds.push(owner.id)
+          ownerIndex += 1
+          continue
+        }
+      }
+
+      const created = await tx.coOwner.create({
+        data: { surveyId, ...data },
+      })
+      keptIds.push(created.id)
+      ownerIndex += 1
+    }
+
+    await tx.coOwner.deleteMany({
+      where: {
+        surveyId,
+        ...(keptIds.length > 0 ? { id: { notIn: keptIds } } : {}),
+      },
+    })
+  }
+
+  private async upsertFloor(
+    tx: Prisma.TransactionClient,
+    surveyId: string,
+    floor: QcFloorInputDto,
+    position: number
+  ): Promise<string | null> {
     const data = {
       usageType: floor.usageType ?? null,
       usageFactor: floor.usageFactor ?? null,
@@ -496,11 +682,11 @@ export class QcRepository {
             ...data,
           },
         })
-        return
+        return floor.id
       }
     }
 
-    await tx.floor.upsert({
+    const upserted = await tx.floor.upsert({
       where: {
         surveyId_floorPosition: {
           surveyId,
@@ -514,5 +700,6 @@ export class QcRepository {
       },
       update: data,
     })
+    return upserted.id
   }
 }

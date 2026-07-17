@@ -26,12 +26,12 @@ export default {
 
   "apps/web/**/*.{js,jsx,ts,tsx}": (filenames) => [
     `prettier --write ${filenames.map((f) => `"${f}"`).join(" ")}`,
-    ...packageExec("web", "apps/web", filenames, "eslint --fix --max-warnings=0"),
+    ...packageExec("web", "apps/web", filenames, "eslint --fix"),
   ],
 
   "apps/api/**/*.{js,ts,mjs}": (filenames) => [
     `prettier --write ${filenames.map((f) => `"${f}"`).join(" ")}`,
-    ...packageExec("api", "apps/api", filenames, "eslint --fix --max-warnings=0"),
+    ...packageExec("api", "apps/api", filenames, "eslint --fix"),
   ],
 
   "packages/ui/**/*.{js,jsx,ts,tsx}": (filenames) => [
@@ -40,7 +40,7 @@ export default {
       "@workspace/ui",
       "packages/ui",
       filenames,
-      "eslint --fix --max-warnings=0"
+      "eslint --fix"
     ),
   ],
 

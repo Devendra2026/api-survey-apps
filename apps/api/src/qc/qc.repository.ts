@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common"
-import { OwnershipType, type Prisma } from "@workspace/database"
+import { OwnershipType, type CoOwner, type Prisma } from "@workspace/database"
 import { formatPropertyId, padParcelNo } from "@workspace/validation"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
@@ -390,7 +390,7 @@ export class QcRepository {
     if (patch.fatherHusbandName !== undefined) {
       const base =
         coOwnersPatch ??
-        existing.coOwners.map((o) => ({
+        existing.coOwners.map((o: CoOwner) => ({
           id: o.id,
           name: o.name,
           fatherOrHusbandName: o.fatherOrHusbandName ?? undefined,

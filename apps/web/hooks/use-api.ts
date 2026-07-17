@@ -1,3 +1,5 @@
+"use client"
+
 import { apiDelete, apiGet, apiGetPaginated, apiPatch, apiPost, apiUpload } from "@/lib/api/client"
 import type {
   AuthenticatedProfile,

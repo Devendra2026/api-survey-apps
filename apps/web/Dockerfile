@@ -17,8 +17,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY apps ./apps
 COPY packages ./packages
 RUN pnpm install --frozen-lockfile
-RUN pnpm --filter @workspace/database db:generate
-RUN pnpm --filter @workspace/database build
+RUN pnpm --filter @workspace/validation build
 RUN pnpm --filter web build
 
 FROM node:22-alpine AS runner

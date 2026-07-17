@@ -85,9 +85,9 @@ import { WardsModule } from "./wards/wards.module.js"
     { provide: APP_INTERCEPTOR, useClass: ResponseTransformInterceptor },
     { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
-    { provide: APP_GUARD, useClass: ClerkAuthGuard },
-    { provide: APP_GUARD, useClass: PermissionsGuard },
-    { provide: APP_GUARD, useClass: TenantGuard },
+    { provide: APP_GUARD, useExisting: ClerkAuthGuard },
+    { provide: APP_GUARD, useExisting: PermissionsGuard },
+    { provide: APP_GUARD, useExisting: TenantGuard },
   ],
 })
 export class AppModule {}

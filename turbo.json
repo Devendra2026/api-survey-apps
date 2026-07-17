@@ -40,6 +40,11 @@
     "typecheck": {
       "dependsOn": ["^typecheck", "^db:generate", "db:generate", "^build"]
     },
+    "test": {
+      "dependsOn": ["^build", "db:generate"],
+      "cache": false,
+      "env": ["DATABASE_URL", "DIRECT_URL", "REDIS_URL", "CI"]
+    },
     "dev": {
       "dependsOn": ["^build"],
       "cache": false,

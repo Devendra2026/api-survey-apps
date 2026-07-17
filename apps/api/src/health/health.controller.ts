@@ -1,8 +1,9 @@
 import { Controller, Get, ServiceUnavailableException } from "@nestjs/common"
 import { ConfigService } from "@nestjs/config"
 import { ApiTags } from "@nestjs/swagger"
-import net from "node:net"
+import { Redis } from "ioredis"
 import { Public } from "../common/decorators/public.decorator.js"
+import { redisConnectionOptions } from "../jobs/redis-connection.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import { StorageService } from "../storage/storage.service.js"
 
@@ -76,28 +77,19 @@ export class HealthController {
   }
 
   private async checkRedis(redisUrl: string) {
+    const client = new Redis({
+      ...redisConnectionOptions(redisUrl),
+      lazyConnect: true,
+      maxRetriesPerRequest: 1,
+      enableOfflineQueue: false,
+    })
     try {
-      const parsed = new URL(redisUrl)
-      const port = Number(parsed.port || (parsed.protocol === "rediss:" ? 6380 : 6379))
-      return await new Promise<boolean>((resolve) => {
-        const socket = net.createConnection({ host: parsed.hostname, port })
-        const timeout = setTimeout(() => {
-          socket.destroy()
-          resolve(false)
-        }, 1500)
-
-        socket.once("connect", () => {
-          clearTimeout(timeout)
-          socket.end()
-          resolve(true)
-        })
-        socket.once("error", () => {
-          clearTimeout(timeout)
-          resolve(false)
-        })
-      })
+      await client.connect()
+      return (await client.ping()) === "PONG"
     } catch {
       return false
+    } finally {
+      await client.quit().catch(() => client.disconnect())
     }
   }
 }

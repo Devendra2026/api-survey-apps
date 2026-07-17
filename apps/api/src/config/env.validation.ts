@@ -228,13 +228,10 @@ export class EnvironmentVariables {
   @Min(1024)
   AWS_S3_MAX_FILE_SIZE_BYTES?: number
 
+  /** When true (and not production), allows `x-dev-clerk-user-id` without CLERK_SECRET_KEY. */
   @IsOptional()
   @IsString()
-  JWT_AUDIENCE?: string
-
-  @IsOptional()
-  @IsString()
-  JWT_ISSUER?: string
+  ALLOW_DEV_AUTH?: string
 }
 
 export function validateEnv(config: Record<string, unknown>) {

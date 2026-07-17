@@ -25,9 +25,9 @@ const mapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() ?? ""
 const nextConfig: NextConfig = {
   output: "standalone",
   outputFileTracingRoot: monorepoRoot,
-  transpilePackages: ["@workspace/ui", "@workspace/validation", "@workspace/database"],
-  // Pin the monorepo-root key for client + server so apps/web/.env.local cannot
-  // silently drop GIS embeds when it omits (or used to override) the Maps key.
+  transpilePackages: ["@workspace/ui", "@workspace/validation"],
+  // Dev uses `next dev --webpack` (see package.json) to avoid Turbopack panics in this monorepo.
+  // Production `next build` keeps the Next 16 default bundler.
   ...(mapsApiKey
     ? {
         env: {

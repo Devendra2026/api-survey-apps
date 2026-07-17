@@ -1,3 +1,5 @@
+"use client"
+
 import type { TenantRole } from "@/lib/api/types"
 import { create } from "zustand"
 import { persist } from "zustand/middleware"

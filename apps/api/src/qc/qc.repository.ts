@@ -42,9 +42,10 @@ export class QcRepository {
     let dateTo: Date | undefined
 
     if (filters.month && /^\d{4}-\d{2}$/.test(filters.month)) {
-      const [y, m] = filters.month.split("-").map(Number)
-      dateFrom = new Date(Date.UTC(y, m - 1, 1))
-      dateTo = new Date(Date.UTC(y, m, 1))
+      const year = Number(filters.month.slice(0, 4))
+      const month = Number(filters.month.slice(5, 7))
+      dateFrom = new Date(Date.UTC(year, month - 1, 1))
+      dateTo = new Date(Date.UTC(year, month, 1))
     } else {
       if (filters.dateFrom) dateFrom = new Date(`${filters.dateFrom}T00:00:00.000Z`)
       if (filters.dateTo) {
@@ -397,9 +398,16 @@ export class QcRepository {
           mobile: o.mobile ?? undefined,
           alternateMobile: o.alternateMobile ?? undefined,
         }))
-      if (base.length > 0) {
+      if (base.length > 0 && base[0]) {
         const first = base[0]
-        coOwnersPatch = [{ ...first, fatherOrHusbandName: patch.fatherHusbandName }, ...base.slice(1)]
+        coOwnersPatch = [
+          {
+            ...first,
+            name: first.name ?? "Owner",
+            fatherOrHusbandName: patch.fatherHusbandName,
+          },
+          ...base.slice(1),
+        ]
       } else if (patch.fatherHusbandName.trim()) {
         coOwnersPatch = [
           {

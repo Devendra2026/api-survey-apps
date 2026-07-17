@@ -48,12 +48,14 @@ export class ClerkAuthGuard implements CanActivate {
 
     if (!secretKey) {
       const nodeEnv = this.configService.get<string>("NODE_ENV") ?? "development"
-      const devMode = nodeEnv !== "production"
-      const devUserId = (request.headers as Record<string, string>)["x-dev-clerk-user-id"]
-      if (devMode && devUserId) {
+      const allowDevAuth = this.configService.get<string>("ALLOW_DEV_AUTH") === "true"
+      const devMode = nodeEnv !== "production" && allowDevAuth
+      const devUserId = (request.headers as Record<string, string | string[] | undefined>)["x-dev-clerk-user-id"]
+      const resolvedDevUserId = Array.isArray(devUserId) ? devUserId[0] : devUserId
+      if (devMode && resolvedDevUserId) {
         request.user = await this.resolveLocalUser({
-          clerkUserId: devUserId,
-          email: `${devUserId}@dev.local`,
+          clerkUserId: resolvedDevUserId,
+          email: `${resolvedDevUserId}@dev.local`,
           fullName: "Dev User",
           phone: null,
           profileFetched: true,

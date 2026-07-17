@@ -34,11 +34,31 @@ export default {
     ...packageExec("api", "apps/api", filenames, "eslint --fix"),
   ],
 
+  "apps/worker/**/*.{js,ts,mjs}": (filenames) => [
+    `prettier --write ${filenames.map((f) => `"${f}"`).join(" ")}`,
+    ...packageExec("worker", "apps/worker", filenames, "eslint --fix"),
+  ],
+
   "packages/ui/**/*.{js,jsx,ts,tsx}": (filenames) => [
     `prettier --write ${filenames.map((f) => `"${f}"`).join(" ")}`,
     ...packageExec(
       "@workspace/ui",
       "packages/ui",
+      filenames,
+      "eslint --fix"
+    ),
+  ],
+
+  "packages/jobs/**/*.{js,ts,mjs}": (filenames) => [
+    `prettier --write ${filenames.map((f) => `"${f}"`).join(" ")}`,
+    ...packageExec("@workspace/jobs", "packages/jobs", filenames, "eslint --fix"),
+  ],
+
+  "packages/excel-reports/**/*.{js,ts,mjs}": (filenames) => [
+    `prettier --write ${filenames.map((f) => `"${f}"`).join(" ")}`,
+    ...packageExec(
+      "@workspace/excel-reports",
+      "packages/excel-reports",
       filenames,
       "eslint --fix"
     ),

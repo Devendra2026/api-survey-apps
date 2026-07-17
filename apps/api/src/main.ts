@@ -13,12 +13,29 @@ async function bootstrap() {
   const nodeEnv = configService.get<string>("NODE_ENV") ?? "development"
 
   app.enableShutdownHooks()
+
+  let closing = false
+  const shutdown = async () => {
+    if (closing) return
+    closing = true
+    await app.close()
+    process.exit(0)
+  }
+
+  process.once("SIGTERM", () => {
+    void shutdown()
+  })
+  process.once("SIGINT", () => {
+    void shutdown()
+  })
+
   app.use(helmet())
   app.use(
     pinoHttp({
       genReqId: (req, res) => {
         const header = req.headers["x-request-id"]
-        const requestId = Array.isArray(header) ? header[0] : header || randomUUID()
+        const fromHeader = Array.isArray(header) ? header[0] : header
+        const requestId = typeof fromHeader === "string" && fromHeader.length > 0 ? fromHeader : randomUUID()
         res.setHeader("x-request-id", requestId)
         return requestId
       },

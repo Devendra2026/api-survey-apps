@@ -31,6 +31,16 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/survey?schema=public
       DIRECT_URL: postgresql://postgres:postgres@localhost:5432/survey?schema=public
@@ -62,7 +72,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: "22.12"
           cache: pnpm
 
       - name: Install dependencies
@@ -84,7 +94,7 @@ jobs:
         run: pnpm db:deploy
 
       - name: Run API tests
-        run: pnpm --filter api test -- --runInBand --ci
+        run: pnpm --filter api test:ci
 
       - name: Build apps
         run: pnpm build
@@ -100,6 +110,9 @@ jobs:
             --build-arg NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_ci \
             --build-arg NEXT_PUBLIC_GOOGLE_MAPS_API_KEY= \
             -t api-survey-web:ci .
+
+      - name: Build worker Docker image
+        run: docker build -f apps/worker/Dockerfile -t api-survey-worker:ci .
 
       - name: Validate compose files
         run: |

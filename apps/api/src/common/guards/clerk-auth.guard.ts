@@ -8,10 +8,12 @@ import type { AuthenticatedUser } from "../interfaces/authenticated-user.interfa
 import { RoleProvisioningService } from "../services/role-provisioning.service.js"
 import { TenantScopeService } from "../services/tenant-scope.service.js"
 
+type ClerkClient = ReturnType<typeof createClerkClient>
+
 @Injectable()
 export class ClerkAuthGuard implements CanActivate {
   private readonly logger = new Logger(ClerkAuthGuard.name)
-  private readonly clerk
+  private readonly clerk: ClerkClient | null
 
   constructor(
     private readonly reflector: Reflector,

@@ -67,6 +67,7 @@ import {
   findWorkbookDuplicates,
   groupRowsByPropertyId,
   parseConvexWorkbook,
+  type ParsedConvexWorkbook,
   type WorkbookRow,
 } from "./convex-workbook-parser.js"
 
@@ -342,7 +343,7 @@ export class ImportsService {
       throw new BadRequestException("Synchronous imports are capped at 2MB. Retry without ?sync=true.")
     }
 
-    let workbook
+    let workbook: ParsedConvexWorkbook
     try {
       workbook = await parseConvexWorkbook(file.buffer, file.originalname)
     } catch (err) {
@@ -362,7 +363,6 @@ export class ImportsService {
     const createdSurveyIds: string[] = []
     const updatedSurveyIds: string[] = []
     let successCount = 0
-    let failureCount = 0
     let photoSuccessCount = 0
     let photoFailureCount = 0
 
@@ -384,7 +384,7 @@ export class ImportsService {
         })
       }
     }
-    failureCount = errors.length
+    let failureCount = errors.length
 
     const missingMasterPairs: ImportSummary["missingMasterPairs"] = []
     const geoPairs = collectWorkbookGeoPairs(workbook.surveys, {
@@ -476,10 +476,13 @@ export class ImportsService {
             let created = false
 
             if (existing) {
-              const { createdById: _c, assignedToId: _a, assignedAt: _t, ...updateFields } = item.data
+              const { createdById, assignedToId, assignedAt, ...updateFields } = item.data
+              void createdById
+              void assignedToId
+              void assignedAt
               await tx.survey.update({
                 where: { id: existing.id },
-                data: updateFields as Prisma.SurveyUncheckedUpdateInput,
+                data: updateFields,
               })
               surveyId = existing.id
               await tx.surveyAudit.create({

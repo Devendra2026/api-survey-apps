@@ -399,7 +399,7 @@ export class DashboardRepository {
           approved: stats.approved,
           target: stats.total,
           percent,
-          accent: (percent === 0 ? "muted" : percent >= 30 ? "amber" : "slate") as "slate" | "amber" | "muted",
+          accent: percent === 0 ? "muted" : percent >= 30 ? "amber" : "slate",
         }
       })
       .sort((a, b) => b.percent - a.percent)

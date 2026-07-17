@@ -55,7 +55,8 @@ export class CoOwnersRepository {
         throw new BadRequestException("Duplicate mobile number for co-owner on this survey")
       }
     }
-    const { surveyId: _ignore, ...rest } = data
+    const { surveyId: _surveyId, ...rest } = data
+    void _surveyId
     return this.prisma.db.coOwner.update({ where: { id }, data: rest })
   }
 

@@ -47,5 +47,5 @@ export async function refreshSurveyPhotoUrls<T extends PhotoDetail>(
     photos,
     frontPhotoUrl: front?.url ?? detail.frontPhotoUrl,
     sidePhotoUrl: side?.url ?? detail.sidePhotoUrl,
-  } as T
+  }
 }

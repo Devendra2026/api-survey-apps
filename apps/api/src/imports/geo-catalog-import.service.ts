@@ -76,9 +76,9 @@ export class GeoCatalogImportService {
         continue
       }
 
-      const ulbCode = padUlbCode(ulbCodeRaw!) || normalizeImportString(ulbCodeRaw!).toUpperCase()
+      const ulbCode = padUlbCode(ulbCodeRaw!) || normalizeImportString(ulbCodeRaw).toUpperCase()
       const wardNumber = canonicalWardNumber(wardNumberRaw!)
-      const resolvedStateCode = stateCode ?? normalizeImportString(stateName!).slice(0, 8).toUpperCase()
+      const resolvedStateCode = stateCode ?? normalizeImportString(stateName).slice(0, 8).toUpperCase()
       const resolvedStateName = stateName ?? resolvedStateCode
 
       try {
@@ -190,7 +190,16 @@ export class GeoCatalogImportService {
     const headerRow = sheet.getRow(1)
     const headers: string[] = []
     headerRow.eachCell((cell, col) => {
-      headers[col] = String(cell.value ?? "")
+      const raw = cell.value
+      headers[col] = (
+        raw == null
+          ? ""
+          : typeof raw === "string" || typeof raw === "number" || typeof raw === "boolean"
+            ? String(raw)
+            : typeof raw === "object" && raw !== null && "text" in raw && typeof raw.text === "string"
+              ? raw.text
+              : ""
+      )
         .trim()
         .replace(/^\uFEFF/, "")
     })
@@ -202,14 +211,15 @@ export class GeoCatalogImportService {
       headers.forEach((header, col) => {
         if (!header) return
         const value = row.getCell(col).value
-        record[header] =
+        record[header] = (
           value == null
             ? ""
-            : String(
-                typeof value === "object" && value !== null && "text" in value
-                  ? (value as { text: string }).text
-                  : value
-              ).trim()
+            : typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+              ? String(value)
+              : typeof value === "object" && value !== null && "text" in value && typeof value.text === "string"
+                ? value.text
+                : ""
+        ).trim()
       })
       if (Object.values(record).some((v) => v !== "")) rows.push(record)
     })

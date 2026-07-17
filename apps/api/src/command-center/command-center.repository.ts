@@ -31,8 +31,8 @@ export class CommandCenterRepository {
 
     if (filters.month && /^\d{4}-\d{2}$/.test(filters.month)) {
       const [y, m] = filters.month.split("-").map(Number)
-      dateFrom = new Date(Date.UTC(y!, m! - 1, 1))
-      dateTo = new Date(Date.UTC(y!, m!, 1))
+      dateFrom = new Date(Date.UTC(y, m - 1, 1))
+      dateTo = new Date(Date.UTC(y, m, 1))
     } else {
       if (filters.dateFrom) dateFrom = new Date(`${filters.dateFrom}T00:00:00.000Z`)
       if (filters.dateTo) {

@@ -21,6 +21,19 @@ import { ReportsRepository } from "./reports.repository.js"
 const SYNC_EXPORT_MAX_ROWS = 500
 const SYNC_EXPORT_MAX_BYTES = 2 * 1024 * 1024
 
+function stringifyExportField(value: unknown): string {
+  if (value == null) return ""
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return `${value}`
+  }
+  if (value instanceof Date) return value.toISOString()
+  if (typeof value === "object" && typeof (value as { toFixed?: unknown }).toFixed === "function") {
+    return (value as { toFixed: (digits?: number) => string }).toFixed()
+  }
+  return ""
+}
+
 @Injectable()
 export class ReportsService {
   private readonly logger = new Logger(ReportsService.name)
@@ -267,8 +280,7 @@ export class ReportsService {
       lines.push(
         headers
           .map((h) => {
-            const value = row[h]
-            const text = value == null ? "" : String(value)
+            const text = stringifyExportField(row[h])
             return `"${text.replaceAll('"', '""')}"`
           })
           .join(",")
@@ -337,7 +349,13 @@ export class ReportsService {
           doc.text("-".repeat(90))
         }
         doc.text(
-          `${row.propertyId ?? ""} | ${row.surveyStatus ?? ""} | ${row.respondentName ?? ""} | ${row.ulbId ?? ""} | ${row.wardId ?? ""}`
+          [
+            stringifyExportField(row.propertyId),
+            stringifyExportField(row.surveyStatus),
+            stringifyExportField(row.respondentName),
+            stringifyExportField(row.ulbId),
+            stringifyExportField(row.wardId),
+          ].join(" | ")
         )
       }
 

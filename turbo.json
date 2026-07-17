@@ -30,13 +30,13 @@
       "env": ["DATABASE_URL", "DIRECT_URL"]
     },
     "lint": {
-      "dependsOn": ["^lint"]
+      "dependsOn": ["^lint", "^db:generate", "db:generate", "^build"]
     },
     "format": {
       "dependsOn": ["^format"]
     },
     "typecheck": {
-      "dependsOn": ["^typecheck", "^db:generate"]
+      "dependsOn": ["^typecheck", "^db:generate", "db:generate", "^build"]
     },
     "dev": {
       "dependsOn": ["^build"],

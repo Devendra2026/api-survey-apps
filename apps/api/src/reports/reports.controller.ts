@@ -31,7 +31,17 @@ class ExportQueryDto {
   format: ExportFormat = "xlsx"
 
   @ApiPropertyOptional({
-    enum: ["surveys", "ward", "ulb", "district", "summary", "convex_full", "survey_data", "nagar_panchayat", "qc_final"],
+    enum: [
+      "surveys",
+      "ward",
+      "ulb",
+      "district",
+      "summary",
+      "convex_full",
+      "survey_data",
+      "nagar_panchayat",
+      "qc_final",
+    ],
     default: "surveys",
   })
   @IsOptional()

@@ -1,5 +1,6 @@
+import { describe, expect, it } from "@jest/globals"
 import { formatDuplicateWorkbookError } from "@workspace/validation"
-import { findWorkbookDuplicates } from "./convex-workbook-parser"
+import { findWorkbookDuplicates } from "./convex-workbook-parser.js"
 
 describe("findWorkbookDuplicates", () => {
   it("flags duplicate property and local IDs inside a workbook", () => {

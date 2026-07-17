@@ -20,7 +20,7 @@ export class RedisPreflightService implements OnModuleInit, OnModuleDestroy {
     try {
       const pong = await this.client.ping()
       if (pong !== "PONG") {
-        throw new Error(`Unexpected Redis PING response: ${pong}`)
+        throw new Error(`Unexpected Redis PING response: ${String(pong)}`)
       }
       this.logger.log("Redis connected")
     } catch (error) {
@@ -28,7 +28,8 @@ export class RedisPreflightService implements OnModuleInit, OnModuleDestroy {
       throw new Error(
         `Redis is not running or REDIS_URL is incorrect (${redactRedisUrl(redisUrl)}). ` +
           "Start Docker Compose or configure REDIS_URL. " +
-          `Original error: ${error instanceof Error ? error.message : String(error)}`
+          `Original error: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error }
       )
     }
   }

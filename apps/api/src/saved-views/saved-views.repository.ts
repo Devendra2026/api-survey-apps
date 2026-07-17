@@ -46,7 +46,12 @@ export class SavedViewsRepository {
         })
       })
     } catch (error: unknown) {
-      if (typeof error === "object" && error !== null && "code" in error && (error as { code: string }).code === "P2002") {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        (error as { code: string }).code === "P2002"
+      ) {
         throw new BadRequestException("A saved view with this name already exists")
       }
       throw error

@@ -71,6 +71,9 @@ jobs:
       - name: Generate Prisma client
         run: pnpm db:generate
 
+      - name: Build workspace packages
+        run: pnpm turbo build --filter=./packages/*
+
       - name: Lint
         run: pnpm lint
 
@@ -83,7 +86,7 @@ jobs:
       - name: Run API tests
         run: pnpm --filter api test -- --runInBand
 
-      - name: Build
+      - name: Build apps
         run: pnpm build
 
       - name: Build API Docker image

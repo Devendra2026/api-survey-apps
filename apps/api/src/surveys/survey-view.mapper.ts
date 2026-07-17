@@ -4,7 +4,15 @@ type DecimalLike = { toString(): string } | number | string | null | undefined
 
 function dash(value: unknown): string {
   if (value === null || value === undefined || value === "") return "—"
-  return String(value)
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return `${value}`
+  }
+  if (value instanceof Date) return value.toISOString()
+  if (typeof value === "object" && typeof (value as { toFixed?: unknown }).toFixed === "function") {
+    return (value as { toFixed: (digits?: number) => string }).toFixed()
+  }
+  return "—"
 }
 
 function enumLabel(value: string | null | undefined): string {

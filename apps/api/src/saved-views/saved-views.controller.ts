@@ -29,11 +29,7 @@ export class SavedViewsController {
 
   @Patch(":id")
   @RequirePermission(PERMISSIONS.SURVEY_VIEW)
-  update(
-    @Param("id") id: string,
-    @Body() dto: UpdateSavedViewDto,
-    @CurrentUser() user: AuthenticatedUser
-  ) {
+  update(@Param("id") id: string, @Body() dto: UpdateSavedViewDto, @CurrentUser() user: AuthenticatedUser) {
     return this.savedViewsService.update(id, dto, user)
   }
 

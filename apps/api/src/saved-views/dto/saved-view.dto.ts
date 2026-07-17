@@ -1,13 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger"
 import { Type } from "class-transformer"
-import {
-  IsBoolean,
-  IsObject,
-  IsOptional,
-  IsString,
-  MaxLength,
-  MinLength,
-} from "class-validator"
+import { IsBoolean, IsObject, IsOptional, IsString, MaxLength, MinLength } from "class-validator"
 
 export class CreateSavedViewDto {
   @ApiProperty()

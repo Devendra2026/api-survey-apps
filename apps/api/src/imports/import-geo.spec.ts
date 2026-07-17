@@ -1,3 +1,4 @@
+import { describe, expect, it } from "@jest/globals"
 import {
   buildWardCandidates,
   canonicalWardNumber,
@@ -9,6 +10,7 @@ import {
   normalizeImportString,
   resolveImportGeo,
   type GeoLookupDb,
+  type GeoResolveResult,
 } from "@workspace/validation"
 
 describe("import-geo helpers", () => {
@@ -83,40 +85,40 @@ describe("resolveImportGeo", () => {
   }): GeoLookupDb {
     return {
       ulb: {
-        findFirst: async ({ where }) => {
-          if (!options.ulb) return null
-          if (where.code !== options.ulb.code && where.code !== "800726") return null
-          return {
+        findFirst: ({ where }) => {
+          if (!options.ulb) return Promise.resolve(null)
+          if (where.code !== options.ulb.code && where.code !== "800726") return Promise.resolve(null)
+          return Promise.resolve({
             id: options.ulb.id,
             code: options.ulb.code,
             districtId: options.ulb.districtId,
             district: { stateId: options.ulb.stateId },
-          }
+          })
         },
       },
       ward: {
-        findFirst: async (args) => {
-          const where = args.where as { ulbId?: string; wardNumber: { in: string[] } }
+        findFirst: (args) => {
+          const where = args.where
           if (where.ulbId && options.wardUnderUlb) {
-            return options.wardUnderUlb
+            return Promise.resolve(options.wardUnderUlb)
           }
-          if (where.ulbId && !options.wardUnderUlb) return null
+          if (where.ulbId && !options.wardUnderUlb) return Promise.resolve(null)
           if (!where.ulbId && options.wardElsewhere) {
-            return {
+            return Promise.resolve({
               id: options.wardElsewhere.id,
               wardNumber: options.wardElsewhere.wardNumber,
               ulbId: options.wardElsewhere.ulbId,
               ulb: { code: options.wardElsewhere.ulbCode },
-            }
+            })
           }
-          return null
+          return Promise.resolve(null)
         },
       },
     }
   }
 
   it("returns ULB_NOT_FOUND when master ULB is missing", async () => {
-    const cache = new Map()
+    const cache = new Map<string, GeoResolveResult>()
     const result = await resolveImportGeo(mockDb({ ulb: null }), "800726", "05", cache)
     expect(result.ok).toBe(false)
     if (!result.ok) {
@@ -127,7 +129,7 @@ describe("resolveImportGeo", () => {
   })
 
   it("returns WARD_NOT_FOUND when ULB exists but ward does not", async () => {
-    const cache = new Map()
+    const cache = new Map<string, GeoResolveResult>()
     const result = await resolveImportGeo(
       mockDb({
         ulb: { id: "u1", code: "800726", districtId: "d1", stateId: "s1" },
@@ -145,7 +147,7 @@ describe("resolveImportGeo", () => {
   })
 
   it("returns WARD_OTHER_ULB when ward exists under a different ULB", async () => {
-    const cache = new Map()
+    const cache = new Map<string, GeoResolveResult>()
     const result = await resolveImportGeo(
       mockDb({
         ulb: { id: "u1", code: "800726", districtId: "d1", stateId: "s1" },
@@ -164,7 +166,7 @@ describe("resolveImportGeo", () => {
   })
 
   it("resolves when ward matches any candidate form", async () => {
-    const cache = new Map()
+    const cache = new Map<string, GeoResolveResult>()
     const result = await resolveImportGeo(
       mockDb({
         ulb: { id: "u1", code: "800726", districtId: "d1", stateId: "s1" },

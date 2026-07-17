@@ -34,7 +34,7 @@ function cellValueToString(value: ExcelJS.CellValue): string {
       return value.text
     }
     if ("result" in value) {
-      return cellValueToString(value.result as ExcelJS.CellValue)
+      return cellValueToString(value.result)
     }
     if ("richText" in value && Array.isArray(value.richText)) {
       return value.richText.map((part) => part.text).join("")

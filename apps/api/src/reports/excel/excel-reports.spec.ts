@@ -1,3 +1,4 @@
+import { describe, expect, it } from "@jest/globals"
 import {
   renderConvexFullWorkbook,
   renderNagarPanchayatWorkbook,
@@ -25,10 +26,22 @@ const bundle: SurveyExportBundle = {
   photos: [{ photoType: "FRONT", url: "https://example.test/front.jpg", sizeKB: 42 }],
 }
 
+function cellText(value: ExcelJS.CellValue): string {
+  if (value == null) return ""
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value)
+  }
+  if (value instanceof Date) return value.toISOString()
+  if (typeof value === "object" && "text" in value && typeof value.text === "string") {
+    return value.text
+  }
+  return ""
+}
+
 function rowValues(sheet: ExcelJS.Worksheet, rowNumber: number): string[] {
   const values = sheet.getRow(rowNumber).values
   if (!Array.isArray(values)) return []
-  return values.slice(1).map((value) => (value == null ? "" : String(value)))
+  return values.slice(1).map((value) => cellText(value))
 }
 
 async function loadGolden(path: string): Promise<ExcelJS.Workbook | null> {
@@ -86,7 +99,7 @@ describe("Excel report templates", () => {
     const generatedSheet = generated.getWorksheet("Survey Data")
     expect(goldenSheet).toBeDefined()
     expect(generatedSheet).toBeDefined()
-    expect(rowValues(generatedSheet!, 1)).toEqual(rowValues(goldenSheet!, 1))
+    expect(rowValues(generatedSheet!, 1)).toEqual(rowValues(goldenSheet, 1))
     expect(rowValues(generatedSheet!, 1)).toHaveLength(45)
   })
 
@@ -108,11 +121,11 @@ describe("Excel report templates", () => {
 
     const generated = new ExcelJS.Workbook()
     await generated.xlsx.load(await renderSurveyDataWorkbook([bundle]))
-    const goldenSheet = golden.worksheets[0]!
+    const goldenSheet = golden.worksheets[0]
     const generatedSheet = generated.getWorksheet("Survey Data")!
-    expect(String(generatedSheet.getCell("Q1").value ?? "")).toBe(String(goldenSheet.getCell("Q1").value ?? ""))
-    expect(String(generatedSheet.getCell("AO1").value ?? "")).toBe(String(goldenSheet.getCell("AO1").value ?? ""))
-    expect(String(generatedSheet.getCell("BJ1").value ?? "")).toBe(String(goldenSheet.getCell("BJ1").value ?? ""))
+    expect(cellText(generatedSheet.getCell("Q1").value)).toBe(cellText(goldenSheet.getCell("Q1").value))
+    expect(cellText(generatedSheet.getCell("AO1").value)).toBe(cellText(goldenSheet.getCell("AO1").value))
+    expect(cellText(generatedSheet.getCell("BJ1").value)).toBe(cellText(goldenSheet.getCell("BJ1").value))
   })
 
   it("renders QC Final Report headers for approved surveys", async () => {

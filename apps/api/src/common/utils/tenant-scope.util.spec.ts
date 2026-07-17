@@ -74,7 +74,7 @@ describe("tenant-scope.util", () => {
     expect(userHasPermissionInTenant(user, "survey:approve", { wardId: "ward-a" })).toBe(true)
     expect(userHasPermissionInTenant(user, "survey:approve", { wardId: "ward-b" })).toBe(false)
     expect(userHasPermissionInTenant(user, "survey:view", { wardId: "ward-b" })).toBe(true)
-    expect(assignmentCoversGeo(user.tenantRoles[0]!, { wardId: "ward-b" })).toBe(false)
+    expect(assignmentCoversGeo(user.tenantRoles[0], { wardId: "ward-b" })).toBe(false)
   })
 
   it("enforces role grant ceilings", () => {

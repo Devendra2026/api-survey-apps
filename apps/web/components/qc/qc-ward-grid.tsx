@@ -136,27 +136,11 @@ export function QcWardGrid({
                     asChild
                     className="h-9 w-full cursor-pointer bg-linear-to-r from-teal-600 to-cyan-600 text-white hover:from-teal-700 hover:to-cyan-700"
                   >
-                    <Link href={`/qc?pipeline=pending&wardId=${ward.wardId}`}>
+                    <Link href={`/qc/registry?wardId=${ward.wardId}`}>
                       <Play className="size-3.5" />
                       Start QC ({formatNum(ward.pending)} pending)
                     </Link>
                   </Button>
-                  <div className="flex items-center justify-center gap-3 text-xs text-muted-foreground">
-                    <Link
-                      href={`/qc/registry?wardId=${ward.wardId}`}
-                      className="cursor-pointer hover:text-foreground hover:underline"
-                    >
-                      [Registry]
-                    </Link>
-                    <span className="text-slate-300 dark:text-slate-700">|</span>
-                    <Link href="/reports" className="cursor-pointer hover:text-foreground hover:underline">
-                      [Report]
-                    </Link>
-                    <span className="text-slate-300 dark:text-slate-700">|</span>
-                    <Link href="/reports" className="cursor-pointer hover:text-foreground hover:underline">
-                      [Demand]
-                    </Link>
-                  </div>
                 </div>
               </CardContent>
             </Card>

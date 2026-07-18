@@ -10,33 +10,37 @@ import type { QcSurveyDetail } from "@/lib/api/types"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
-import { ArrowLeft, FileText, Pencil, RotateCcw, Trash2 } from "lucide-react"
+import { ArrowLeft, Check, Pencil, RotateCcw, Save, Trash2, X } from "lucide-react"
 import Link from "next/link"
 
 export function QcReviewActionBar({
   survey,
   editMode,
   pending,
+  canDelete,
   onReopen,
   onApprove,
-  onReject,
   onDelete,
-  onDemandNotice,
-  onToggleEdit,
+  onEdit,
+  onSave,
+  onCancel,
 }: {
   survey: QcSurveyDetail
   editMode: boolean
   pending?: boolean
+  canDelete: boolean
   onReopen: () => void
   onApprove: () => void
-  onReject: () => void
   onDelete: () => void
-  onDemandNotice: () => void
-  onToggleEdit: () => void
+  onEdit: () => void
+  onSave: () => void
+  onCancel: () => void
 }) {
   const isApproved = survey.surveyStatus === "APPROVED" || survey.qcStatus === "APPROVED"
   const isPendingQc = survey.surveyStatus === "SUBMITTED" && (survey.qcStatus === "PENDING" || !survey.qcStatus)
   const isRejected = survey.surveyStatus === "REJECTED" || survey.qcStatus === "REJECTED"
+  const canEdit = isPendingQc && !editMode
+  const locked = isApproved && !editMode
 
   return (
     <div className="mb-4 space-y-3">
@@ -55,7 +59,7 @@ export function QcReviewActionBar({
           >
             <Link href="/qc/registry">
               <ArrowLeft className="size-4" />
-              Back to QC queue
+              Back to QC Review
             </Link>
           </Button>
 
@@ -72,51 +76,57 @@ export function QcReviewActionBar({
                 Reopen for Review
               </Button>
             )}
-            {isPendingQc && (
+
+            {editMode ? (
               <>
                 <Button
                   size="sm"
-                  className="cursor-pointer bg-emerald-600 text-white hover:bg-emerald-700"
+                  className="cursor-pointer bg-teal-600 text-white hover:bg-teal-700"
                   disabled={pending}
-                  onClick={onApprove}
+                  onClick={onSave}
                 >
-                  Approve
+                  <Save className="size-3.5" />
+                  Save
                 </Button>
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  className="cursor-pointer"
-                  disabled={pending}
-                  onClick={onReject}
-                >
-                  Return
+                <Button size="sm" variant="outline" className="cursor-pointer" disabled={pending} onClick={onCancel}>
+                  <X className="size-3.5" />
+                  Cancel
                 </Button>
               </>
+            ) : (
+              <>
+                {canEdit ? (
+                  <Button size="sm" variant="outline" className="cursor-pointer" disabled={pending} onClick={onEdit}>
+                    <Pencil className="size-3.5" />
+                    Edit
+                  </Button>
+                ) : null}
+                {isPendingQc ? (
+                  <Button
+                    size="sm"
+                    className="cursor-pointer bg-emerald-600 text-white hover:bg-emerald-700"
+                    disabled={pending}
+                    onClick={onApprove}
+                  >
+                    <Check className="size-3.5" />
+                    Approve
+                  </Button>
+                ) : null}
+              </>
             )}
-            <Button size="sm" variant="outline" className="cursor-pointer" disabled={pending} onClick={onDemandNotice}>
-              <FileText className="size-3.5" />
-              Generate Demand Notice
-            </Button>
-            <Button
-              size="sm"
-              variant={editMode ? "default" : "outline"}
-              className={cn("cursor-pointer", editMode && "bg-teal-600 text-white hover:bg-teal-700")}
-              disabled={pending}
-              onClick={onToggleEdit}
-            >
-              <Pencil className="size-3.5" />
-              {editMode ? "Cancel Edit" : "Update / Edit"}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="cursor-pointer border-rose-300 text-rose-700 hover:bg-rose-50 dark:border-rose-900 dark:text-rose-300"
-              disabled={pending}
-              onClick={onDelete}
-            >
-              <Trash2 className="size-3.5" />
-              Delete Survey
-            </Button>
+
+            {canDelete ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="cursor-pointer border-rose-300 text-rose-700 hover:bg-rose-50 dark:border-rose-900 dark:text-rose-300"
+                disabled={pending}
+                onClick={onDelete}
+              >
+                <Trash2 className="size-3.5" />
+                Delete
+              </Button>
+            ) : null}
           </div>
         </div>
 
@@ -132,6 +142,11 @@ export function QcReviewActionBar({
           >
             {survey.status}
           </Badge>
+          {editMode ? (
+            <Badge className="rounded-full border border-teal-300/40 bg-teal-500/10 px-3 py-1 text-xs font-semibold text-teal-800 dark:text-teal-200">
+              Editing
+            </Badge>
+          ) : null}
         </div>
 
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
@@ -156,9 +171,9 @@ export function QcReviewActionBar({
         </div>
       </header>
 
-      {isApproved ? (
+      {locked ? (
         <div className="rounded-xl border border-emerald-300/50 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-800/50 dark:bg-emerald-500/10 dark:text-emerald-200">
-          This survey is approved. Use <strong>Reopen for review</strong> in the action bar if the data is incorrect.
+          This survey is QC approved and locked. Use <strong>Reopen for Review</strong> if corrections are required.
           Surveyor: <strong>{survey.surveyor}</strong>
         </div>
       ) : null}

@@ -59,6 +59,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     "survey:reject",
     "photo:update",
     "photo:delete",
+    "user:view",
     "dashboard:view",
     "report:view",
   ],

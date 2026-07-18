@@ -19,6 +19,11 @@ export type QcSurveyFloorEditable = {
 }
 
 export type QcSurveyEditable = {
+  stateId: string
+  districtId: string
+  ulbId: string
+  wardId: string
+  assignedToId: string | null
   respondentName: string | null
   mobileNumber: string | null
   alternateMobile: string | null
@@ -29,6 +34,12 @@ export type QcSurveyEditable = {
   locality: string | null
   city: string | null
   pinCode: string | null
+  sectorNo: string | null
+  unitSubNo: string | null
+  parcelNumber: string | null
+  propertyIdOld: string | null
+  constructedYear: number | null
+  isSlum: boolean
   ownershipType: string | null
   propertyUse: string | null
   propertyType: string | null
@@ -36,14 +47,29 @@ export type QcSurveyEditable = {
   roadType: string | null
   taxRateZone: string | null
   assessmentYear: string
+  plotAreaSqFt: number | null
+  plinthAreaSqFt: number | null
+  waterConnection: string | null
+  sourceOfWater: string | null
+  sanitationType: string | null
+  solidWasteCollection: boolean | null
+  electricityConsumerNo: string | null
+  latitude: number | null
+  longitude: number | null
   floors: QcSurveyFloorEditable[]
 }
 
 export type QcSurveyDetailDto = SurveyDetailsDto & {
   editable: QcSurveyEditable
+  stateName?: string
 }
 
 type SurveyForEditable = {
+  stateId: string
+  districtId: string
+  ulbId: string
+  wardId: string
+  assignedToId: string | null
   respondentName: string | null
   mobileNumber: string | null
   alternateMobile: string | null
@@ -54,6 +80,12 @@ type SurveyForEditable = {
   locality: string | null
   city: string | null
   pinCode: string | null
+  sectorNo: string | null
+  unitSubNo: string | null
+  parcelNumber: string | null
+  propertyIdOld: string | null
+  constructedYear: number | null
+  isSlum: boolean
   ownershipType: string | null
   propertyUse: string | null
   propertyType: string | null
@@ -61,6 +93,16 @@ type SurveyForEditable = {
   roadType: string | null
   taxRateZone: string | null
   assessmentYear: string
+  plotAreaSqFt: DecimalLike
+  plinthAreaSqFt: DecimalLike
+  waterConnection: string | null
+  sourceOfWater: string | null
+  sanitationType: string | null
+  solidWasteCollection: boolean | null
+  electricityConsumerNo: string | null
+  latitude: DecimalLike
+  longitude: DecimalLike
+  state?: { name: string } | null
   floors?: Array<{
     id: string
     floorPosition: string
@@ -86,6 +128,11 @@ export function mapQcEditable(survey: SurveyForEditable): QcSurveyEditable {
     }))
 
   return {
+    stateId: survey.stateId,
+    districtId: survey.districtId,
+    ulbId: survey.ulbId,
+    wardId: survey.wardId,
+    assignedToId: survey.assignedToId,
     respondentName: survey.respondentName,
     mobileNumber: survey.mobileNumber,
     alternateMobile: survey.alternateMobile,
@@ -96,6 +143,12 @@ export function mapQcEditable(survey: SurveyForEditable): QcSurveyEditable {
     locality: survey.locality,
     city: survey.city,
     pinCode: survey.pinCode,
+    sectorNo: survey.sectorNo,
+    unitSubNo: survey.unitSubNo,
+    parcelNumber: survey.parcelNumber,
+    propertyIdOld: survey.propertyIdOld,
+    constructedYear: survey.constructedYear,
+    isSlum: survey.isSlum,
     ownershipType: survey.ownershipType,
     propertyUse: survey.propertyUse,
     propertyType: survey.propertyType,
@@ -103,6 +156,15 @@ export function mapQcEditable(survey: SurveyForEditable): QcSurveyEditable {
     roadType: survey.roadType,
     taxRateZone: survey.taxRateZone,
     assessmentYear: survey.assessmentYear,
+    plotAreaSqFt: toNumber(survey.plotAreaSqFt),
+    plinthAreaSqFt: toNumber(survey.plinthAreaSqFt),
+    waterConnection: survey.waterConnection,
+    sourceOfWater: survey.sourceOfWater,
+    sanitationType: survey.sanitationType,
+    solidWasteCollection: survey.solidWasteCollection,
+    electricityConsumerNo: survey.electricityConsumerNo,
+    latitude: toNumber(survey.latitude),
+    longitude: toNumber(survey.longitude),
     floors,
   }
 }

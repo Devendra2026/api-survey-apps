@@ -153,6 +153,11 @@ export class SurveysService {
     if (survey.surveyStatus === "APPROVED") {
       throw new BadRequestException("Approved surveys cannot be soft-deleted")
     }
+    if (survey.surveyStatus === "SUBMITTED") {
+      throw new BadRequestException(
+        "Submitted surveys cannot be deleted from the Survey Module. Use the QC Module (Admin) instead."
+      )
+    }
     this.logger.log(`Survey soft-delete ${id} by ${user.id}`)
     return this.surveysRepository.softDelete(id, user.id)
   }
@@ -499,5 +504,10 @@ export class SurveysService {
     if (ward.ulb.district.stateId !== geo.stateId) {
       throw new BadRequestException("districtId does not belong to stateId")
     }
+  }
+
+  /** Public wrapper for QC / customer modules that need hierarchy validation. */
+  async assertGeoHierarchyForQc(geo: { stateId: string; districtId: string; ulbId: string; wardId: string }) {
+    return this.assertGeoHierarchy(geo)
   }
 }

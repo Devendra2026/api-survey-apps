@@ -8,6 +8,7 @@ import {
   statusBadgeClass,
   SurveyViewField,
 } from "@/components/surveys/survey-view-field"
+import { useDistricts, useStates, useUlbs, useUsers, useWards } from "@/hooks/use-api"
 import type {
   QcSurveyDetail,
   QcSurveyEditable,
@@ -15,6 +16,7 @@ import type {
   SurveyFloorRow,
   SurveyOwnerRow,
 } from "@/lib/api/types"
+import { useAuthStore } from "@/stores/app-store"
 import type { ColumnDef } from "@tanstack/react-table"
 import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table"
 import { Badge } from "@workspace/ui/components/badge"
@@ -190,6 +192,9 @@ const SITUATION_OPTIONS = ["MAIN_MARKET", "MAIN_ROAD", "INTERIOR"]
 const ROAD_OPTIONS = ["RCC", "DAMBAR", "KACCHA"]
 const TAX_ZONE_OPTIONS = ["BELOW_9M", "METER_9_TO_12", "METER_12_TO_24", "ABOVE_24M"]
 const ASSESSMENT_YEAR_OPTIONS = ["AY_2025_2026", "AY_2026_2027"]
+const WATER_OPTIONS = ["YES", "NO", "PARTIAL"]
+const SOURCE_WATER_OPTIONS = ["GOVERNMENT_TAP", "DUG_WELL", "BOREWELL", "OTHER"]
+const SANITATION_OPTIONS = ["SEWER_SYSTEM", "SEPTIC_TANK", "SURFACE_DRAIN", "NO_TOILET", "OTHER"]
 
 export function QcReviewSections({
   survey,
@@ -204,6 +209,21 @@ export function QcReviewSections({
   draft: QcSurveyEditable
   onDraftChange: (next: QcSurveyEditable) => void
 }) {
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canPickSurveyor = hasPermission("user:view")
+
+  const { data: states } = useStates({ limit: 100 })
+  const { data: districts } = useDistricts(draft.stateId || undefined)
+  const { data: ulbs } = useUlbs(draft.districtId || undefined)
+  const { data: wards } = useWards(draft.ulbId || undefined)
+  const { data: users } = useUsers(canPickSurveyor ? { limit: 100, page: 1 } : {})
+
+  const stateItems = useMemo(() => states?.items ?? [], [states?.items])
+  const districtItems = useMemo(() => districts?.items ?? [], [districts?.items])
+  const ulbItems = useMemo(() => ulbs?.items ?? [], [ulbs?.items])
+  const wardItems = useMemo(() => wards?.items ?? [], [wards?.items])
+  const userItems = useMemo(() => users?.items ?? [], [users?.items])
+
   const setField = <K extends keyof QcSurveyEditable>(key: K, value: QcSurveyEditable[K]) => {
     onDraftChange({ ...draft, [key]: value })
   }
@@ -275,22 +295,145 @@ export function QcReviewSections({
 
   return (
     <div className="flex flex-col gap-6">
-      <GlassSection title="Property Identification" subtitle="ULB, ward, parcel, and generated Property ID.">
+      <GlassSection
+        title="Property Identification"
+        subtitle="Geography, parcel, and surveyor — all editable during QC."
+      >
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <SurveyViewField label="ULB / Local Body" value={survey.ulbName} />
-          <SurveyViewField label="Ward Number" value={survey.wardNo} />
-          <SurveyViewField label="Sector / Zone" value={survey.sectorZone} />
-          <SurveyViewField label="Parcel Number" value={survey.parcelNo} />
-          <SurveyViewField label="Unit / Sub-No" value={survey.unitSubNo} />
-          <SurveyViewField label="Property ID (Old)" value={survey.propertyIdOld} />
-          <SurveyViewField label="Constructed Year" value={survey.constructedYear} />
-          <SurveyViewField label="District" value={survey.district} />
+          <EditableField label="State" editMode={editMode} display={survey.stateName ?? "—"}>
+            <Select
+              value={draft.stateId || ""}
+              onValueChange={(stateId) =>
+                onDraftChange({
+                  ...draft,
+                  stateId,
+                  districtId: "",
+                  ulbId: "",
+                  wardId: "",
+                })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select state" />
+              </SelectTrigger>
+              <SelectContent>
+                {stateItems.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </EditableField>
+          <EditableField label="District" editMode={editMode} display={survey.district}>
+            <Select
+              value={draft.districtId || ""}
+              onValueChange={(districtId) => onDraftChange({ ...draft, districtId, ulbId: "", wardId: "" })}
+              disabled={!draft.stateId}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select district" />
+              </SelectTrigger>
+              <SelectContent>
+                {districtItems.map((d) => (
+                  <SelectItem key={d.id} value={d.id}>
+                    {d.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </EditableField>
+          <EditableField label="ULB / Local Body" editMode={editMode} display={survey.ulbName}>
+            <Select
+              value={draft.ulbId || ""}
+              onValueChange={(ulbId) => onDraftChange({ ...draft, ulbId, wardId: "" })}
+              disabled={!draft.districtId}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select ULB" />
+              </SelectTrigger>
+              <SelectContent>
+                {ulbItems.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    {u.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </EditableField>
+          <EditableField label="Ward Number" editMode={editMode} display={survey.wardNo}>
+            <Select
+              value={draft.wardId || ""}
+              onValueChange={(wardId) => setField("wardId", wardId)}
+              disabled={!draft.ulbId}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select ward" />
+              </SelectTrigger>
+              <SelectContent>
+                {wardItems.map((w) => (
+                  <SelectItem key={w.id} value={w.id}>
+                    {w.wardNumber} — {w.wardName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </EditableField>
+          <EditableField label="Sector / Zone" editMode={editMode} display={survey.sectorZone}>
+            <Input value={draft.sectorNo ?? ""} onChange={(e) => setField("sectorNo", e.target.value)} />
+          </EditableField>
+          <EditableField label="Parcel Number" editMode={editMode} display={survey.parcelNo}>
+            <Input value={draft.parcelNumber ?? ""} onChange={(e) => setField("parcelNumber", e.target.value)} />
+          </EditableField>
+          <EditableField label="Unit / Sub-No" editMode={editMode} display={survey.unitSubNo}>
+            <Input value={draft.unitSubNo ?? ""} onChange={(e) => setField("unitSubNo", e.target.value)} />
+          </EditableField>
+          <EditableField label="Property ID (Old)" editMode={editMode} display={survey.propertyIdOld}>
+            <Input value={draft.propertyIdOld ?? ""} onChange={(e) => setField("propertyIdOld", e.target.value)} />
+          </EditableField>
+          <EditableField label="Constructed Year" editMode={editMode} display={survey.constructedYear}>
+            <Input
+              type="number"
+              value={draft.constructedYear ?? ""}
+              onChange={(e) => setField("constructedYear", e.target.value === "" ? null : Number(e.target.value))}
+            />
+          </EditableField>
           <SurveyViewField
             label="Survey Status"
             value={<Badge className={cn("rounded-full", statusBadgeClass(survey.status))}>{survey.status}</Badge>}
           />
-          <SurveyViewField label="Surveyor" value={survey.surveyor} />
-          <SurveyViewField label="Slum Area" value={survey.slumArea} />
+          <EditableField label="Surveyor" editMode={editMode} display={survey.surveyor}>
+            {canPickSurveyor ? (
+              <Select
+                value={draft.assignedToId ?? ""}
+                onValueChange={(assignedToId) => setField("assignedToId", assignedToId || null)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select surveyor" />
+                </SelectTrigger>
+                <SelectContent>
+                  {userItems.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.fullName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input value={survey.surveyor} disabled />
+            )}
+          </EditableField>
+          <EditableField label="Slum Area" editMode={editMode} display={survey.slumArea}>
+            <Select value={draft.isSlum ? "yes" : "no"} onValueChange={(v) => setField("isSlum", v === "yes")}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="yes">Yes</SelectItem>
+                <SelectItem value="no">No</SelectItem>
+              </SelectContent>
+            </Select>
+          </EditableField>
         </div>
       </GlassSection>
 
@@ -452,12 +595,20 @@ export function QcReviewSections({
         </div>
 
         <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className={cn(glassInsetClass, "p-3")}>
-            <SurveyViewField label="Plot Area" value={survey.plotArea} />
-          </div>
-          <div className={cn(glassInsetClass, "p-3")}>
-            <SurveyViewField label="Plinth Area" value={survey.plinthArea} />
-          </div>
+          <EditableField label="Plot Area (sq ft)" editMode={editMode} display={survey.plotArea}>
+            <Input
+              type="number"
+              value={draft.plotAreaSqFt ?? ""}
+              onChange={(e) => setField("plotAreaSqFt", e.target.value === "" ? null : Number(e.target.value))}
+            />
+          </EditableField>
+          <EditableField label="Plinth Area (sq ft)" editMode={editMode} display={survey.plinthArea}>
+            <Input
+              type="number"
+              value={draft.plinthAreaSqFt ?? ""}
+              onChange={(e) => setField("plinthAreaSqFt", e.target.value === "" ? null : Number(e.target.value))}
+            />
+          </EditableField>
           <div className={cn(glassInsetClass, "p-3")}>
             <SurveyViewField label="Built-Up Area" value={survey.builtUpArea} />
           </div>
@@ -471,11 +622,68 @@ export function QcReviewSections({
 
       <GlassSection title="Municipal Services & Photo Documentation" subtitle="Utilities and field photo evidence.">
         <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <SurveyViewField label="Water Connection" value={survey.waterConnection} />
-          <SurveyViewField label="Source" value={survey.sourceOfWater} />
-          <SurveyViewField label="Sanitation Type" value={survey.sanitationType} />
-          <SurveyViewField label="Door-to-Door Collection" value={survey.doorToDoorCollection} />
-          <SurveyViewField label="Electricity Consumer No" value={survey.electricityConsumerNo} />
+          <EditableField label="Water Connection" editMode={editMode} display={survey.waterConnection}>
+            <Select value={draft.waterConnection ?? ""} onValueChange={(v) => setField("waterConnection", v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select" />
+              </SelectTrigger>
+              <SelectContent>
+                {WATER_OPTIONS.map((o) => (
+                  <SelectItem key={o} value={o}>
+                    {o}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </EditableField>
+          <EditableField label="Source" editMode={editMode} display={survey.sourceOfWater}>
+            <Select value={draft.sourceOfWater ?? ""} onValueChange={(v) => setField("sourceOfWater", v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select" />
+              </SelectTrigger>
+              <SelectContent>
+                {SOURCE_WATER_OPTIONS.map((o) => (
+                  <SelectItem key={o} value={o}>
+                    {o}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </EditableField>
+          <EditableField label="Sanitation Type" editMode={editMode} display={survey.sanitationType}>
+            <Select value={draft.sanitationType ?? ""} onValueChange={(v) => setField("sanitationType", v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select" />
+              </SelectTrigger>
+              <SelectContent>
+                {SANITATION_OPTIONS.map((o) => (
+                  <SelectItem key={o} value={o}>
+                    {o}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </EditableField>
+          <EditableField label="Door-to-Door Collection" editMode={editMode} display={survey.doorToDoorCollection}>
+            <Select
+              value={draft.solidWasteCollection == null ? "" : draft.solidWasteCollection ? "yes" : "no"}
+              onValueChange={(v) => setField("solidWasteCollection", v === "yes")}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="yes">Yes</SelectItem>
+                <SelectItem value="no">No</SelectItem>
+              </SelectContent>
+            </Select>
+          </EditableField>
+          <EditableField label="Electricity Consumer No" editMode={editMode} display={survey.electricityConsumerNo}>
+            <Input
+              value={draft.electricityConsumerNo ?? ""}
+              onChange={(e) => setField("electricityConsumerNo", e.target.value)}
+            />
+          </EditableField>
         </div>
 
         <div className="mb-3 flex items-center justify-between">

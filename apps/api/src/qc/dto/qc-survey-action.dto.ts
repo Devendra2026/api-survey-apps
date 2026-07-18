@@ -29,6 +29,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
   ValidateNested,
 } from "class-validator"
 
@@ -95,6 +96,32 @@ export class QcCoOwnerInputDto {
 }
 
 export class QcSurveyCorrectionDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  stateId?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  districtId?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  ulbId?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  wardId?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsString()
+  assignedToId?: string | null
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
@@ -263,6 +290,12 @@ export class QcSurveyCorrectionDto {
   @IsOptional()
   @IsBoolean()
   solidWasteCollection?: boolean
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  electricityConsumerNo?: string
 
   @ApiPropertyOptional({ description: "WGS84 latitude (-90..90)" })
   @IsOptional()

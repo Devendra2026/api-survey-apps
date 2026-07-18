@@ -1,5 +1,7 @@
-import { BadRequestException, Injectable, Logger } from "@nestjs/common"
+import { BadRequestException, ForbiddenException, Injectable, Logger } from "@nestjs/common"
+import { PERMISSIONS } from "../common/constants/permissions.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
+import { canAccessTenant, resolveTenantScope } from "../common/utils/tenant-scope.util.js"
 import { StorageService } from "../storage/storage.service.js"
 import { refreshSurveyPhotoUrls } from "../surveys/survey-photo-urls.js"
 import { mapSurveyToDetailsDto } from "../surveys/survey-view.mapper.js"
@@ -7,7 +9,7 @@ import { SurveysRepository } from "../surveys/surveys.repository.js"
 import { SurveysService } from "../surveys/surveys.service.js"
 import type { QcFiltersDto } from "./dto/qc-filters.dto.js"
 import type { QcRegistryQueryDto } from "./dto/qc-registry.dto.js"
-import type { QcSurveyActionDto } from "./dto/qc-survey-action.dto.js"
+import type { QcSurveyActionDto, QcSurveyCorrectionDto } from "./dto/qc-survey-action.dto.js"
 import { mapQcEditable, type QcSurveyDetailDto } from "./qc-survey.mapper.js"
 import { QcRepository } from "./qc.repository.js"
 
@@ -39,6 +41,7 @@ export class QcService {
     const detail: QcSurveyDetailDto = {
       ...mapSurveyToDetailsDto(row),
       editable: mapQcEditable(row),
+      stateName: row.state?.name,
     }
     return refreshSurveyPhotoUrls(this.storageService, detail, row.photos, this.logger)
   }
@@ -60,6 +63,9 @@ export class QcService {
         return this.surveysService.reject(survey.id, { qcRemarks: dto.qcRemarks.trim() }, user)
       }
       case "delete":
+        if (!user.permissions.includes(PERMISSIONS.SURVEY_DELETE)) {
+          throw new ForbiddenException("Missing permission: survey:delete")
+        }
         return this.qcRepository.qcSoftDelete(survey.id, user.id)
       case "reopen":
         return this.qcReopen(survey.id, survey.surveyStatus, user)
@@ -67,15 +73,37 @@ export class QcService {
         if (!dto.patch) {
           throw new BadRequestException("Correction patch is required for correct action")
         }
+        await this.assertCorrectionScope(survey, dto.patch, user)
         const updated = await this.qcRepository.qcCorrectSurvey(survey.id, dto.patch, user.id)
         const detail: QcSurveyDetailDto = {
           ...mapSurveyToDetailsDto(updated),
           editable: mapQcEditable(updated),
+          stateName: updated.state?.name,
         }
         return refreshSurveyPhotoUrls(this.storageService, detail, updated.photos, this.logger)
       }
       default:
         throw new BadRequestException(`Unsupported QC action: ${dto.action as string}`)
+    }
+  }
+
+  private async assertCorrectionScope(
+    survey: { stateId: string; districtId: string; ulbId: string; wardId: string },
+    patch: QcSurveyCorrectionDto,
+    user: AuthenticatedUser
+  ) {
+    const nextGeo = {
+      stateId: patch.stateId ?? survey.stateId,
+      districtId: patch.districtId ?? survey.districtId,
+      ulbId: patch.ulbId ?? survey.ulbId,
+      wardId: patch.wardId ?? survey.wardId,
+    }
+    if (patch.stateId || patch.districtId || patch.ulbId || patch.wardId) {
+      const scope = resolveTenantScope(user.tenantRoles)
+      if (!canAccessTenant(scope, nextGeo)) {
+        throw new ForbiddenException("Cannot move survey outside your tenant scope")
+      }
+      await this.surveysService.assertGeoHierarchyForQc(nextGeo)
     }
   }
 

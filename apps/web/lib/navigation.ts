@@ -1,6 +1,5 @@
 import {
   BarChart3,
-  Building2,
   ClipboardCheck,
   ClipboardList,
   Database,
@@ -73,26 +72,12 @@ export const appNav: NavItem[] = [
         permission: "survey:view",
         description: "Search, filter, and manage surveys",
       },
-    ],
-  },
-  {
-    title: "QC Portal",
-    href: "/qc/command-center",
-    icon: ClipboardCheck,
-    children: [
       {
-        title: "QC Command Center",
-        href: "/qc/command-center",
-        icon: ClipboardCheck,
-        permission: "survey:approve",
-        description: "Ward-wise QC pipeline and smart filters",
-      },
-      {
-        title: "QC Review Registry",
+        title: "QC Review",
         href: "/qc/registry",
         icon: ClipboardCheck,
         permission: "survey:approve",
-        description: "Search and open surveys for QC verification",
+        description: "Review, correct, and approve submitted surveys",
       },
     ],
   },
@@ -166,5 +151,3 @@ export const statusLabels: Record<string, string> = {
   FAILED: "Failed",
   RETURNED: "Returned",
 }
-
-export { Building2 }

@@ -9,7 +9,7 @@ import { usePathname } from "next/navigation"
 const items = [
   { title: "Home", href: "/dashboard", icon: LayoutDashboard, permission: "dashboard:view" },
   { title: "Registry", href: "/surveys", icon: ClipboardList, permission: "survey:view" },
-  { title: "QC", href: "/qc/registry", icon: ClipboardCheck, permission: "survey:approve" },
+  { title: "Review", href: "/qc/registry", icon: ClipboardCheck, permission: "survey:approve" },
   { title: "Reports", href: "/reports", icon: BarChart3, permission: "report:view" },
   { title: "More", href: "/admin/settings", icon: MoreHorizontal },
 ] as const

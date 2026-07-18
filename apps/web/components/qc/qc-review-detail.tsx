@@ -1,7 +1,6 @@
 "use client"
 
 import { QcReviewActionBar } from "@/components/qc/qc-review-action-bar"
-import { QcReviewDemandNotice } from "@/components/qc/qc-review-demand-notice"
 import { QcReviewSections } from "@/components/qc/qc-review-sections"
 import { EmptyState } from "@/components/shared/page-elements"
 import { SurveyViewSkeleton } from "@/components/surveys/survey-view-skeleton"
@@ -18,7 +17,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@workspace/ui/components/dialog"
-import { Textarea } from "@workspace/ui/components/textarea"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { toast } from "sonner"
@@ -27,6 +25,7 @@ export function QcReviewDetail({ propertyId }: { propertyId: string }) {
   const router = useRouter()
   const hasPermission = useAuthStore((s) => s.hasPermission)
   const canApprove = hasPermission("survey:approve")
+  const canDelete = hasPermission("survey:delete")
 
   const detailQuery = useQcSurveyDetail(propertyId, Boolean(canApprove))
   const auditQuery = useQcSurveyAuditHistory(propertyId, Boolean(canApprove) && Boolean(propertyId))
@@ -39,9 +38,6 @@ export function QcReviewDetail({ propertyId }: { propertyId: string }) {
   const [trackedEditable, setTrackedEditable] = useState(editable)
   const [reopenOpen, setReopenOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
-  const [rejectOpen, setRejectOpen] = useState(false)
-  const [demandOpen, setDemandOpen] = useState(false)
-  const [qcRemarks, setQcRemarks] = useState("")
 
   if (trackedEditable !== editable) {
     setTrackedEditable(editable)
@@ -71,20 +67,16 @@ export function QcReviewDetail({ propertyId }: { propertyId: string }) {
   }
 
   const pending =
-    actions.reopen.isPending ||
-    actions.approve.isPending ||
-    actions.reject.isPending ||
-    actions.remove.isPending ||
-    actions.correct.isPending
+    actions.reopen.isPending || actions.approve.isPending || actions.remove.isPending || actions.correct.isPending
 
-  const toggleEdit = () => {
-    if (editMode) {
-      setDraft(survey.editable)
-      setEditMode(false)
-      return
-    }
+  const startEdit = () => {
     setDraft(survey.editable)
     setEditMode(true)
+  }
+
+  const cancelEdit = () => {
+    setDraft(survey.editable)
+    setEditMode(false)
   }
 
   const saveCorrection = async () => {
@@ -92,6 +84,11 @@ export function QcReviewDetail({ propertyId }: { propertyId: string }) {
       await actions.correct.mutateAsync({
         id: survey.id,
         patch: {
+          stateId: draft.stateId,
+          districtId: draft.districtId,
+          ulbId: draft.ulbId,
+          wardId: draft.wardId,
+          assignedToId: draft.assignedToId,
           respondentName: draft.respondentName,
           mobileNumber: draft.mobileNumber,
           alternateMobile: draft.alternateMobile,
@@ -102,6 +99,12 @@ export function QcReviewDetail({ propertyId }: { propertyId: string }) {
           locality: draft.locality,
           city: draft.city,
           pinCode: draft.pinCode,
+          sectorNo: draft.sectorNo,
+          unitSubNo: draft.unitSubNo,
+          parcelNumber: draft.parcelNumber,
+          propertyIdOld: draft.propertyIdOld,
+          constructedYear: draft.constructedYear,
+          isSlum: draft.isSlum,
           ownershipType: draft.ownershipType,
           propertyUse: draft.propertyUse,
           propertyType: draft.propertyType,
@@ -109,6 +112,15 @@ export function QcReviewDetail({ propertyId }: { propertyId: string }) {
           roadType: draft.roadType,
           taxRateZone: draft.taxRateZone,
           assessmentYear: draft.assessmentYear,
+          plotAreaSqFt: draft.plotAreaSqFt,
+          plinthAreaSqFt: draft.plinthAreaSqFt,
+          waterConnection: draft.waterConnection,
+          sourceOfWater: draft.sourceOfWater,
+          sanitationType: draft.sanitationType,
+          solidWasteCollection: draft.solidWasteCollection,
+          electricityConsumerNo: draft.electricityConsumerNo,
+          latitude: draft.latitude,
+          longitude: draft.longitude,
           floors: draft.floors.map((f) => ({
             id: f.id,
             floorPosition: f.floorPosition,
@@ -137,6 +149,7 @@ export function QcReviewDetail({ propertyId }: { propertyId: string }) {
         survey={survey}
         editMode={editMode}
         pending={pending}
+        canDelete={canDelete}
         onReopen={() => setReopenOpen(true)}
         onApprove={async () => {
           try {
@@ -146,26 +159,11 @@ export function QcReviewDetail({ propertyId }: { propertyId: string }) {
             toast.error(getApiErrorMessage(error))
           }
         }}
-        onReject={() => setRejectOpen(true)}
         onDelete={() => setDeleteOpen(true)}
-        onDemandNotice={() => setDemandOpen(true)}
-        onToggleEdit={toggleEdit}
+        onEdit={startEdit}
+        onSave={() => void saveCorrection()}
+        onCancel={cancelEdit}
       />
-
-      {editMode ? (
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" className="cursor-pointer" disabled={pending} onClick={toggleEdit}>
-            Cancel
-          </Button>
-          <Button
-            className="cursor-pointer bg-teal-600 text-white hover:bg-teal-700"
-            disabled={pending}
-            onClick={() => void saveCorrection()}
-          >
-            Save corrections
-          </Button>
-        </div>
-      ) : null}
 
       <QcReviewSections
         survey={survey}
@@ -206,47 +204,6 @@ export function QcReviewDetail({ propertyId }: { propertyId: string }) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Return survey</DialogTitle>
-            <DialogDescription>QC remarks are required when returning a survey to the field.</DialogDescription>
-          </DialogHeader>
-          <Textarea
-            value={qcRemarks}
-            onChange={(e) => setQcRemarks(e.target.value)}
-            placeholder="Describe why this survey is being returned…"
-            rows={4}
-          />
-          <DialogFooter>
-            <Button variant="outline" className="cursor-pointer" onClick={() => setRejectOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              className="cursor-pointer"
-              disabled={actions.reject.isPending}
-              onClick={async () => {
-                if (!qcRemarks.trim()) {
-                  toast.error("QC remarks are required for returns")
-                  return
-                }
-                try {
-                  await actions.reject.mutateAsync({ id: survey.id, qcRemarks: qcRemarks.trim() })
-                  toast.success("Survey returned")
-                  setRejectOpen(false)
-                  setQcRemarks("")
-                } catch (error) {
-                  toast.error(getApiErrorMessage(error))
-                }
-              }}
-            >
-              Return
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent>
           <DialogHeader>
@@ -275,13 +232,11 @@ export function QcReviewDetail({ propertyId }: { propertyId: string }) {
                 }
               }}
             >
-              Delete Survey
+              Delete
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <QcReviewDemandNotice open={demandOpen} onOpenChange={setDemandOpen} survey={survey} />
     </div>
   )
 }

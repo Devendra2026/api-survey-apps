@@ -378,6 +378,8 @@ export class QcRepository {
         coOwners: { orderBy: { ownerIndex: "asc" } },
         ward: { select: { id: true, wardName: true, wardNumber: true } },
         ulb: { select: { id: true, name: true, code: true } },
+        district: { select: { id: true, name: true } },
+        state: { select: { id: true, name: true } },
       },
     })
     if (!existing) throw new NotFoundException("Survey not found")
@@ -385,6 +387,32 @@ export class QcRepository {
     const canCorrect = existing.surveyStatus === "SUBMITTED" && (existing.qcStatus === "PENDING" || !existing.qcStatus)
     if (!canCorrect) {
       throw new BadRequestException("QC corrections are only allowed while the survey is Pending QC")
+    }
+
+    if (patch.assignedToId) {
+      const assignee = await this.prisma.db.user.findFirst({
+        where: { id: patch.assignedToId, isActive: true },
+        select: { id: true },
+      })
+      if (!assignee) throw new BadRequestException("Invalid assignedToId")
+    }
+
+    const nextStateId = patch.stateId ?? existing.stateId
+    const nextDistrictId = patch.districtId ?? existing.districtId
+    const nextUlbId = patch.ulbId ?? existing.ulbId
+    const nextWardId = patch.wardId ?? existing.wardId
+
+    let ulbCode = existing.ulbCode ?? existing.ulb?.code ?? ""
+    let wardNo = existing.wardNumber ?? existing.ward?.wardNumber ?? ""
+
+    if (patch.ulbId || patch.wardId) {
+      const ward = await this.prisma.db.ward.findUnique({
+        where: { id: nextWardId },
+        include: { ulb: { select: { id: true, code: true, name: true } } },
+      })
+      if (!ward) throw new BadRequestException("Invalid wardId")
+      ulbCode = ward.ulb.code
+      wardNo = ward.wardNumber
     }
 
     let coOwnersPatch = patch.coOwners
@@ -436,8 +464,6 @@ export class QcRepository {
     const effectiveParcel = patch.parcelNumber !== undefined ? patch.parcelNumber : (existing.parcelNumber ?? "")
     const effectiveUnit = patch.unitSubNo !== undefined ? patch.unitSubNo : (existing.unitSubNo ?? "")
     const effectiveUse = patch.propertyUse !== undefined ? patch.propertyUse : existing.propertyUse
-    const ulbCode = existing.ulbCode ?? existing.ulb?.code ?? ""
-    const wardNo = existing.wardNumber ?? existing.ward?.wardNumber ?? ""
 
     let nextPropertyId = existing.propertyId
     if (ulbCode && wardNo && effectiveParcel && effectiveUnit && effectiveUse) {
@@ -454,7 +480,7 @@ export class QcRepository {
     if (nextPropertyId !== existing.propertyId) {
       const conflict = await this.prisma.db.survey.findFirst({
         where: {
-          ulbId: existing.ulbId,
+          ulbId: nextUlbId,
           propertyId: nextPropertyId,
           assessmentYear: patch.assessmentYear ?? existing.assessmentYear,
           deletedAt: null,
@@ -468,6 +494,22 @@ export class QcRepository {
     }
 
     const scalarData: Prisma.SurveyUpdateInput = {}
+    if (
+      patch.stateId !== undefined ||
+      patch.districtId !== undefined ||
+      patch.ulbId !== undefined ||
+      patch.wardId !== undefined
+    ) {
+      scalarData.state = { connect: { id: nextStateId } }
+      scalarData.district = { connect: { id: nextDistrictId } }
+      scalarData.ulb = { connect: { id: nextUlbId } }
+      scalarData.ward = { connect: { id: nextWardId } }
+      if (ulbCode) scalarData.ulbCode = ulbCode
+      if (wardNo) scalarData.wardNumber = wardNo
+    }
+    if (patch.assignedToId !== undefined) {
+      scalarData.assignedTo = patch.assignedToId ? { connect: { id: patch.assignedToId } } : { disconnect: true }
+    }
     if (patch.respondentName !== undefined) scalarData.respondentName = patch.respondentName
     if (patch.mobileNumber !== undefined) scalarData.mobileNumber = patch.mobileNumber
     if (patch.alternateMobile !== undefined) scalarData.alternateMobile = patch.alternateMobile
@@ -500,6 +542,7 @@ export class QcRepository {
     if (patch.sourceOfWater !== undefined) scalarData.sourceOfWater = patch.sourceOfWater
     if (patch.sanitationType !== undefined) scalarData.sanitationType = patch.sanitationType
     if (patch.solidWasteCollection !== undefined) scalarData.solidWasteCollection = patch.solidWasteCollection
+    if (patch.electricityConsumerNo !== undefined) scalarData.electricityConsumerNo = patch.electricityConsumerNo
     if (patch.latitude !== undefined) scalarData.latitude = patch.latitude
     if (patch.longitude !== undefined) scalarData.longitude = patch.longitude
     if (nextPropertyId !== existing.propertyId) {

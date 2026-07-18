@@ -431,6 +431,7 @@ export interface SurveyDetails {
   status: string
   surveyStatus: string
   qcStatus?: string | null
+  stateName?: string
   district: string
   sectorZone: string
   unitSubNo: string
@@ -495,6 +496,11 @@ export interface QcSurveyFloorEditable {
 }
 
 export interface QcSurveyEditable {
+  stateId: string
+  districtId: string
+  ulbId: string
+  wardId: string
+  assignedToId: string | null
   respondentName: string | null
   mobileNumber: string | null
   alternateMobile: string | null
@@ -505,6 +511,12 @@ export interface QcSurveyEditable {
   locality: string | null
   city: string | null
   pinCode: string | null
+  sectorNo: string | null
+  unitSubNo: string | null
+  parcelNumber: string | null
+  propertyIdOld: string | null
+  constructedYear: number | null
+  isSlum: boolean
   ownershipType: string | null
   propertyUse: string | null
   propertyType: string | null
@@ -512,6 +524,15 @@ export interface QcSurveyEditable {
   roadType: string | null
   taxRateZone: string | null
   assessmentYear: string
+  plotAreaSqFt: number | null
+  plinthAreaSqFt: number | null
+  waterConnection: string | null
+  sourceOfWater: string | null
+  sanitationType: string | null
+  solidWasteCollection: boolean | null
+  electricityConsumerNo: string | null
+  latitude: number | null
+  longitude: number | null
   floors: QcSurveyFloorEditable[]
 }
 

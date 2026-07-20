@@ -1,14 +1,18 @@
 "use client"
 
 import { AuditLogsSheet, type LocalPermissionAudit } from "@/components/admin/roles/audit-logs-sheet"
-import { PermissionMatrixTable } from "@/components/admin/roles/permission-matrix-table"
-import { SYSTEM_ROLE_CODES, rolePermissionIdSet, setsEqual } from "@/components/admin/roles/permission-utils"
+import { SYSTEM_ROLE_CODES } from "@/components/admin/roles/permission-utils"
 import { RbacKpiCards } from "@/components/admin/roles/rbac-kpi-cards"
 import { RoleDetailPanel } from "@/components/admin/roles/role-detail-panel"
 import { RoleFormDialog } from "@/components/admin/roles/role-form-dialog"
 import { RoleListPanel } from "@/components/admin/roles/role-list-panel"
-import { RolePermissionSummary } from "@/components/admin/roles/role-permission-summary"
-import { RolesUnsavedBar } from "@/components/admin/roles/roles-unsaved-bar"
+import { RolePermissionsEditor } from "@/components/admin/roles/role-permissions-editor"
+import {
+  canDeleteRole,
+  canModifyPermissions,
+  isFullyLockedSystemRole,
+  isSystemRole,
+} from "@/components/admin/roles/system-role-policy"
 import { UserAssignRoleDialog } from "@/components/admin/user-assign-role-dialog"
 import { UserAvatar } from "@/components/admin/user-badges"
 import { EmptyState } from "@/components/shared/page-elements"
@@ -21,7 +25,6 @@ import {
   useRoleAudits,
   useRoleUsers,
   useRoles,
-  useSetRolePermissions,
   useUpdateRole,
   useUserStats,
   useUsers,
@@ -29,7 +32,6 @@ import {
 import { getApiErrorMessage } from "@/lib/api/client"
 import { roleDisplayName, type AuthenticatedProfile, type SecurityAuditItem } from "@/lib/api/types"
 import { useAuthStore } from "@/stores/app-store"
-import { zodResolver } from "@hookform/resolvers/zod"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -53,19 +55,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu"
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion"
+import { motion, useReducedMotion } from "framer-motion"
 import { ClipboardList, Download, FileUp, Plus, Upload } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Controller, useForm } from "react-hook-form"
 import { toast } from "sonner"
-import { z } from "zod"
-
-const permissionsFormSchema = z.object({
-  permissionIds: z.array(z.string()),
-})
-
-type PermissionsFormValues = z.infer<typeof permissionsFormSchema>
 
 function auditsToLocal(entries: SecurityAuditItem[], fallbackRoleName: string): LocalPermissionAudit[] {
   return entries.map((entry) => {
@@ -85,14 +79,12 @@ function auditsToLocal(entries: SecurityAuditItem[], fallbackRoleName: string): 
 export default function AdminRolesPage() {
   const reduceMotion = useReducedMotion()
   const hasPermission = useAuthStore((s) => s.hasPermission)
-  const profile = useAuthStore((s) => s.profile)
   const canManage = hasPermission("role:assign")
   const canView = hasPermission("user:view") || canManage
 
   const { data, isLoading, refetch } = useRoles()
   const { data: permissions, isLoading: permsLoading } = usePermissionsCatalog()
   const { data: userStats, isLoading: statsLoading } = useUserStats()
-  const setPermissions = useSetRolePermissions()
   const createRole = useCreateRole()
   const updateRole = useUpdateRole()
   const cloneRole = useCloneRole()
@@ -111,19 +103,6 @@ export default function AdminRolesPage() {
   const { data: roleDetail, isLoading: detailLoading } = useRole(effectiveSelectedId)
   const selected = roleDetail ?? listSelected
 
-  const form = useForm<PermissionsFormValues>({
-    resolver: zodResolver(permissionsFormSchema),
-    defaultValues: { permissionIds: [] },
-  })
-
-  const permissionIds = form.watch("permissionIds")
-  const draftIds = useMemo(() => new Set(permissionIds), [permissionIds])
-  const baselineRef = useRef<Set<string>>(new Set())
-  const dirty = !setsEqual(draftIds, baselineRef.current)
-  const [isEditing, setIsEditing] = useState(false)
-  const keepEditingRef = useRef(false)
-  const hydratedRoleIdRef = useRef<string | null>(null)
-
   const [createOpen, setCreateOpen] = useState(false)
   const [cloneOpen, setCloneOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
@@ -133,7 +112,6 @@ export default function AdminRolesPage() {
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [tab, setTab] = useState("permissions")
-  const [sessionAudits, setSessionAudits] = useState<LocalPermissionAudit[]>([])
   const importInputRef = useRef<HTMLInputElement>(null)
 
   const { data: roleUsers, isLoading: roleUsersLoading, refetch: refetchRoleUsers } = useRoleUsers(selected?.id)
@@ -155,117 +133,25 @@ export default function AdminRolesPage() {
     return map
   }, [userStats?.byRole, roles])
 
-  const isSystemRole = selected ? SYSTEM_ROLE_CODES.has(selected.name) : false
-  /** Custom roles with role:assign — matrix is always interactive (Create/Edit parity). */
-  const canEditMatrix = Boolean(canManage && selected && !isSystemRole)
-  const matrixLoading = permsLoading || (Boolean(effectiveSelectedId) && detailLoading && !roleDetail)
-  const matrixReady = !permsLoading && catalog.length > 0 && Boolean(selected?.id)
-
-  // Hydrate form when the selected role identity or its permission payload changes.
-  useEffect(() => {
-    if (!selected?.id) return
-    const source = roleDetail ?? selected
-    // Wait for detail when list row has no permissions include (should be rare).
-    if (!roleDetail && !(selected.permissions && selected.permissions.length >= 0) && detailLoading) {
-      return
-    }
-
-    const next = rolePermissionIdSet(source)
-    const roleChanged = hydratedRoleIdRef.current !== selected.id
-
-    if (roleChanged) {
-      baselineRef.current = new Set(next)
-      form.reset({ permissionIds: [...next] })
-      hydratedRoleIdRef.current = selected.id
-      if (keepEditingRef.current) {
-        setIsEditing(true)
-        keepEditingRef.current = false
-      } else if (SYSTEM_ROLE_CODES.has(source.name)) {
-        setIsEditing(false)
-      } else if (canManage) {
-        // Custom roles open ready to edit — same as Create after save.
-        setIsEditing(true)
-      } else {
-        setIsEditing(false)
-      }
-      return
-    }
-
-    // Same role: sync from server only when not dirty
-    if (!dirty) {
-      baselineRef.current = new Set(next)
-      form.reset({ permissionIds: [...next] })
-    }
-  }, [selected?.id, roleDetail, selected, form, dirty, detailLoading, canManage])
-
   useEffect(() => {
     if (selectedId) return
-    // Prefer first custom role so the matrix is immediately editable.
     const firstCustom = roles.find((r) => !SYSTEM_ROLE_CODES.has(r.name))
     const fallback = firstCustom ?? roles[0]
     if (fallback) setSelectedId(fallback.id)
   }, [roles, selectedId])
 
+  const auditEntries = useMemo(() => {
+    const serverLocal = serverAudits
+      ? auditsToLocal(serverAudits, selected ? roleDisplayName(selected.name) : "Role")
+      : []
+    return serverLocal.sort((a, b) => b.at.getTime() - a.at.getTime())
+  }, [serverAudits, selected])
+
   if (!canView) {
     return <EmptyState title="Roles unavailable" description="You need user:view or role:assign permission." />
   }
 
-  const handleCancelEdit = () => {
-    form.reset({ permissionIds: [...baselineRef.current] })
-    setIsEditing(false)
-    toast.message("Changes discarded")
-  }
-
-  const handleReset = () => {
-    form.reset({ permissionIds: [...baselineRef.current] })
-    toast.message("Matrix reset to last saved state")
-  }
-
-  const handleSave = async () => {
-    if (!selected || !canManage || isSystemRole) return
-    if (draftIds.size === 0) {
-      toast.error("At least one permission is required")
-      return
-    }
-    const previousNames = new Set(
-      (selected.permissions ?? []).map((p) => p.permission?.name).filter(Boolean) as string[]
-    )
-    try {
-      const updated = await setPermissions.mutateAsync({
-        roleId: selected.id,
-        permissionIds: [...draftIds],
-      })
-      const next = rolePermissionIdSet(updated)
-      baselineRef.current = new Set(next)
-      form.reset({ permissionIds: [...next] })
-      setIsEditing(false)
-      await refetch()
-
-      const nextNames = new Set((updated.permissions ?? []).map((p) => p.permission?.name).filter(Boolean) as string[])
-      const added = [...nextNames].filter((n) => !previousNames.has(n))
-      const removed = [...previousNames].filter((n) => !nextNames.has(n))
-      setSessionAudits((prev) => [
-        {
-          id: `${Date.now()}`,
-          roleName: roleDisplayName(selected.name),
-          adminName: profile?.fullName ?? "Admin",
-          added,
-          removed,
-          at: new Date(),
-        },
-        ...prev,
-      ])
-      toast.success(`Permissions saved for ${roleDisplayName(selected.name)}`)
-    } catch (error) {
-      toast.error(getApiErrorMessage(error))
-    }
-  }
-
   const selectRole = (id: string) => {
-    if (dirty && canEditMatrix) {
-      const leave = window.confirm("You have unsaved changes. Discard them and switch roles?")
-      if (!leave) return
-    }
     setSelectedId(id)
     setTab("permissions")
   }
@@ -302,7 +188,7 @@ export default function AdminRolesPage() {
           })
           created += 1
         } catch {
-          // skip duplicates / validation errors
+          // skip duplicates
         }
       }
       toast.success(created ? `Imported ${created} custom role(s)` : "No new custom roles imported")
@@ -312,62 +198,20 @@ export default function AdminRolesPage() {
     }
   }
 
-  const auditEntries = useMemo(() => {
-    const serverLocal = serverAudits
-      ? auditsToLocal(serverAudits, selected ? roleDisplayName(selected.name) : "Role")
-      : []
-    const seen = new Set(serverLocal.map((e) => e.id))
-    const merged = [...serverLocal]
-    for (const entry of sessionAudits) {
-      if (!seen.has(entry.id)) merged.push(entry)
-    }
-    return merged.sort((a, b) => b.at.getTime() - a.at.getTime())
-  }, [serverAudits, sessionAudits, selected])
+  const isEditingMatrix = Boolean(
+    selected && canManage && canModifyPermissions(selected.name) && !isFullyLockedSystemRole(selected.name)
+  )
 
-  const matrixNode = selected ? (
-    <div className="flex h-full min-h-0 gap-2">
-      <div className="min-h-0 min-w-0 flex-1">
-        <Controller
-          control={form.control}
-          name="permissionIds"
-          render={({ field }) => (
-            <PermissionMatrixTable
-              permissions={catalog}
-              selectedIds={new Set(field.value ?? [])}
-              loading={!matrixReady || matrixLoading}
-              readOnly={!canEditMatrix}
-              onChange={
-                canEditMatrix
-                  ? (next) => {
-                      field.onChange([...next])
-                      setIsEditing(true)
-                    }
-                  : undefined
-              }
-            />
-          )}
-        />
-      </div>
-      <RolePermissionSummary
-        className="hidden w-52 shrink-0 xl:flex"
-        selectedIds={draftIds}
-        permissions={catalog}
-        assignedUsers={selected.assignedUsersCount ?? roleUsers?.length ?? 0}
-        roleType={isSystemRole ? "System" : "Custom"}
-      />
-    </div>
-  ) : null
-
-  const renderDetailPanel = (extraKey: string) => {
+  const renderDetail = (key: string) => {
     if (!selected) return null
     return (
       <RoleDetailPanel
-        key={extraKey}
+        key={key}
         role={selected}
         tab={tab}
         onTabChange={setTab}
         canManage={canManage}
-        isEditing={canEditMatrix && (isEditing || dirty)}
+        isEditing={isEditingMatrix}
         onEdit={() => {
           setName(selected.name)
           setDescription(selected.description ?? "")
@@ -380,6 +224,7 @@ export default function AdminRolesPage() {
         }}
         onAssign={() => setAssignOpen(true)}
         onDelete={async () => {
+          if (!canDeleteRole(selected.name)) return
           try {
             await deleteRole.mutateAsync(selected.id)
             toast.success("Role deleted")
@@ -389,13 +234,12 @@ export default function AdminRolesPage() {
           }
         }}
         onStartEditPermissions={() => {
-          if (!canEditMatrix) return
-          setIsEditing(true)
+          if (!canManage || isFullyLockedSystemRole(selected.name)) return
           setTab("permissions")
         }}
         roleUsers={roleUsers}
         roleUsersLoading={roleUsersLoading || detailLoading}
-        matrix={matrixNode}
+        matrix={<RolePermissionsEditor roleId={selected.id} canManage={canManage} />}
       />
     )
   }
@@ -519,7 +363,7 @@ export default function AdminRolesPage() {
           }}
         />
         {selected ? (
-          renderDetailPanel("desktop")
+          renderDetail("desktop")
         ) : (
           <div className="flex h-full items-center justify-center rounded-lg border bg-card">
             <EmptyState
@@ -545,21 +389,8 @@ export default function AdminRolesPage() {
             setCreateOpen(true)
           }}
         />
-        {selected ? <div className="min-h-120">{renderDetailPanel("mobile")}</div> : null}
+        {selected ? <div className="min-h-120">{renderDetail("mobile")}</div> : null}
       </div>
-
-      <AnimatePresence>
-        {canEditMatrix && dirty ? (
-          <RolesUnsavedBar
-            key="unsaved-bar"
-            saving={setPermissions.isPending}
-            dirty={dirty}
-            onSave={() => void handleSave()}
-            onCancel={handleCancelEdit}
-            onReset={handleReset}
-          />
-        ) : null}
-      </AnimatePresence>
 
       <AuditLogsSheet open={auditOpen} onOpenChange={setAuditOpen} entries={auditEntries} />
 
@@ -569,7 +400,7 @@ export default function AdminRolesPage() {
             <DialogTitle>Assign users</DialogTitle>
             <DialogDescription>
               Select a pending user to assign <strong>{selected ? roleDisplayName(selected.name) : "this role"}</strong>
-              . Geography (State → District → ULB → Ward) is required for Surveyor / Supervisor.
+              .
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-[50vh] space-y-2 overflow-y-auto px-6 py-4">
@@ -592,9 +423,7 @@ export default function AdminRolesPage() {
                 </button>
               ))
             ) : (
-              <p className="py-8 text-center text-sm text-muted-foreground">
-                No pending users. New Clerk sign-ups appear here as Pending User.
-              </p>
+              <p className="py-8 text-center text-sm text-muted-foreground">No pending users.</p>
             )}
           </div>
           <DialogFooter className="border-t px-6 py-4">
@@ -640,10 +469,8 @@ export default function AdminRolesPage() {
               description: description.trim() || undefined,
             })
             toast.success("Role created — configure permissions below")
-            keepEditingRef.current = true
             setSelectedId(role.id)
             setCreateOpen(false)
-            setIsEditing(true)
             setTab("permissions")
           } catch (error) {
             toast.error(getApiErrorMessage(error))
@@ -673,10 +500,9 @@ export default function AdminRolesPage() {
               },
             })
             toast.success("Role cloned")
-            keepEditingRef.current = true
             setSelectedId(role.id)
             setCloneOpen(false)
-            setIsEditing(true)
+            setTab("permissions")
           } catch (error) {
             toast.error(getApiErrorMessage(error))
           }
@@ -692,7 +518,7 @@ export default function AdminRolesPage() {
         descriptionValue={description}
         onNameChange={setName}
         onDescriptionChange={setDescription}
-        nameDisabled={selected ? SYSTEM_ROLE_CODES.has(selected.name) : false}
+        nameDisabled={selected ? isSystemRole(selected.name) : false}
         confirmLabel="Save"
         pending={updateRole.isPending}
         onConfirm={async () => {
@@ -701,9 +527,7 @@ export default function AdminRolesPage() {
             await updateRole.mutateAsync({
               id: selected.id,
               body: {
-                ...(SYSTEM_ROLE_CODES.has(selected.name)
-                  ? {}
-                  : { name: name.trim().toUpperCase().replace(/\s+/g, "_") }),
+                ...(isSystemRole(selected.name) ? {} : { name: name.trim().toUpperCase().replace(/\s+/g, "_") }),
                 description: description.trim() || undefined,
               },
             })

@@ -34,30 +34,42 @@ import { cn } from "@workspace/ui/lib/utils"
 import {
   BadgeCheck,
   Bell,
+  Building2,
+  Camera,
   ChevronsDownUp,
   ChevronsUpDown,
   ClipboardList,
   Database,
   FileBarChart,
   Key,
+  Landmark,
   LayoutDashboard,
   Link2,
+  Map as MapIcon,
+  MapPin,
   ScrollText,
   Search,
   Settings,
+  Shield,
   Upload,
   Users,
   type LucideIcon,
 } from "lucide-react"
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 
 const MODULE_ICONS: Record<MatrixModuleIcon, LucideIcon> = {
   "layout-dashboard": LayoutDashboard,
   users: Users,
+  shield: Shield,
+  map: MapIcon,
+  "map-pin": MapPin,
+  "building-2": Building2,
+  landmark: Landmark,
   "clipboard-list": ClipboardList,
   "badge-check": BadgeCheck,
   "file-bar-chart": FileBarChart,
   upload: Upload,
+  camera: Camera,
   database: Database,
   settings: Settings,
   "scroll-text": ScrollText,
@@ -71,20 +83,49 @@ export function PermissionMatrixTable({
   onChange,
   readOnly,
   loading,
+  protectedIds,
   className,
 }: {
   permissions: CatalogPermission[]
-  /** Controlled selection — prefer a new Set when values change */
   selectedIds: Set<string>
   onChange?: (next: Set<string>) => void
   readOnly?: boolean
   loading?: boolean
+  /** Permission IDs that cannot be unchecked (system baseline) */
+  protectedIds?: Set<string>
   className?: string
 }) {
   const [moduleSearch, setModuleSearch] = useState("")
   const [permissionSearch, setPermissionSearch] = useState("")
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const locked = protectedIds ?? new Set<string>()
   const editable = !readOnly && !loading && typeof onChange === "function"
+
+  // #region agent log
+  useEffect(() => {
+    fetch("http://127.0.0.1:7363/ingest/7e05a85b-205b-4ccb-b81d-e5a353e86608", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "792eec" },
+      body: JSON.stringify({
+        sessionId: "792eec",
+        runId: "pre-fix",
+        hypothesisId: "C_E",
+        location: "permission-matrix-table.tsx:editable",
+        message: "matrix editable flags",
+        data: {
+          editable,
+          readOnly: Boolean(readOnly),
+          loading: Boolean(loading),
+          hasOnChange: typeof onChange === "function",
+          selectedCount: selectedIds.size,
+          permCatalog: permissions.length,
+          protectedCount: locked.size,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {})
+  }, [editable, readOnly, loading, onChange, selectedIds.size, permissions.length, locked.size])
+  // #endregion
 
   const byName = useMemo(() => {
     const map = new Map<string, CatalogPermission>()
@@ -121,19 +162,52 @@ export function PermissionMatrixTable({
 
   const emit = (next: Set<string>) => {
     if (!editable || !onChange) return
-    onChange(next)
+    const merged = new Set(next)
+    for (const id of locked) merged.add(id)
+    onChange(merged)
   }
 
   const onCellToggle = (mod: MatrixModuleDef, actionId: MatrixActionId, permissionId: string, checked: boolean) => {
+    // #region agent log
+    fetch("http://127.0.0.1:7363/ingest/7e05a85b-205b-4ccb-b81d-e5a353e86608", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "792eec" },
+      body: JSON.stringify({
+        sessionId: "792eec",
+        runId: "pre-fix",
+        hypothesisId: "E",
+        location: "permission-matrix-table.tsx:onCellToggle",
+        message: "cell toggle attempted",
+        data: {
+          moduleId: mod.id,
+          actionId,
+          permissionId,
+          checked,
+          editable,
+          isProtected: locked.has(permissionId),
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {})
+    // #endregion
+    if (locked.has(permissionId) && !checked) return
     emit(toggleCellWithDependencies(selectedIds, mod, actionId, permissionId, checked, resolve))
   }
 
   const onRowToggle = (mod: MatrixModuleDef, checked: boolean) => {
-    emit(setModuleRow(selectedIds, mod, checked, resolve))
+    const next = setModuleRow(selectedIds, mod, checked, resolve)
+    if (!checked) {
+      for (const id of locked) next.add(id)
+    }
+    emit(next)
   }
 
   const onBulkIds = (ids: string[], checked: boolean) => {
-    emit(setPermissionIds(selectedIds, ids, checked, resolve))
+    const next = setPermissionIds(selectedIds, ids, checked, resolve)
+    if (!checked) {
+      for (const id of locked) next.add(id)
+    }
+    emit(next)
   }
 
   const columnIds = (actionId: MatrixActionId) => {
@@ -259,13 +333,13 @@ export function PermissionMatrixTable({
             </>
           ) : (
             <span className="text-[11px] text-muted-foreground">
-              {readOnly ? "System role — clone to customize permissions" : "View only"}
+              {readOnly ? "System role — clone to customize, or baseline is protected" : "View only"}
             </span>
           )}
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border/80">
-          <table className="w-full min-w-340 caption-bottom border-separate border-spacing-0 text-sm">
+          <table className="w-full min-w-420 caption-bottom border-separate border-spacing-0 text-sm">
             <TableHeader className="sticky top-0 z-20 bg-muted/95 backdrop-blur-sm">
               <TableRow className="hover:bg-transparent">
                 <TableHead className="sticky left-0 z-30 h-9 w-55 min-w-55 border-r border-b bg-muted/95 px-2 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
@@ -381,13 +455,15 @@ export function PermissionMatrixTable({
                           <TableCell
                             key={`${mod.id}-${action.id}`}
                             className="p-1 text-center"
-                            title="Permission not seeded — run database seed"
+                            title="Permission not seeded"
                           >
                             <span className="inline-block size-3.5 rounded border border-dashed border-muted-foreground/35" />
                           </TableCell>
                         )
                       }
                       const checked = selectedIds.has(cell.id)
+                      const isProtected = locked.has(cell.id)
+                      const cellEditable = editable && !isProtected
                       const linked = sharedModuleCount(cell.id, resolve) > 1
                       const viewName = mod.cells.view
                       const viewPerm = viewName ? resolve(viewName) : undefined
@@ -399,10 +475,10 @@ export function PermissionMatrixTable({
                           className={cn(
                             "p-1 text-center transition-colors",
                             checked && "bg-primary/8",
-                            editable && "cursor-pointer"
+                            cellEditable && "cursor-pointer"
                           )}
                           onClick={(e) => {
-                            if (!editable) return
+                            if (!cellEditable) return
                             if ((e.target as HTMLElement).closest('[data-slot="checkbox"]')) return
                             onCellToggle(mod, action.id, cell.id, !checked)
                           }}
@@ -412,20 +488,21 @@ export function PermissionMatrixTable({
                               <span className="inline-flex items-center justify-center gap-0.5">
                                 <Checkbox
                                   checked={checked}
-                                  disabled={!editable}
+                                  disabled={!cellEditable}
                                   onCheckedChange={(v) => {
                                     if (v === "indeterminate") return
                                     onCellToggle(mod, action.id, cell.id, v === true)
                                   }}
                                   onClick={(e) => e.stopPropagation()}
                                   aria-label={`${mod.label} ${action.label}: ${cell.name}`}
-                                  className={cn(editable && "cursor-pointer")}
+                                  className={cn(cellEditable && "cursor-pointer")}
                                 />
                                 {linked ? <Link2 className="size-2.5 text-muted-foreground" aria-hidden /> : null}
                               </span>
                             </TooltipTrigger>
                             <TooltipContent side="top" className="max-w-56 text-xs">
                               <p className="font-medium">{cell.name}</p>
+                              {isProtected ? <p className="text-amber-200">System permission — cannot remove</p> : null}
                               {needsViewHint ? <p className="text-amber-200">{VIEW_REQUIRED_TOOLTIP}</p> : null}
                               {linked ? <p className="text-muted-foreground">Shared across modules</p> : null}
                             </TooltipContent>

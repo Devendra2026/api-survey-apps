@@ -598,6 +598,7 @@ export function usePermissionsCatalog() {
     queryKey: ["permissions"],
     queryFn: () => apiGetPaginated<CatalogPermission>("/permissions?page=1&limit=100"),
     enabled: canView,
+    staleTime: 60_000,
   })
 }
 

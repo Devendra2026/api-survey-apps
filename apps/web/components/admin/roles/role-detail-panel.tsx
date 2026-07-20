@@ -1,7 +1,11 @@
 "use client"
 
 import { ROLE_PERMISSION_HINTS } from "@/components/admin/roles/matrix-config"
-import { SYSTEM_ROLE_CODES } from "@/components/admin/roles/permission-utils"
+import {
+  canModifyPermissions,
+  isFullyLockedSystemRole,
+  isSystemRole,
+} from "@/components/admin/roles/system-role-policy"
 import { UserAvatar } from "@/components/admin/user-badges"
 import { EmptyState } from "@/components/shared/page-elements"
 import { roleDisplayName, type CatalogRole } from "@/lib/api/types"
@@ -60,7 +64,9 @@ export function RoleDetailPanel({
   roleUsersLoading?: boolean
   matrix: ReactNode
 }) {
-  const isSystem = SYSTEM_ROLE_CODES.has(role.name)
+  const isSystem = isSystemRole(role.name)
+  const fullyLocked = isFullyLockedSystemRole(role.name)
+  const canEditPerms = canModifyPermissions(role.name)
   const permCount = role.permissionCount ?? role.permissions?.length ?? 0
   const assigned = role.assignedUsersCount ?? roleUsers?.length ?? 0
 
@@ -108,11 +114,17 @@ export function RoleDetailPanel({
                   className="h-7 cursor-pointer rounded-md text-xs"
                   variant={isEditing ? "secondary" : "default"}
                   onClick={onStartEditPermissions}
-                  disabled={isSystem}
-                  title={isSystem ? "System role permissions are locked — clone to customize" : undefined}
+                  disabled={fullyLocked}
+                  title={
+                    fullyLocked
+                      ? "System role permissions are locked — clone to customize"
+                      : isSystem
+                        ? "Add permissions only — baseline cannot be removed"
+                        : undefined
+                  }
                 >
                   <Pencil className="mr-1 size-3" aria-hidden />
-                  {isSystem ? "Locked" : isEditing ? "Editing" : "Edit Role"}
+                  {fullyLocked ? "Locked" : isEditing ? "Editing" : canEditPerms ? "Edit Role" : "View"}
                 </Button>
                 <Button
                   type="button"

@@ -1,7 +1,7 @@
 /**
  * Enterprise RBAC matrix: modules × actions.
  * Each cell maps to at most one catalog permission name.
- * Empty cells are intentionally unavailable for that module.
+ * Empty cells are intentionally unavailable (not seeded yet).
  */
 
 export const MATRIX_ACTIONS = [
@@ -15,6 +15,10 @@ export const MATRIX_ACTIONS = [
   { id: "import", label: "Import" },
   { id: "assign", label: "Assign" },
   { id: "manage", label: "Manage" },
+  { id: "archive", label: "Archive" },
+  { id: "restore", label: "Restore" },
+  { id: "print", label: "Print" },
+  { id: "share", label: "Share" },
 ] as const
 
 export type MatrixActionId = (typeof MATRIX_ACTIONS)[number]["id"]
@@ -22,10 +26,16 @@ export type MatrixActionId = (typeof MATRIX_ACTIONS)[number]["id"]
 export type MatrixModuleIcon =
   | "layout-dashboard"
   | "users"
+  | "shield"
+  | "map"
+  | "map-pin"
+  | "building-2"
+  | "landmark"
   | "clipboard-list"
   | "badge-check"
   | "file-bar-chart"
   | "upload"
+  | "camera"
   | "database"
   | "settings"
   | "scroll-text"
@@ -41,6 +51,14 @@ export type MatrixModuleDef = {
   cells: Partial<Record<MatrixActionId, string>>
 }
 
+/** Geo controllers use survey:view for read and role:assign for mutate. */
+const GEO_CELLS: Partial<Record<MatrixActionId, string>> = {
+  view: "survey:view",
+  create: "role:assign",
+  edit: "role:assign",
+  delete: "role:assign",
+}
+
 export const MATRIX_MODULES: MatrixModuleDef[] = [
   {
     id: "dashboard",
@@ -52,16 +70,61 @@ export const MATRIX_MODULES: MatrixModuleDef[] = [
   {
     id: "users",
     label: "Users",
-    description: "Directory, lifecycle, and role assignment",
+    description: "Directory, lifecycle, and password reset",
     icon: "users",
     cells: {
       view: "user:view",
       create: "user:create",
       edit: "user:update",
       delete: "user:delete",
-      assign: "role:assign",
       manage: "user:reset_password",
     },
+  },
+  {
+    id: "roles",
+    label: "Roles",
+    description: "Role assignment and RBAC administration",
+    icon: "shield",
+    cells: {
+      view: "user:view",
+      assign: "role:assign",
+      manage: "role:assign",
+    },
+  },
+  {
+    id: "states",
+    label: "States",
+    description: "Geographic state master",
+    icon: "map",
+    cells: GEO_CELLS,
+  },
+  {
+    id: "districts",
+    label: "Districts",
+    description: "Geographic district master",
+    icon: "map-pin",
+    cells: GEO_CELLS,
+  },
+  {
+    id: "blocks",
+    label: "Blocks",
+    description: "Geographic block master (uses ULB APIs)",
+    icon: "building-2",
+    cells: GEO_CELLS,
+  },
+  {
+    id: "ulbs",
+    label: "ULBs",
+    description: "Urban local body master",
+    icon: "landmark",
+    cells: GEO_CELLS,
+  },
+  {
+    id: "wards",
+    label: "Wards",
+    description: "Ward master",
+    icon: "map-pin",
+    cells: GEO_CELLS,
   },
   {
     id: "survey",
@@ -90,6 +153,18 @@ export const MATRIX_MODULES: MatrixModuleDef[] = [
       approve: "survey:approve",
       reject: "survey:reject",
       export: "report:export",
+    },
+  },
+  {
+    id: "photos",
+    label: "Photos",
+    description: "Survey photo capture and management",
+    icon: "camera",
+    cells: {
+      view: "survey:view",
+      create: "photo:create",
+      edit: "photo:update",
+      delete: "photo:delete",
     },
   },
   {

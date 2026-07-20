@@ -94,6 +94,8 @@ export interface CatalogRole {
   id: string
   name: string
   description?: string | null
+  createdAt?: string
+  updatedAt?: string
   permissionCount?: number
   assignedUsersCount?: number
   permissions?: Array<{

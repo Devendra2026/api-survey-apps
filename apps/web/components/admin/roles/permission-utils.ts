@@ -4,6 +4,9 @@ import {
   type MatrixActionId,
   type MatrixModuleDef,
 } from "@/components/admin/roles/matrix-config"
+import { SYSTEM_ROLE_CODES } from "@/components/admin/roles/system-role-policy"
+
+export { SYSTEM_ROLE_CODES }
 
 export function rolePermissionIdSet(
   role?: {
@@ -26,8 +29,6 @@ export function setsEqual(a: Set<string>, b: Set<string>): boolean {
   for (const id of a) if (!b.has(id)) return false
   return true
 }
-
-export const SYSTEM_ROLE_CODES = new Set(["PENDING_APPROVAL", "SURVEYOR", "FIELD_SUPERVISOR", "QC_SUPERVISOR", "ADMIN"])
 
 export type CheckboxTriState = boolean | "indeterminate"
 

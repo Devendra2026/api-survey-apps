@@ -36,7 +36,10 @@ export function MobileBottomNav() {
             (item.href !== "/admin/settings" && item.href !== "/qc/registry" && pathname.startsWith(`${item.href}/`)) ||
             (item.href === "/qc/registry" && pathname.startsWith("/qc")) ||
             (item.href === "/admin/settings" &&
-              (pathname.startsWith("/admin") || pathname.startsWith("/master-data") || pathname.startsWith("/import")))
+              (pathname.startsWith("/admin") ||
+                pathname.startsWith("/master-data") ||
+                pathname.startsWith("/configuration") ||
+                pathname.startsWith("/import")))
 
           return (
             <li key={item.href}>

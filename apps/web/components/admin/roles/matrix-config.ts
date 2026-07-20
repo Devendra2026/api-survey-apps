@@ -15,6 +15,7 @@ export const MATRIX_ACTIONS = [
   { id: "import", label: "Import" },
   { id: "assign", label: "Assign" },
   { id: "manage", label: "Manage" },
+  { id: "publish", label: "Publish" },
   { id: "archive", label: "Archive" },
   { id: "restore", label: "Restore" },
   { id: "print", label: "Print" },
@@ -190,13 +191,14 @@ export const MATRIX_MODULES: MatrixModuleDef[] = [
   },
   {
     id: "master",
-    label: "Master Data",
-    description: "Geographic and reference masters",
+    label: "Configuration",
+    description: "Reference catalogs, geography, and tax engine",
     icon: "database",
     cells: {
       view: "settings:view",
       edit: "settings:manage",
       manage: "settings:manage",
+      publish: "settings:publish",
     },
   },
   {

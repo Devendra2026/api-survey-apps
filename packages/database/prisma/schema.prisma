@@ -211,29 +211,52 @@ enum GpsSource {
 // Geography hierarchy: State → District → Ulb → Ward
 // -----------------------------------------------------------------------------
 
+enum GeoEntityStatus {
+  ACTIVE
+  DISABLED
+  ARCHIVED
+}
+
+enum ReferenceEntryStatus {
+  ACTIVE
+  DISABLED
+  ARCHIVED
+}
+
+enum TaxConfigStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
 /// Top-level administrative unit (e.g. Telangana).
 model State {
-  id        String   @id @default(cuid())
+  id        String          @id @default(cuid())
   name      String
-  code      String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  code      String          @unique
+  status    GeoEntityStatus @default(ACTIVE)
+  updatedBy String?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
 
   districts       District[]
   surveys         Survey[]
   userTenantRoles UserTenantRole[]
 
   @@index([name])
+  @@index([status])
   @@map("states")
 }
 
 /// District within a state.
 model District {
-  id        String   @id @default(cuid())
+  id        String          @id @default(cuid())
   stateId   String
   name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  status    GeoEntityStatus @default(ACTIVE)
+  updatedBy String?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
 
   state           State            @relation(fields: [stateId], references: [id], onDelete: Restrict)
   ulbs            Ulb[]
@@ -242,6 +265,7 @@ model District {
 
   @@unique([stateId, name])
   @@index([stateId])
+  @@index([status])
   @@map("districts")
 }
 
@@ -249,13 +273,15 @@ model District {
 /// Operational multi-tenant grain for most RBAC and survey filtering.
 /// LGD / municipality codes are globally unique.
 model Ulb {
-  id         String   @id @default(cuid())
+  id         String          @id @default(cuid())
   districtId String
   name       String
-  code       String   @unique
+  code       String          @unique
   type       UlbType
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  status     GeoEntityStatus @default(ACTIVE)
+  updatedBy  String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
 
   district        District         @relation(fields: [districtId], references: [id], onDelete: Restrict)
   wards           Ward[]
@@ -264,25 +290,152 @@ model Ulb {
 
   @@unique([districtId, name])
   @@index([districtId])
+  @@index([status])
   @@map("ulbs")
 }
 
 /// Ward within a ULB.
 model Ward {
-  id         String   @id @default(cuid())
+  id         String          @id @default(cuid())
   ulbId      String
   wardNumber String
   wardName   String
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  status     GeoEntityStatus @default(ACTIVE)
+  updatedBy  String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
 
   ulb             Ulb              @relation(fields: [ulbId], references: [id], onDelete: Restrict)
   surveys         Survey[]
   userTenantRoles UserTenantRole[]
+  taxConfigs      TaxConfig[]
 
   @@unique([ulbId, wardNumber])
   @@index([ulbId])
+  @@index([status])
   @@map("wards")
+}
+
+// -----------------------------------------------------------------------------
+// Configuration Registry — reference catalogs + tax engine
+// -----------------------------------------------------------------------------
+
+model ReferenceCategory {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String?
+  iconKey     String?
+  isSystem    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  entries ReferenceEntry[]
+
+  @@map("reference_categories")
+}
+
+model ReferenceEntry {
+  id          String               @id @default(cuid())
+  categoryId  String
+  code        String
+  name        String
+  description String?
+  value       String?
+  status      ReferenceEntryStatus @default(ACTIVE)
+  version     Int                  @default(1)
+  sortOrder   Int                  @default(0)
+  createdBy   String?
+  updatedBy   String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  category                ReferenceCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  taxConfigsAsAy          TaxConfig[]       @relation("TaxConfigAssessmentYear")
+  rateCellsAsRoad         TaxRateCell[]     @relation("CellRoadWidth")
+  rateCellsAsConstruction TaxRateCell[]     @relation("CellConstruction")
+
+  @@unique([categoryId, code])
+  @@index([categoryId, status])
+  @@map("reference_entries")
+}
+
+/// One working tax configuration document per Ward × Assessment Year.
+model TaxConfig {
+  id               String          @id @default(cuid())
+  wardId           String
+  assessmentYearId String
+  status           TaxConfigStatus @default(DRAFT)
+  version          Int             @default(1)
+  effectiveFrom    DateTime?
+  propertyTaxPct   Decimal         @default(10) @db.Decimal(8, 4)
+  waterTaxPct      Decimal         @default(0) @db.Decimal(8, 4)
+  drainageTaxPct   Decimal         @default(0) @db.Decimal(8, 4)
+  penaltyPct       Decimal         @default(0) @db.Decimal(8, 4)
+  assessablePct    Decimal         @default(80) @db.Decimal(8, 4)
+  publishedAt      DateTime?
+  publishedBy      String?
+  changeReason     String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  ward           Ward              @relation(fields: [wardId], references: [id], onDelete: Cascade)
+  assessmentYear ReferenceEntry    @relation("TaxConfigAssessmentYear", fields: [assessmentYearId], references: [id])
+  cells          TaxRateCell[]
+  versions       TaxConfigVersion[]
+
+  @@unique([wardId, assessmentYearId])
+  @@index([wardId, assessmentYearId])
+  @@index([status])
+  @@map("tax_configs")
+}
+
+model TaxRateCell {
+  id                  String   @id @default(cuid())
+  taxConfigId         String
+  roadWidthEntryId    String
+  constructionEntryId String
+  annualRatePerSqFt   Decimal  @default(0) @db.Decimal(14, 4)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  taxConfig         TaxConfig      @relation(fields: [taxConfigId], references: [id], onDelete: Cascade)
+  roadWidthEntry    ReferenceEntry @relation("CellRoadWidth", fields: [roadWidthEntryId], references: [id])
+  constructionEntry ReferenceEntry @relation("CellConstruction", fields: [constructionEntryId], references: [id])
+
+  @@unique([taxConfigId, roadWidthEntryId, constructionEntryId])
+  @@map("tax_rate_cells")
+}
+
+model TaxConfigVersion {
+  id          String   @id @default(cuid())
+  taxConfigId String
+  version     Int
+  snapshot    Json
+  reason      String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+
+  taxConfig TaxConfig @relation(fields: [taxConfigId], references: [id], onDelete: Cascade)
+
+  @@index([taxConfigId, version])
+  @@map("tax_config_versions")
+}
+
+model ConfigAuditLog {
+  id         String   @id @default(cuid())
+  entityType String
+  entityId   String
+  action     String
+  oldValue   Json?
+  newValue   Json?
+  reason     String?
+  actorId    String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("config_audit_logs")
 }
 
 // -----------------------------------------------------------------------------

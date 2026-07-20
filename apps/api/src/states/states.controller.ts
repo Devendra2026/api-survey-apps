@@ -15,31 +15,31 @@ export class StatesController {
   constructor(private readonly statesService: StatesService) {}
 
   @Get()
-  @RequirePermission(PERMISSIONS.SURVEY_VIEW)
+  @RequirePermission(PERMISSIONS.SETTINGS_VIEW)
   findAll(@Query() query: PaginationQueryDto, @CurrentUser() user: AuthenticatedUser) {
     return this.statesService.findAll(query, user)
   }
 
   @Get(":id")
-  @RequirePermission(PERMISSIONS.SURVEY_VIEW)
+  @RequirePermission(PERMISSIONS.SETTINGS_VIEW)
   findOne(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.statesService.findById(id, user)
   }
 
   @Post()
-  @RequirePermission(PERMISSIONS.ROLE_ASSIGN)
-  create(@Body() dto: CreateStateDto) {
-    return this.statesService.create(dto)
+  @RequirePermission(PERMISSIONS.SETTINGS_MANAGE)
+  create(@Body() dto: CreateStateDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.statesService.create(dto, user.id)
   }
 
   @Patch(":id")
-  @RequirePermission(PERMISSIONS.ROLE_ASSIGN)
+  @RequirePermission(PERMISSIONS.SETTINGS_MANAGE)
   update(@Param("id") id: string, @Body() dto: UpdateStateDto, @CurrentUser() user: AuthenticatedUser) {
     return this.statesService.update(id, dto, user)
   }
 
   @Delete(":id")
-  @RequirePermission(PERMISSIONS.ROLE_ASSIGN)
+  @RequirePermission(PERMISSIONS.SETTINGS_MANAGE)
   remove(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.statesService.delete(id, user)
   }

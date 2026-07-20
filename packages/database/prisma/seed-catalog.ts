@@ -1,4 +1,5 @@
 import { PrismaClient, UlbType } from "../src/generated/prisma/client.js"
+import { seedReferenceCatalogs } from "./seed-reference-catalogs.js"
 
 // -----------------------------------------------------------------------------
 // RBAC catalog
@@ -29,6 +30,7 @@ const PERMISSIONS: Array<{ name: string; description: string }> = [
   { name: "photo:delete", description: "Delete survey photos" },
   { name: "settings:view", description: "View system settings" },
   { name: "settings:manage", description: "Manage system settings" },
+  { name: "settings:publish", description: "Publish and rollback tax configuration" },
 ]
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {
@@ -265,5 +267,6 @@ async function seedGeography(db: PrismaClient): Promise<Geography> {
 export async function seedCatalog(db: PrismaClient) {
   const roles = await seedPermissionsAndRoles(db)
   const geo = await seedGeography(db)
+  await seedReferenceCatalogs(db)
   return { roles, geo }
 }

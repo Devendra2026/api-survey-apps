@@ -23,31 +23,31 @@ export class WardsController {
   constructor(private readonly wardsService: WardsService) {}
 
   @Get()
-  @RequirePermission(PERMISSIONS.SURVEY_VIEW)
+  @RequirePermission(PERMISSIONS.SETTINGS_VIEW)
   findAll(@Query() query: WardQueryDto, @CurrentUser() user: AuthenticatedUser) {
     return this.wardsService.findAll(query, user, query.ulbId)
   }
 
   @Get(":id")
-  @RequirePermission(PERMISSIONS.SURVEY_VIEW)
+  @RequirePermission(PERMISSIONS.SETTINGS_VIEW)
   findOne(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.wardsService.findById(id, user)
   }
 
   @Post()
-  @RequirePermission(PERMISSIONS.ROLE_ASSIGN)
+  @RequirePermission(PERMISSIONS.SETTINGS_MANAGE)
   create(@Body() dto: CreateWardDto) {
     return this.wardsService.create(dto)
   }
 
   @Patch(":id")
-  @RequirePermission(PERMISSIONS.ROLE_ASSIGN)
+  @RequirePermission(PERMISSIONS.SETTINGS_MANAGE)
   update(@Param("id") id: string, @Body() dto: UpdateWardDto, @CurrentUser() user: AuthenticatedUser) {
     return this.wardsService.update(id, dto, user)
   }
 
   @Delete(":id")
-  @RequirePermission(PERMISSIONS.ROLE_ASSIGN)
+  @RequirePermission(PERMISSIONS.SETTINGS_MANAGE)
   remove(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.wardsService.delete(id, user)
   }

@@ -23,31 +23,31 @@ export class DistrictsController {
   constructor(private readonly districtsService: DistrictsService) {}
 
   @Get()
-  @RequirePermission(PERMISSIONS.SURVEY_VIEW)
+  @RequirePermission(PERMISSIONS.SETTINGS_VIEW)
   findAll(@Query() query: DistrictQueryDto, @CurrentUser() user: AuthenticatedUser) {
     return this.districtsService.findAll(query, user, query.stateId)
   }
 
   @Get(":id")
-  @RequirePermission(PERMISSIONS.SURVEY_VIEW)
+  @RequirePermission(PERMISSIONS.SETTINGS_VIEW)
   findOne(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.districtsService.findById(id, user)
   }
 
   @Post()
-  @RequirePermission(PERMISSIONS.ROLE_ASSIGN)
+  @RequirePermission(PERMISSIONS.SETTINGS_MANAGE)
   create(@Body() dto: CreateDistrictDto) {
     return this.districtsService.create(dto)
   }
 
   @Patch(":id")
-  @RequirePermission(PERMISSIONS.ROLE_ASSIGN)
+  @RequirePermission(PERMISSIONS.SETTINGS_MANAGE)
   update(@Param("id") id: string, @Body() dto: UpdateDistrictDto, @CurrentUser() user: AuthenticatedUser) {
     return this.districtsService.update(id, dto, user)
   }
 
   @Delete(":id")
-  @RequirePermission(PERMISSIONS.ROLE_ASSIGN)
+  @RequirePermission(PERMISSIONS.SETTINGS_MANAGE)
   remove(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.districtsService.delete(id, user)
   }

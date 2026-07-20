@@ -33,9 +33,13 @@ import { StorageModule } from "./storage/storage.module.js"
 import { SurveyAuditsModule } from "./survey-audits/survey-audits.module.js"
 import { SurveyRegistryModule } from "./survey-registry/survey-registry.module.js"
 import { SurveysModule } from "./surveys/surveys.module.js"
+import { TaxConfigsModule } from "./tax-configs/tax-configs.module.js"
 import { UlbsModule } from "./ulbs/ulbs.module.js"
 import { UsersModule } from "./users/users.module.js"
 import { WardsModule } from "./wards/wards.module.js"
+import { ConfigAuditModule } from "./config-audit/config-audit.module.js"
+import { ConfigurationModule } from "./configuration/configuration.module.js"
+import { ReferenceCatalogsModule } from "./reference-catalogs/reference-catalogs.module.js"
 
 @Module({
   imports: [
@@ -65,6 +69,10 @@ import { WardsModule } from "./wards/wards.module.js"
     DistrictsModule,
     UlbsModule,
     WardsModule,
+    ConfigAuditModule,
+    ReferenceCatalogsModule,
+    ConfigurationModule,
+    TaxConfigsModule,
     SurveysModule,
     CommandCenterModule,
     QcModule,

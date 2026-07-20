@@ -23,6 +23,7 @@ export const PERMISSIONS = {
   PHOTO_DELETE: "photo:delete",
   SETTINGS_VIEW: "settings:view",
   SETTINGS_MANAGE: "settings:manage",
+  SETTINGS_PUBLISH: "settings:publish",
 } as const
 
 export type PermissionName = (typeof PERMISSIONS)[keyof typeof PERMISSIONS]

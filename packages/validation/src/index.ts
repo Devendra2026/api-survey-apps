@@ -1,3 +1,4 @@
+export * from "./catalog-map.js"
 export * from "./convex-import-map.js"
 export * from "./import-geo.js"
 export * from "./property-id.js"

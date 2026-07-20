@@ -5,7 +5,6 @@ import {
   Database,
   FileUp,
   LayoutDashboard,
-  MapPin,
   Settings,
   Shield,
   Users,
@@ -94,18 +93,17 @@ export const appNav: NavItem[] = [
     children: [
       { title: "Users", href: "/admin/users", icon: Users, permission: "user:view" },
       { title: "Roles", href: "/admin/roles", icon: Shield, permission: "role:assign" },
-      { title: "Geography", href: "/admin/geography", icon: MapPin, permission: "role:assign" },
+      {
+        title: "Configuration",
+        href: "/configuration",
+        icon: Database,
+        permission: "settings:view",
+      },
       {
         title: "Import",
         href: "/import",
         icon: FileUp,
         permission: "survey:create",
-      },
-      {
-        title: "Master Data",
-        href: "/master-data",
-        icon: Database,
-        permission: "role:assign",
       },
     ],
   },

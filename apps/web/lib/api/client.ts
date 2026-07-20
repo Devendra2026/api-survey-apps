@@ -82,6 +82,12 @@ export async function apiPatch<T>(url: string, body?: unknown, config?: AxiosReq
   return data.data as T
 }
 
+export async function apiPut<T>(url: string, body?: unknown, config?: AxiosRequestConfig): Promise<T> {
+  const { data } = await apiClient.put<ApiResponse<T>>(url, body, config)
+  if (!data.success) throw new Error(data.message || "Request failed")
+  return data.data as T
+}
+
 export async function apiDelete<T>(url: string, config?: AxiosRequestConfig): Promise<T> {
   const { data } = await apiClient.delete<ApiResponse<T>>(url, config)
   if (!data.success) throw new Error(data.message || "Request failed")

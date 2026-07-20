@@ -3,9 +3,8 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger"
 import { PERMISSIONS } from "../common/constants/permissions.js"
 import { CurrentUser } from "../common/decorators/current-user.decorator.js"
 import { RequirePermission } from "../common/decorators/require-permission.decorator.js"
-import { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
-import { AssignTenantRoleDto, CreateUserDto, SyncUserDto, UpdateUserDto } from "./dto/user.dto.js"
+import { AssignTenantRoleDto, CreateUserDto, ListUsersQueryDto, SyncUserDto, UpdateUserDto } from "./dto/user.dto.js"
 import { UsersService } from "./users.service.js"
 
 @ApiTags("users")
@@ -26,9 +25,23 @@ export class UsersController {
     return this.usersService.sync(user, dto)
   }
 
+  @Get("stats")
+  @RequirePermission(PERMISSIONS.USER_VIEW)
+  @ApiOperation({ summary: "User directory KPI counts" })
+  getStats(@CurrentUser() user: AuthenticatedUser) {
+    return this.usersService.getStats(user)
+  }
+
+  @Get(":id/audits")
+  @RequirePermission(PERMISSIONS.USER_VIEW)
+  @ApiOperation({ summary: "Security audit events for a user" })
+  getAudits(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.usersService.getAudits(id, user)
+  }
+
   @Get()
   @RequirePermission(PERMISSIONS.USER_VIEW)
-  findAll(@Query() query: PaginationQueryDto, @CurrentUser() user: AuthenticatedUser) {
+  findAll(@Query() query: ListUsersQueryDto, @CurrentUser() user: AuthenticatedUser) {
     return this.usersService.findAll(query, user)
   }
 

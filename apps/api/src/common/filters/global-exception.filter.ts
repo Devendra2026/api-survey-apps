@@ -18,6 +18,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       status = exception.getStatus()
       const body = exception.getResponse()
+      // Log full validation / HTTP response body (e.g. class-validator messages)
+      this.logger.warn(`HttpException ${status} ${request.method} ${request.url} → ${JSON.stringify(body)}`)
       if (typeof body === "string") {
         message = body
       } else if (typeof body === "object" && body !== null) {

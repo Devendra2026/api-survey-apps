@@ -1,5 +1,4 @@
-import { ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common"
-import type { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import {
   canAccessTenant,
@@ -8,8 +7,17 @@ import {
   userHasPermissionInTenant,
 } from "../common/utils/tenant-scope.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
-import type { AssignTenantRoleDto, CreateUserDto, SyncUserDto, UpdateUserDto } from "./dto/user.dto.js"
+import type {
+  AssignTenantRoleDto,
+  CreateUserDto,
+  ListUsersQueryDto,
+  SyncUserDto,
+  UpdateUserDto,
+} from "./dto/user.dto.js"
 import { UsersRepository } from "./users.repository.js"
+
+const ROLES_REQUIRING_FULL_GEO = new Set(["SURVEYOR", "FIELD_SUPERVISOR"])
+const ROLES_REQUIRING_GLOBAL = new Set(["ADMIN", "PENDING_APPROVAL"])
 
 @Injectable()
 export class UsersService {
@@ -20,9 +28,19 @@ export class UsersService {
     private readonly prisma: PrismaService
   ) {}
 
-  findAll(query: PaginationQueryDto, actor: AuthenticatedUser) {
+  findAll(query: ListUsersQueryDto, actor: AuthenticatedUser) {
     const scope = resolveTenantScope(actor.tenantRoles)
     return this.usersRepository.findAll(query, scope)
+  }
+
+  getStats(actor: AuthenticatedUser) {
+    const scope = resolveTenantScope(actor.tenantRoles)
+    return this.usersRepository.getStats(scope)
+  }
+
+  async getAudits(userId: string, actor: AuthenticatedUser) {
+    await this.findById(userId, actor)
+    return this.usersRepository.findAuditsForUser(userId)
   }
 
   async findById(id: string, actor: AuthenticatedUser) {
@@ -55,18 +73,46 @@ export class UsersService {
   }
 
   async update(id: string, dto: UpdateUserDto, actor: AuthenticatedUser) {
+    if (dto.isActive === false && id === actor.id) {
+      throw new ForbiddenException("You cannot disable your own account")
+    }
     await this.findById(id, actor)
     return this.usersRepository.update(id, dto)
   }
 
   async assignTenantRole(dto: AssignTenantRoleDto, actor: AuthenticatedUser) {
     const actorScope = resolveTenantScope(actor.tenantRoles)
-    const isGlobalAssignment = !dto.stateId && !dto.districtId && !dto.ulbId && !dto.wardId
+
+    const role = await this.prisma.db.role.findUnique({ where: { id: dto.roleId } })
+    if (!role) throw new NotFoundException("Role not found")
+
+    // Normalize geo based on role rules
+    let stateId = dto.stateId
+    let districtId = dto.districtId
+    let ulbId = dto.ulbId
+    let wardId = dto.wardId
+
+    if (ROLES_REQUIRING_GLOBAL.has(role.name)) {
+      stateId = undefined
+      districtId = undefined
+      ulbId = undefined
+      wardId = undefined
+    }
+
+    if (ROLES_REQUIRING_FULL_GEO.has(role.name)) {
+      if (!stateId || !districtId || !ulbId || !wardId) {
+        throw new BadRequestException(
+          `${role.name === "FIELD_SUPERVISOR" ? "Supervisor" : "Surveyor"} assignments require State, District, ULB, and Ward`
+        )
+      }
+    }
+
+    const isGlobalAssignment = !stateId && !districtId && !ulbId && !wardId
     const geo = {
-      stateId: dto.stateId,
-      districtId: dto.districtId,
-      ulbId: dto.ulbId,
-      wardId: dto.wardId,
+      stateId,
+      districtId,
+      ulbId,
+      wardId,
     }
 
     if (!actorScope.isGlobal && !userHasPermissionInTenant(actor, "role:assign", isGlobalAssignment ? {} : geo)) {
@@ -83,12 +129,26 @@ export class UsersService {
 
     await this.assertGeoHierarchy(geo)
 
-    const role = await this.prisma.db.role.findUnique({ where: { id: dto.roleId } })
-    if (!role) throw new NotFoundException("Role not found")
-
     const actorRoleNames = actor.tenantRoles.filter((r) => r.isActive).map((r) => r.roleName)
-    if (!actorScope.isGlobal && !canGrantRole(actorRoleNames, role.name)) {
+    if (!canGrantRole(actorRoleNames, role.name)) {
       throw new ForbiddenException(`Your role cannot grant ${role.name}`)
+    }
+
+    const target = await this.usersRepository.findById(dto.userId)
+    if (!this.canViewUser(actor, target)) {
+      throw new ForbiddenException("Cannot assign roles to users outside your tenant scope")
+    }
+
+    // Single active assignment model: deactivate prior roles before creating the new one
+    await this.usersRepository.deactivateActiveRolesForUser(dto.userId, actor.id)
+
+    const normalizedDto: AssignTenantRoleDto = {
+      userId: dto.userId,
+      roleId: dto.roleId,
+      stateId,
+      districtId,
+      ulbId,
+      wardId,
     }
 
     await this.prisma.db.securityAudit.create({
@@ -105,8 +165,8 @@ export class UsersService {
       },
     })
 
-    this.logger.log(`Role assignment user=${dto.userId} role=${dto.roleId} by=${actor.id}`)
-    return this.usersRepository.assignTenantRole(dto, actor.id)
+    this.logger.log(`Role assignment user=${dto.userId} role=${role.name} by=${actor.id}`)
+    return this.usersRepository.assignTenantRole(normalizedDto, actor.id)
   }
 
   async deactivateTenantRole(id: string, actor: AuthenticatedUser) {

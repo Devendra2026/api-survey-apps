@@ -5,7 +5,7 @@ import { PrismaService } from "../../prisma/prisma.service.js"
 /**
  * Bootstraps the first real ADMIN when a Clerk user has no tenant roles
  * and their clerkUserId is listed in BOOTSTRAP_ADMIN_CLERK_USER_IDS.
- * Does not hardcode permissions — ADMIN gets them via RolePermission in the DB.
+ * Otherwise assigns PENDING_APPROVAL so new signups wait for Admin approval.
  */
 @Injectable()
 export class RoleProvisioningService {
@@ -53,6 +53,45 @@ export class RoleProvisioningService {
     })
 
     this.logger.log(`Bootstrapped ADMIN for clerkUserId=${clerkUserId}`)
+    return true
+  }
+
+  /**
+   * Assigns PENDING_APPROVAL when the user has no active tenant roles
+   * (and was not bootstrapped as ADMIN).
+   */
+  async ensurePendingApproval(userId: string): Promise<boolean> {
+    const existing = await this.prisma.db.userTenantRole.findFirst({
+      where: { userId, isActive: true },
+      select: { id: true },
+    })
+    if (existing) {
+      return false
+    }
+
+    const pendingRole = await this.prisma.db.role.findUnique({
+      where: { name: "PENDING_APPROVAL" },
+      select: { id: true },
+    })
+    if (!pendingRole) {
+      this.logger.error("PENDING_APPROVAL role not found — run db seed")
+      return false
+    }
+
+    await this.prisma.db.userTenantRole.create({
+      data: {
+        userId,
+        roleId: pendingRole.id,
+        assignedBy: userId,
+        stateId: null,
+        districtId: null,
+        ulbId: null,
+        wardId: null,
+        isActive: true,
+      },
+    })
+
+    this.logger.log(`Assigned PENDING_APPROVAL for userId=${userId}`)
     return true
   }
 

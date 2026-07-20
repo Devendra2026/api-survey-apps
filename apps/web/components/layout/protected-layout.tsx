@@ -48,13 +48,29 @@ export function ProtectedDashboardLayout({ children }: { children: React.ReactNo
   }
 
   if (isError) {
+    const message = getApiErrorMessage(error)
+    const isDisabled = message.includes("disabled") || message.includes("Your account has been disabled")
+
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 p-6 text-center">
-        <p className="text-sm text-destructive">Unable to load your profile.</p>
-        <p className="max-w-md text-xs text-muted-foreground">{getApiErrorMessage(error)}</p>
-        <Button type="button" variant="outline" size="sm" onClick={() => void refetch()}>
-          Retry
-        </Button>
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background p-6 text-center">
+        <div className="surface-elevated w-full max-w-md space-y-3 p-8">
+          {isDisabled ? (
+            <>
+              <p className="text-lg font-semibold tracking-tight">Account disabled</p>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                Your account has been disabled. Please contact the system administrator.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-medium text-destructive">Unable to load your profile.</p>
+              <p className="text-xs text-muted-foreground">{message}</p>
+              <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={() => void refetch()}>
+                Retry
+              </Button>
+            </>
+          )}
+        </div>
       </div>
     )
   }
@@ -62,16 +78,24 @@ export function ProtectedDashboardLayout({ children }: { children: React.ReactNo
   const permissions = user?.permissions ?? []
   if (permissions.length === 0) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 p-6 text-center">
-        <p className="text-lg font-semibold">Account pending role assignment</p>
-        <p className="max-w-md text-sm text-muted-foreground">
-          You are signed in, but no application role has been assigned yet. Contact an administrator to grant access, or
-          ensure your Clerk user ID is listed in <code className="text-xs">BOOTSTRAP_ADMIN_CLERK_USER_IDS</code> for
-          first-admin setup.
-        </p>
-        <Button type="button" variant="outline" size="sm" onClick={() => void refetch()}>
-          Refresh profile
-        </Button>
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background p-6 text-center">
+        <div className="surface-elevated w-full max-w-md space-y-4 p-8">
+          <div className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-700 dark:text-amber-300">
+            <span className="text-lg font-semibold" aria-hidden>
+              …
+            </span>
+          </div>
+          <div className="space-y-2">
+            <p className="text-lg font-semibold tracking-tight">Pending User</p>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Your account is waiting for administrator approval. An Admin must assign your role and working area before
+              you can access the portal.
+            </p>
+          </div>
+          <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={() => void refetch()}>
+            Refresh profile
+          </Button>
+        </div>
       </div>
     )
   }

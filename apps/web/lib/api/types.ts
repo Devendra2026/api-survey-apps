@@ -32,10 +32,35 @@ export interface TenantRole {
   ulbId?: string | null
   wardId?: string | null
   isActive: boolean
+  state?: { id: string; name: string; code?: string } | null
+  district?: { id: string; name: string } | null
+  ulb?: { id: string; name: string; code?: string } | null
+  ward?: { id: string; wardNumber: string; wardName: string } | null
+}
+
+export const ROLE_LABELS: Record<string, string> = {
+  PENDING_APPROVAL: "Pending User",
+  SURVEYOR: "Surveyor",
+  FIELD_SUPERVISOR: "Supervisor",
+  QC_SUPERVISOR: "QC Supervisor",
+  ADMIN: "Admin",
+}
+
+export const ASSIGNABLE_ROLES = ["PENDING_APPROVAL", "SURVEYOR", "FIELD_SUPERVISOR", "QC_SUPERVISOR", "ADMIN"] as const
+
+export type AssignableRoleName = (typeof ASSIGNABLE_ROLES)[number]
+
+export function tenantRoleCode(role: TenantRole): string {
+  return role.role?.name ?? role.roleName ?? "UNKNOWN"
 }
 
 export function tenantRoleDisplayName(role: TenantRole): string {
-  return role.role?.name ?? role.roleName ?? "Role"
+  const code = tenantRoleCode(role)
+  return ROLE_LABELS[code] ?? code
+}
+
+export function roleDisplayName(roleName: string): string {
+  return ROLE_LABELS[roleName] ?? roleName
 }
 
 export interface AppUser {
@@ -51,6 +76,48 @@ export interface AppUser {
 
 export interface AuthenticatedProfile extends AppUser {
   permissions: string[]
+}
+
+export interface UserDirectoryStats {
+  total: number
+  active: number
+  disabled: number
+  pending: number
+  surveyors: number
+  supervisors: number
+  qcSupervisors: number
+  admins: number
+  byRole: Record<string, number>
+}
+
+export interface CatalogRole {
+  id: string
+  name: string
+  description?: string | null
+  permissionCount?: number
+  assignedUsersCount?: number
+  permissions?: Array<{
+    permissionId?: string
+    permission?: { id: string; name: string; description?: string | null } | null
+  }>
+}
+
+export interface CatalogPermission {
+  id: string
+  name: string
+  description?: string | null
+}
+
+export interface SecurityAuditItem {
+  id: string
+  action: string
+  actorId: string
+  targetType: string
+  targetId?: string | null
+  oldValue?: unknown
+  newValue?: unknown
+  createdAt: string
+  actor?: { id: string; fullName: string; email: string }
 }
 
 export interface DashboardSummary {

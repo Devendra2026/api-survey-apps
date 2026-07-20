@@ -36,7 +36,7 @@ export function PageHeader({
   breadcrumbs?: Array<{ label: string; href?: string }>
 }) {
   return (
-    <div className="space-y-3">
+    <div className="animate-in-slide space-y-4">
       {breadcrumbs && breadcrumbs.length > 0 ? (
         <Breadcrumb>
           <BreadcrumbList>
@@ -57,10 +57,14 @@ export function PageHeader({
           </BreadcrumbList>
         </Breadcrumb>
       ) : null}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-          {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0 space-y-1.5">
+          <h1 className="text-2xl font-semibold tracking-tight text-balance text-foreground md:text-[1.75rem]">
+            {title}
+          </h1>
+          {description ? (
+            <p className="max-w-2xl text-sm leading-relaxed text-pretty text-muted-foreground">{description}</p>
+          ) : null}
         </div>
         {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
       </div>
@@ -73,26 +77,89 @@ export function EmptyState({
   description,
   action,
   className,
+  icon,
 }: {
   title: string
   description?: string
   action?: React.ReactNode
   className?: string
+  icon?: React.ReactNode
 }) {
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center rounded-xl border border-dashed px-6 py-14 text-center",
+        "flex flex-col items-center justify-center rounded-2xl border border-dashed bg-muted/20 px-6 py-16 text-center",
         className
       )}
     >
-      <div className="mb-3 flex size-10 items-center justify-center rounded-full bg-muted">
-        <Inbox className="size-4 text-muted-foreground" />
+      <div className="mb-4 flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary shadow-sm">
+        {icon ?? <Inbox className="size-5" aria-hidden />}
       </div>
-      <h3 className="text-sm font-medium">{title}</h3>
-      {description ? <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">{description}</p> : null}
-      {action ? <div className="mt-4">{action}</div> : null}
+      <h3 className="text-base font-semibold tracking-tight">{title}</h3>
+      {description ? (
+        <p className="mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">{description}</p>
+      ) : null}
+      {action ? <div className="mt-5">{action}</div> : null}
     </div>
+  )
+}
+
+export function StatCard({
+  label,
+  value,
+  hint,
+  icon,
+  tone = "default",
+  onClick,
+  active,
+}: {
+  label: string
+  value: string | number
+  hint?: string
+  icon?: React.ReactNode
+  tone?: "default" | "success" | "warning" | "danger" | "info"
+  onClick?: () => void
+  active?: boolean
+}) {
+  const toneClass = {
+    default: "from-primary/8 to-transparent text-primary",
+    success: "from-emerald-500/10 to-transparent text-emerald-700 dark:text-emerald-300",
+    warning: "from-amber-500/10 to-transparent text-amber-700 dark:text-amber-300",
+    danger: "from-rose-500/10 to-transparent text-rose-700 dark:text-rose-300",
+    info: "from-cyan-500/10 to-transparent text-cyan-700 dark:text-cyan-300",
+  }[tone]
+
+  const Comp = onClick ? "button" : "div"
+
+  return (
+    <Comp
+      type={onClick ? "button" : undefined}
+      onClick={onClick}
+      className={cn(
+        "surface-elevated group relative overflow-hidden p-4 text-left transition-all duration-200",
+        onClick && "cursor-pointer hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-ring",
+        active && "border-primary/40 ring-2 ring-primary/20"
+      )}
+    >
+      <div className={cn("pointer-events-none absolute inset-0 bg-linear-to-br opacity-80", toneClass)} />
+      <div className="relative flex items-start justify-between gap-3">
+        <div className="min-w-0 space-y-1">
+          <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{label}</p>
+          <p className="text-2xl font-semibold tracking-tight tabular-nums">{value}</p>
+          {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+        </div>
+        {icon ? (
+          <div
+            className={cn(
+              "flex size-10 shrink-0 items-center justify-center rounded-xl bg-background/80 shadow-sm",
+              toneClass.split(" ").slice(-1)[0]
+            )}
+          >
+            {icon}
+          </div>
+        ) : null}
+      </div>
+    </Comp>
   )
 }
 

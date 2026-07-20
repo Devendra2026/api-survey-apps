@@ -1,10 +1,12 @@
 "use client"
 
-import { apiDelete, apiGet, apiGetPaginated, apiPatch, apiPost, apiUpload } from "@/lib/api/client"
+import { apiDelete, apiGet, apiGetPaginated, apiPatch, apiPost, apiPut, apiUpload } from "@/lib/api/client"
 import type {
   AuthenticatedProfile,
   BulkActionResult,
   BulkExportResult,
+  CatalogPermission,
+  CatalogRole,
   CommandCenterFilters,
   CommandCenterKpis,
   CommandCenterWard,
@@ -31,11 +33,13 @@ import type {
   RegistryDraftSource,
   RegistryImportResult,
   SavedView,
+  SecurityAuditItem,
   SurveyAuditHistoryItem,
   SurveyDetails,
   SurveyListItem,
   SurveyRegistryFilters,
   SurveyRegistryResponse,
+  UserDirectoryStats,
   WardCommandStat,
 } from "@/lib/api/types"
 import { useAuthStore } from "@/stores/app-store"
@@ -525,7 +529,7 @@ export function useNotifications(page = 1) {
   })
 }
 
-export function useUsers(params: Record<string, string | number | undefined> = {}) {
+export function useUsers(params: Record<string, string | number | boolean | undefined> = {}) {
   const searchParams = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== "") searchParams.set(key, String(value))
@@ -538,6 +542,207 @@ export function useUsers(params: Record<string, string | number | undefined> = {
     queryKey: ["users", params],
     queryFn: () => apiGetPaginated<AuthenticatedProfile>(`/users?${searchParams}`),
     enabled,
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useUserStats() {
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canView = hasPermission("user:view")
+
+  return useQuery({
+    queryKey: ["users", "stats"],
+    queryFn: () => apiGet<UserDirectoryStats>("/users/stats"),
+    enabled: canView,
+  })
+}
+
+export function useRoles() {
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canView = hasPermission("user:view") || hasPermission("role:assign")
+
+  return useQuery({
+    queryKey: ["roles"],
+    queryFn: () => apiGetPaginated<CatalogRole>("/roles?limit=100"),
+    enabled: canView,
+  })
+}
+
+export function useRole(roleId?: string | null) {
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canView = hasPermission("user:view") || hasPermission("role:assign")
+
+  return useQuery({
+    queryKey: ["roles", roleId],
+    queryFn: () => apiGet<CatalogRole>(`/roles/${roleId}`),
+    enabled: Boolean(roleId) && canView,
+  })
+}
+
+export function useRoleAudits(roleId?: string | null) {
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canView = hasPermission("user:view") || hasPermission("role:assign")
+
+  return useQuery({
+    queryKey: ["roles", roleId, "audits"],
+    queryFn: () => apiGet<SecurityAuditItem[]>(`/roles/${roleId}/audits`),
+    enabled: Boolean(roleId) && canView,
+  })
+}
+
+export function usePermissionsCatalog() {
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canView = hasPermission("user:view") || hasPermission("role:assign")
+
+  return useQuery({
+    queryKey: ["permissions"],
+    queryFn: () => apiGetPaginated<CatalogPermission>("/permissions?page=1&limit=100"),
+    enabled: canView,
+  })
+}
+
+export function useUserAudits(userId?: string) {
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canView = hasPermission("user:view")
+
+  return useQuery({
+    queryKey: ["users", userId, "audits"],
+    queryFn: () => apiGet<SecurityAuditItem[]>(`/users/${userId}/audits`),
+    enabled: Boolean(userId) && canView,
+  })
+}
+
+export function useUpdateUser() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      id,
+      body,
+    }: {
+      id: string
+      body: { fullName?: string; phone?: string | null; isActive?: boolean }
+    }) => apiPatch<AuthenticatedProfile>(`/users/${id}`, body),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["users"] })
+    },
+  })
+}
+
+export function useAssignTenantRole() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: {
+      userId: string
+      roleId: string
+      stateId?: string
+      districtId?: string
+      ulbId?: string
+      wardId?: string
+    }) => apiPost("/users/tenant-roles/assign", body),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["users"] })
+    },
+  })
+}
+
+export function useDeactivateTenantRole() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (assignmentId: string) => apiDelete(`/users/tenant-roles/${assignmentId}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["users"] })
+    },
+  })
+}
+
+export function useSetRolePermissions() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ roleId, permissionIds }: { roleId: string; permissionIds: string[] }) =>
+      apiPut<CatalogRole>(`/roles/${roleId}/permissions`, { permissionIds }),
+    onSuccess: (data, variables) => {
+      queryClient.setQueryData<CatalogRole>(["roles", variables.roleId], data)
+      void queryClient.invalidateQueries({ queryKey: ["roles"] })
+      void queryClient.invalidateQueries({ queryKey: ["roles", variables.roleId, "audits"] })
+    },
+  })
+}
+
+export function useRoleUsers(roleId?: string) {
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canView = hasPermission("user:view")
+
+  return useQuery({
+    queryKey: ["roles", roleId, "users"],
+    queryFn: () =>
+      apiGet<
+        Array<{
+          id: string
+          user: {
+            id: string
+            fullName: string
+            email: string
+            phone?: string | null
+            isActive: boolean
+            lastLoginAt?: string | null
+          }
+          state?: { name: string } | null
+          district?: { name: string } | null
+          ulb?: { name: string } | null
+          ward?: { wardNumber: string; wardName: string } | null
+        }>
+      >(`/roles/${roleId}/users`),
+    enabled: Boolean(roleId) && canView,
+  })
+}
+
+export function useCreateRole() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { name: string; description?: string }) => apiPost<CatalogRole>("/roles", body),
+    onSuccess: (data) => {
+      queryClient.setQueryData<CatalogRole>(["roles", data.id], {
+        ...data,
+        permissions: data.permissions ?? [],
+        permissionCount: data.permissionCount ?? 0,
+        assignedUsersCount: data.assignedUsersCount ?? 0,
+      })
+      void queryClient.invalidateQueries({ queryKey: ["roles"] })
+    },
+  })
+}
+
+export function useUpdateRole() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: { name?: string; description?: string } }) =>
+      apiPatch<CatalogRole>(`/roles/${id}`, body),
+    onSuccess: (data, variables) => {
+      queryClient.setQueryData<CatalogRole>(["roles", variables.id], (prev) => (prev ? { ...prev, ...data } : data))
+      void queryClient.invalidateQueries({ queryKey: ["roles"] })
+    },
+  })
+}
+
+export function useCloneRole() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: { name: string; description?: string } }) =>
+      apiPost<CatalogRole>(`/roles/${id}/clone`, body),
+    onSuccess: (data) => {
+      queryClient.setQueryData<CatalogRole>(["roles", data.id], data)
+      void queryClient.invalidateQueries({ queryKey: ["roles"] })
+    },
+  })
+}
+
+export function useDeleteRole() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => apiDelete(`/roles/${id}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["roles"] })
+    },
   })
 }
 

@@ -7,10 +7,13 @@ export const PERMISSIONS = {
   SURVEY_APPROVE: "survey:approve",
   SURVEY_REJECT: "survey:reject",
   SURVEY_ASSIGN: "survey:assign",
+  SURVEY_EXPORT: "survey:export",
+  SURVEY_IMPORT: "survey:import",
   USER_CREATE: "user:create",
   USER_UPDATE: "user:update",
   USER_DELETE: "user:delete",
   USER_VIEW: "user:view",
+  USER_RESET_PASSWORD: "user:reset_password",
   ROLE_ASSIGN: "role:assign",
   DASHBOARD_VIEW: "dashboard:view",
   REPORT_VIEW: "report:view",
@@ -18,6 +21,8 @@ export const PERMISSIONS = {
   PHOTO_CREATE: "photo:create",
   PHOTO_UPDATE: "photo:update",
   PHOTO_DELETE: "photo:delete",
+  SETTINGS_VIEW: "settings:view",
+  SETTINGS_MANAGE: "settings:manage",
 } as const
 
 export type PermissionName = (typeof PERMISSIONS)[keyof typeof PERMISSIONS]

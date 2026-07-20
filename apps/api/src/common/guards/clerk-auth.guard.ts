@@ -165,10 +165,13 @@ export class ClerkAuthGuard implements CanActivate {
     })
 
     if (!user.isActive) {
-      throw new UnauthorizedException("User account is inactive")
+      throw new UnauthorizedException("Your account has been disabled. Please contact the system administrator.")
     }
 
-    await this.roleProvisioning.ensureBootstrapAdmin(user.id, user.clerkUserId)
+    const bootstrapped = await this.roleProvisioning.ensureBootstrapAdmin(user.id, user.clerkUserId)
+    if (!bootstrapped) {
+      await this.roleProvisioning.ensurePendingApproval(user.id)
+    }
     const ctx = await this.tenantScopeService.loadUserContext(user.id)
 
     return {

@@ -131,8 +131,7 @@ export function buildStateTenantWhere(scope: TenantScope): Prisma.StateWhereInpu
 
 /** Roles a given actor role may grant (ceiling). */
 export const ROLE_GRANT_CEILINGS: Record<string, string[]> = {
-  ADMIN: ["ADMIN", "OPERATION_MANAGER", "QC_SUPERVISOR", "FIELD_SUPERVISOR", "SURVEYOR", "PENDING_APPROVAL"],
-  OPERATION_MANAGER: ["QC_SUPERVISOR", "FIELD_SUPERVISOR", "SURVEYOR", "PENDING_APPROVAL"],
+  ADMIN: ["ADMIN", "QC_SUPERVISOR", "FIELD_SUPERVISOR", "SURVEYOR", "PENDING_APPROVAL"],
   FIELD_SUPERVISOR: ["SURVEYOR", "PENDING_APPROVAL"],
   QC_SUPERVISOR: [],
   SURVEYOR: [],

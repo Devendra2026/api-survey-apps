@@ -49,22 +49,27 @@ function NavLink({ item, collapsed, nested = false }: { item: NavItem; collapsed
     <Link
       href={item.href}
       className={cn(
-        "relative flex items-center gap-3 rounded-lg text-sm font-medium transition-all duration-300",
-        nested ? "px-3 py-1.5 pl-9" : "px-3 py-2",
+        "relative flex items-center gap-3 rounded-xl text-sm font-medium transition-all duration-200",
+        nested ? "px-3 py-1.5 pl-9" : "px-3 py-2.5",
         collapsed && "justify-center px-2",
         active
-          ? "bg-linear-to-r from-violet-600 to-indigo-600 text-white shadow-sm"
-          : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-50"
+          ? "bg-primary text-primary-foreground shadow-sm shadow-primary/25"
+          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
       )}
       aria-current={active ? "page" : undefined}
     >
-      {active ? <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-violet-300" /> : null}
+      {active ? <span className="absolute inset-y-2 left-0 w-1 rounded-full bg-primary-foreground/70" /> : null}
       <Icon className="size-4 shrink-0" />
       {!collapsed ? (
         <span className="min-w-0">
           <span className="block truncate">{item.title}</span>
           {!nested && item.description ? (
-            <span className="mt-0.5 block truncate text-[10px] font-normal text-slate-500 dark:text-slate-400">
+            <span
+              className={cn(
+                "mt-0.5 block truncate text-[10px] font-normal",
+                active ? "text-primary-foreground/75" : "text-muted-foreground"
+              )}
+            >
               {item.description}
             </span>
           ) : null}

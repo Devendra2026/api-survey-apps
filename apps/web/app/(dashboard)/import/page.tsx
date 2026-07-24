@@ -2,9 +2,10 @@
 
 import { KpiCard } from "@/components/shared/kpi-card"
 import { PageHeader, StatusBadge } from "@/components/shared/page-elements"
-import { useImportJob, useImportJobs, useImportSurveys } from "@/hooks/use-api"
+import { useImportJob, useImportJobs, useImportSurveys, useImportSurveysPreview } from "@/hooks/use-api"
 import { apiGet, apiPost, getApiErrorMessage } from "@/lib/api/client"
-import type { ImportJob, ImportRowError } from "@/lib/api/types"
+import type { ImportJob, ImportPreviewResult, ImportRowError } from "@/lib/api/types"
+import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "@workspace/ui/components/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card"
 import { Progress } from "@workspace/ui/components/progress"
@@ -45,8 +46,22 @@ function progressPercent(job: ImportJob): number {
   return Math.min(100, Math.round((job.processedRows / job.totalRows) * 100))
 }
 
+function formatLabel(format: ImportPreviewResult["format"]): string {
+  switch (format) {
+    case "inline-children":
+      return "Surveys sheet with inline Photos/Floors/CoOwners"
+    case "multi-sheet":
+      return "Multi-sheet (Surveys + child sheets)"
+    case "csv":
+      return "CSV surveys"
+    default:
+      return "Surveys only"
+  }
+}
+
 export default function ImportPage() {
   const [file, setFile] = useState<File | null>(null)
+  const [preview, setPreview] = useState<ImportPreviewResult | null>(null)
   const [dragging, setDragging] = useState(false)
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
   const [pendingJobId, setPendingJobId] = useState<string | null>(null)
@@ -54,15 +69,25 @@ export default function ImportPage() {
   const toastedJobId = useRef<string | null>(null)
 
   const importMutation = useImportSurveys()
+  const previewMutation = useImportSurveysPreview()
+  const queryClient = useQueryClient()
   const { data: jobs, refetch } = useImportJobs()
   const { data: watchedJob } = useImportJob(selectedJobId)
 
-  const onDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setDragging(false)
-    const dropped = e.dataTransfer.files?.[0]
-    if (dropped) setFile(dropped)
+  const selectFile = useCallback((next: File | null) => {
+    setFile(next)
+    setPreview(null)
   }, [])
+
+  const onDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      setDragging(false)
+      const dropped = e.dataTransfer.files?.[0]
+      if (dropped) selectFile(dropped)
+    },
+    [selectFile]
+  )
 
   useEffect(() => {
     if (!watchedJob || pendingJobId !== watchedJob.id) return
@@ -74,13 +99,16 @@ export default function ImportPage() {
       // Sync local UI with completed import job from the API watcher.
       // eslint-disable-next-line react-hooks/set-state-in-effect -- clearing pending state after external job settles
       setPendingJobId(null)
-      setFile(null)
+      selectFile(null)
+      void queryClient.invalidateQueries({ queryKey: ["survey-registry"] })
+      void queryClient.invalidateQueries({ queryKey: ["surveys"] })
+      void queryClient.invalidateQueries({ queryKey: ["dashboard"] })
     } else if (watchedJob.status === "FAILED") {
       toastedJobId.current = watchedJob.id
       toast.error(jobResultMessage(watchedJob))
       setPendingJobId(null)
     }
-  }, [watchedJob, pendingJobId])
+  }, [watchedJob, pendingJobId, selectFile, queryClient])
 
   const displayJob =
     (selectedJobId && watchedJob?.id === selectedJobId ? watchedJob : null) ??
@@ -89,11 +117,41 @@ export default function ImportPage() {
     null
 
   const errorLines = useMemo(() => formatImportErrors(displayJob?.resultSummary?.errors), [displayJob])
+  const previewErrorLines = useMemo(() => formatImportErrors(preview?.sampleErrors), [preview])
   const percent = displayJob ? progressPercent(displayJob) : 0
+
+  async function handlePreview() {
+    if (!file) {
+      toast.error("Select a file first")
+      return
+    }
+    try {
+      const result = await previewMutation.mutateAsync(file)
+      setPreview(result)
+      if (!result.canImport) {
+        toast.error("Workbook cannot be imported — fix blocking issues first")
+      } else if (result.warnings.length) {
+        toast.message("Preview ready — review warnings before starting import")
+      } else {
+        toast.success("Preview looks good — you can start the import")
+      }
+    } catch (error) {
+      setPreview(null)
+      toast.error(getApiErrorMessage(error))
+    }
+  }
 
   async function handleImport() {
     if (!file) {
       toast.error("Select a file first")
+      return
+    }
+    if (!preview) {
+      toast.error("Run validation preview before starting the import")
+      return
+    }
+    if (!preview.canImport) {
+      toast.error("Fix blocking validation issues before importing")
       return
     }
 
@@ -138,7 +196,7 @@ export default function ImportPage() {
     }
   }
 
-  const isBusy = importMutation.isPending || Boolean(pendingJobId)
+  const isBusy = importMutation.isPending || previewMutation.isPending || Boolean(pendingJobId)
 
   return (
     <div className="mx-auto max-w-4xl space-y-5">
@@ -152,7 +210,7 @@ export default function ImportPage() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Upload workbook</CardTitle>
             <CardDescription>
-              Accepts Surveys / CoOwners / Floors / Photos / Guide sheets (.xlsx) or CSV
+              Multi-sheet Convex export or Surveys-only with inline Photos / Floors / CoOwners columns
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -172,18 +230,23 @@ export default function ImportPage() {
                 <FileSpreadsheet className="size-4 text-muted-foreground" />
               </div>
               <p className="text-sm font-medium">{file ? file.name : "Drop a file here or click to browse"}</p>
-              <p className="mt-1 text-xs text-muted-foreground">Designed for 100k+ survey rows via background queue</p>
+              <p className="mt-1 text-xs text-muted-foreground">Preview validates before the background queue starts</p>
               <input
                 type="file"
                 accept=".xlsx,.xls,.csv"
                 className="sr-only"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                onChange={(e) => selectFile(e.target.files?.[0] ?? null)}
               />
             </label>
-            <Button onClick={() => void handleImport()} disabled={!file || isBusy} size="sm">
-              <Upload className="size-3.5" />
-              {isBusy ? "Importing…" : "Start import"}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => void handlePreview()} disabled={!file || isBusy} size="sm" variant="outline">
+                {previewMutation.isPending ? "Validating…" : "Validate preview"}
+              </Button>
+              <Button onClick={() => void handleImport()} disabled={!file || !preview?.canImport || isBusy} size="sm">
+                <Upload className="size-3.5" />
+                {isBusy && importMutation.isPending ? "Importing…" : "Start import"}
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
@@ -200,6 +263,48 @@ export default function ImportPage() {
           </CardContent>
         </Card>
       </div>
+
+      {preview ? (
+        <Card className="shadow-none">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Pre-import validation</CardTitle>
+            <CardDescription>
+              {preview.originalName} · {formatLabel(preview.format)}
+              {preview.canImport ? "" : " · blocked"}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <KpiCard title="Surveys" value={preview.surveyRows} />
+              <KpiCard title="Co-owners" value={preview.coOwnerRows} />
+              <KpiCard title="Floors" value={preview.floorRows} />
+              <KpiCard title="Photos" value={preview.photoRows} />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <KpiCard title="Missing Property ID" value={preview.missingPropertyIdRows} />
+              <KpiCard title="Missing ULB/Ward" value={preview.missingUlbOrWardRows} />
+              <KpiCard title="Dup Property IDs" value={preview.duplicatePropertyIdCount} />
+              <KpiCard title="Dup Local IDs" value={preview.duplicateLocalIdCount} />
+            </div>
+            {preview.warnings.length ? (
+              <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                {preview.warnings.map((warning) => (
+                  <li key={warning.code}>{warning.message}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">No warnings — ready to import.</p>
+            )}
+            {previewErrorLines.length ? (
+              <ul className="list-disc space-y-1 pl-5 text-sm text-destructive">
+                {previewErrorLines.map((err) => (
+                  <li key={err}>{err}</li>
+                ))}
+              </ul>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {displayJob ? (
         <div className="space-y-3">

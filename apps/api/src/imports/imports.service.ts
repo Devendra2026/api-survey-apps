@@ -97,6 +97,30 @@ export interface ImportSummary {
   errors: ImportRowError[]
 }
 
+export interface ImportPreviewWarning {
+  code: string
+  message: string
+}
+
+export interface ImportPreviewResult {
+  originalName: string
+  format: "multi-sheet" | "inline-children" | "surveys-only" | "csv"
+  surveyRows: number
+  coOwnerRows: number
+  floorRows: number
+  photoRows: number
+  missingPropertyIdRows: number
+  missingUlbOrWardRows: number
+  duplicatePropertyIdCount: number
+  duplicateLocalIdCount: number
+  duplicates: Array<{ kind: "propertyId" | "localId"; key: string; rows: number[] }>
+  usedInlineColumns: boolean
+  sheetPreferredWarning: boolean
+  canImport: boolean
+  warnings: ImportPreviewWarning[]
+  sampleErrors: ImportRowError[]
+}
+
 interface MappedSurvey {
   rowNumber: number
   propertyId: string
@@ -329,6 +353,122 @@ export class ImportsService {
       url,
       expiresInSeconds: 900,
       resultSummary: job.resultSummary,
+    }
+  }
+
+  /**
+   * Parse + validate workbook without enqueueing a job or writing surveys.
+   * Used by the /import UI confirm step.
+   */
+  async previewSurveyImport(file: Express.Multer.File): Promise<ImportPreviewResult> {
+    this.validateImportFile(file)
+
+    let workbook: ParsedConvexWorkbook
+    try {
+      workbook = await parseConvexWorkbook(file.buffer, file.originalname)
+    } catch (err) {
+      throw new BadRequestException(err instanceof Error ? err.message : "Failed to parse workbook")
+    }
+
+    const duplicates = findWorkbookDuplicates(workbook.surveys)
+    const duplicatePropertyIdCount = duplicates.filter((d) => d.kind === "propertyId").length
+    const duplicateLocalIdCount = duplicates.filter((d) => d.kind === "localId").length
+
+    let missingPropertyIdRows = 0
+    let missingUlbOrWardRows = 0
+    const sampleErrors: ImportRowError[] = []
+
+    workbook.surveys.forEach((row, index) => {
+      const excelRow = index + 2
+      const propertyId = normalizeImportString(row["Property ID"])
+      const ulbCode = normalizeImportString(row["ULB Code"])
+      const wardNumber = normalizeImportString(row["Ward Number"])
+      const errors: string[] = []
+      if (!propertyId) {
+        missingPropertyIdRows += 1
+        errors.push("Missing Property ID")
+      }
+      if (!ulbCode || !wardNumber) {
+        missingUlbOrWardRows += 1
+        errors.push("Missing ULB Code or Ward Number")
+      }
+      if (errors.length && sampleErrors.length < 25) {
+        sampleErrors.push({
+          row: excelRow,
+          propertyId: propertyId || undefined,
+          localId: normalizeImportString(row["Local ID"]) || undefined,
+          errors,
+        })
+      }
+    })
+
+    for (const issue of duplicates) {
+      if (sampleErrors.length >= 40) break
+      sampleErrors.push({
+        row: issue.rows[0] ?? 2,
+        propertyId: issue.kind === "propertyId" ? issue.key : undefined,
+        localId: issue.kind === "localId" ? issue.key : undefined,
+        errors: [formatDuplicateWorkbookError(issue.kind, issue.key, issue.rows)],
+      })
+    }
+
+    const usedInline = Boolean(workbook.usedInlineColumns)
+    const hasChildRows = workbook.coOwners.length > 0 || workbook.floors.length > 0 || workbook.photos.length > 0
+    const isCsv = file.originalname.toLowerCase().endsWith(".csv")
+    const format: ImportPreviewResult["format"] = isCsv
+      ? "csv"
+      : usedInline
+        ? "inline-children"
+        : hasChildRows
+          ? "multi-sheet"
+          : "surveys-only"
+
+    const warnings: ImportPreviewWarning[] = []
+    if (workbook.sheetPreferredWarning) {
+      warnings.push({
+        code: "SHEET_PREFERRED",
+        message: "Dedicated CoOwners/Floors/Photos sheets were used; inline Surveys columns were ignored.",
+      })
+    }
+    if (usedInline) {
+      warnings.push({
+        code: "INLINE_EXPANDED",
+        message: `Expanded inline columns into ${workbook.coOwners.length} co-owners, ${workbook.floors.length} floors, ${workbook.photos.length} photos.`,
+      })
+    }
+    if (duplicatePropertyIdCount || duplicateLocalIdCount) {
+      warnings.push({
+        code: "WORKBOOK_DUPLICATES",
+        message: `Workbook has ${duplicatePropertyIdCount} duplicate Property ID(s) and ${duplicateLocalIdCount} duplicate Local ID(s); those rows will be skipped.`,
+      })
+    }
+    if (missingUlbOrWardRows > 0) {
+      warnings.push({
+        code: "MISSING_GEO",
+        message: `${missingUlbOrWardRows} row(s) missing ULB Code or Ward Number.`,
+      })
+    }
+
+    const blockingMissing = missingPropertyIdRows === workbook.surveys.length
+    const canImport = workbook.surveys.length > 0 && !blockingMissing
+
+    return {
+      originalName: file.originalname,
+      format,
+      surveyRows: workbook.surveys.length,
+      coOwnerRows: workbook.coOwners.length,
+      floorRows: workbook.floors.length,
+      photoRows: workbook.photos.length,
+      missingPropertyIdRows,
+      missingUlbOrWardRows,
+      duplicatePropertyIdCount,
+      duplicateLocalIdCount,
+      duplicates,
+      usedInlineColumns: usedInline,
+      sheetPreferredWarning: Boolean(workbook.sheetPreferredWarning),
+      canImport,
+      warnings,
+      sampleErrors,
     }
   }
 

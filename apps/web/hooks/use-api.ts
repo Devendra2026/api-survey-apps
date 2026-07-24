@@ -19,6 +19,7 @@ import type {
   GeoWard,
   ImportEnqueueResult,
   ImportJob,
+  ImportPreviewResult,
   NotificationItem,
   PaginatedResult,
   QcCommandCenterFilters,
@@ -808,6 +809,18 @@ export function useImportSurveys() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["imports", "jobs"] })
       void qc.invalidateQueries({ queryKey: ["dashboard"] })
+      void qc.invalidateQueries({ queryKey: ["survey-registry"] })
+      void qc.invalidateQueries({ queryKey: ["surveys"] })
+    },
+  })
+}
+
+export function useImportSurveysPreview() {
+  return useMutation({
+    mutationFn: (file: File) => {
+      const formData = new FormData()
+      formData.append("file", file)
+      return apiUpload<ImportPreviewResult>("/imports/surveys/preview", formData)
     },
   })
 }

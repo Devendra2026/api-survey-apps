@@ -665,6 +665,29 @@ export interface ImportEnqueueResult {
   status: string
 }
 
+export interface ImportPreviewWarning {
+  code: string
+  message: string
+}
+
+export interface ImportPreviewResult {
+  originalName: string
+  format: "multi-sheet" | "inline-children" | "surveys-only" | "csv"
+  surveyRows: number
+  coOwnerRows: number
+  floorRows: number
+  photoRows: number
+  missingPropertyIdRows: number
+  missingUlbOrWardRows: number
+  duplicatePropertyIdCount: number
+  duplicateLocalIdCount: number
+  usedInlineColumns: boolean
+  sheetPreferredWarning: boolean
+  canImport: boolean
+  warnings: ImportPreviewWarning[]
+  sampleErrors: ImportRowError[]
+}
+
 export interface ImportRowError {
   row: number
   propertyId?: string

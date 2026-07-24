@@ -27,7 +27,7 @@ export const NAGAR_PANCHAYAT_HEADERS = [
   "Colony",
   "House No",
   "Street Name",
-  " Locality",
+  "Locality",
   "Tax Rate Zone",
   "Property Ownership",
   "Property Type",

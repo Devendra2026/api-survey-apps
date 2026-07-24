@@ -476,6 +476,11 @@ export class ImportWorkerService {
         errors,
         resumedFrom: checkpoint.processedRows,
         retryFailedOnly,
+        usedInlineColumns: Boolean(workbook.usedInlineColumns),
+        sheetPreferredWarning: Boolean(workbook.sheetPreferredWarning),
+        expandedCoOwnerRows: workbook.coOwners.length,
+        expandedFloorRows: workbook.floors.length,
+        expandedPhotoRows: workbook.photos.length,
       }
       const errorReportKey = await this.writeValidationReport(payload, validationReport)
 

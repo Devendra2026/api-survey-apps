@@ -204,6 +204,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.1085.0
+        version: 3.1085.0
       '@clerk/nextjs':
         specifier: ^7.5.17
         version: 7.5.17(next@16.2.6(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)

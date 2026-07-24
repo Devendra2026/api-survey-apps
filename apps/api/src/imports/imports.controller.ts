@@ -52,6 +52,32 @@ export class ImportsController {
     return this.importsService.enqueueSurveyImport(file, user)
   }
 
+  @Post("surveys/preview")
+  @RequirePermission(PERMISSIONS.SURVEY_CREATE)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @ApiOperation({
+    summary: "Preview/validate a Convex survey workbook without enqueueing an import job",
+  })
+  @ApiConsumes("multipart/form-data")
+  @ApiBody({
+    schema: {
+      type: "object",
+      required: ["file"],
+      properties: {
+        file: { type: "string", format: "binary" },
+      },
+    },
+  })
+  @UseInterceptors(
+    FileInterceptor("file", {
+      storage: memoryStorage(),
+      limits: { fileSize: ASYNC_IMPORT_MAX_BYTES },
+    })
+  )
+  previewSurveys(@UploadedFile() file: Express.Multer.File) {
+    return this.importsService.previewSurveyImport(file)
+  }
+
   @Post("geo-catalog")
   @RequirePermission(PERMISSIONS.ROLE_ASSIGN)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })

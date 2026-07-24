@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common"
 import { ExportFormat, JobStatus, OwnershipType, PhotoType, SurveyStatus } from "@workspace/database"
+import { formatPropertyId } from "@workspace/validation"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { canAccessTenant, resolveTenantScope, userHasPermissionInTenant } from "../common/utils/tenant-scope.util.js"
 import { JobsService } from "../jobs/jobs.service.js"
@@ -55,9 +56,46 @@ export class SurveysService {
     if (isDemoSurveyPropertyId(idOrPropertyId)) {
       return getDemoSurveyDetails()
     }
-    const survey = await this.surveysRepository.findById(idOrPropertyId, user)
+    let survey = await this.surveysRepository.findById(idOrPropertyId, user)
+    survey = await this.ensureFormulaPropertyId(survey)
     const detail = mapSurveyToDetailsDto(survey)
     return refreshSurveyPhotoUrls(this.storageService, detail, survey.photos, this.logger)
+  }
+
+  /** Replace legacy TEMP-* Property IDs with formula when ULB/Ward/Parcel/Unit/Use are present. */
+  async ensureFormulaPropertyId<
+    T extends {
+      id: string
+      propertyId: string
+      ulbCode: string | null
+      wardNumber: string | null
+      parcelNumber: string | null
+      unitSubNo: string | null
+      propertyUse: string | null
+    },
+  >(survey: T): Promise<T> {
+    if (!survey.propertyId.startsWith("TEMP-")) return survey
+    if (!survey.ulbCode || !survey.wardNumber || !survey.parcelNumber || !survey.unitSubNo || !survey.propertyUse) {
+      return survey
+    }
+    const derived = formatPropertyId({
+      ulbCode: survey.ulbCode,
+      wardNo: survey.wardNumber,
+      parcelNo: survey.parcelNumber,
+      unitNo: survey.unitSubNo,
+      propertyUse: survey.propertyUse,
+    })
+    if (!derived || derived === survey.propertyId) return survey
+    try {
+      await this.prisma.db.survey.update({
+        where: { id: survey.id },
+        data: { propertyId: derived },
+      })
+      return { ...survey, propertyId: derived }
+    } catch (err) {
+      this.logger.warn(`Could not upgrade TEMP propertyId for survey=${survey.id}: ${String(err)}`)
+      return survey
+    }
   }
 
   async getAuditHistory(idOrPropertyId: string, user: AuthenticatedUser) {
@@ -465,14 +503,20 @@ export class SurveysService {
     return this.surveysRepository.findById(surveyId, user)
   }
 
-  /** Shared helper for child modules */
+  /** Shared helper for child modules (photos, floors). QC approvers may edit non-APPROVED surveys. */
   async assertEditableSurvey(surveyId: string, user: AuthenticatedUser) {
     const survey = await this.surveysRepository.findById(surveyId, user)
-    if (
-      survey.surveyStatus === "APPROVED" ||
-      survey.surveyStatus === "SUBMITTED" ||
-      survey.surveyStatus === "REJECTED"
-    ) {
+    const canQcEdit = user.permissions.includes("survey:approve")
+
+    if (survey.surveyStatus === "APPROVED") {
+      throw new BadRequestException("Survey cannot be modified in current status")
+    }
+
+    if (canQcEdit) {
+      return survey
+    }
+
+    if (survey.surveyStatus === "SUBMITTED" || survey.surveyStatus === "REJECTED") {
       throw new BadRequestException("Survey cannot be modified in current status")
     }
     if (survey.createdById !== user.id && !user.permissions.includes("survey:update")) {

@@ -110,4 +110,19 @@ export async function apiUpload<T>(url: string, formData: FormData, config?: Axi
   return data.data as T
 }
 
+export async function apiUploadPut<T>(url: string, formData: FormData, config?: AxiosRequestConfig): Promise<T> {
+  const { data } = await apiClient.put<ApiResponse<T>>(url, formData, {
+    timeout: 5 * 60_000,
+    maxBodyLength: Infinity,
+    maxContentLength: Infinity,
+    ...config,
+    headers: {
+      ...config?.headers,
+      "Content-Type": undefined,
+    },
+  })
+  if (!data.success) throw new Error(data.message || "Upload failed")
+  return data.data as T
+}
+
 export type { AxiosError }

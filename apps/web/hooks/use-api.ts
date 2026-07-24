@@ -1,6 +1,15 @@
 "use client"
 
-import { apiDelete, apiGet, apiGetPaginated, apiPatch, apiPost, apiPut, apiUpload } from "@/lib/api/client"
+import {
+  apiDelete,
+  apiGet,
+  apiGetPaginated,
+  apiPatch,
+  apiPost,
+  apiPut,
+  apiUpload,
+  apiUploadPut,
+} from "@/lib/api/client"
 import type {
   AuthenticatedProfile,
   BulkActionResult,
@@ -252,7 +261,6 @@ export function useQcSurveyDetail(id: string, enabled = true) {
     queryFn: () => apiGet<QcSurveyDetail>(`/qc/survey/${encodeURIComponent(id)}`),
     enabled: isLoaded && Boolean(isSignedIn) && canApprove && Boolean(id) && enabled,
     staleTime: 60_000,
-    placeholderData: keepPreviousData,
   })
 }
 
@@ -266,7 +274,6 @@ export function useQcSurveyAuditHistory(id: string, enabled = true) {
     queryFn: () => apiGet<SurveyAuditHistoryItem[]>(`/qc/survey/${encodeURIComponent(id)}/audit-history`),
     enabled: isLoaded && Boolean(isSignedIn) && canApprove && Boolean(id) && enabled,
     staleTime: 60_000,
-    placeholderData: keepPreviousData,
   })
 }
 
@@ -828,6 +835,100 @@ export function useImportSurveysPreview() {
       return apiUpload<ImportPreviewResult>("/imports/surveys/preview", formData)
     },
   })
+}
+
+export function usePhotoMutations(surveyId: string) {
+  const qc = useQueryClient()
+
+  const invalidateSurvey = () => {
+    void qc.invalidateQueries({ queryKey: ["qc", "survey", surveyId] })
+    void qc.invalidateQueries({ queryKey: ["surveys", surveyId] })
+  }
+
+  const upload = useMutation({
+    mutationFn: ({ file, photoType }: { file: File; photoType: string }) => {
+      const formData = new FormData()
+      formData.append("file", file)
+      formData.append("surveyId", surveyId)
+      formData.append("photoType", photoType)
+      return apiUpload<{ id: string; photoType: string; url: string }>("/photos/upload", formData)
+    },
+    onSuccess: invalidateSurvey,
+  })
+
+  const replace = useMutation({
+    mutationFn: ({ id, file, photoType }: { id: string; file: File; photoType?: string }) => {
+      const formData = new FormData()
+      formData.append("file", file)
+      if (photoType) formData.append("photoType", photoType)
+      return apiUploadPut<{ id: string; url: string }>(`/photos/${encodeURIComponent(id)}/replace`, formData)
+    },
+    onSuccess: invalidateSurvey,
+  })
+
+  const remove = useMutation({
+    mutationFn: (id: string) => apiDelete(`/photos/${encodeURIComponent(id)}`),
+    onSuccess: invalidateSurvey,
+  })
+
+  const getDownloadUrl = useMutation({
+    mutationFn: (id: string) =>
+      apiGet<{ photoId: string; url: string; expiresInSeconds: number }>(`/photos/${encodeURIComponent(id)}/download`),
+  })
+
+  return { upload, replace, remove, getDownloadUrl }
+}
+
+export function useFloorMutations(surveyId: string) {
+  const qc = useQueryClient()
+
+  const invalidateSurvey = () => {
+    void qc.invalidateQueries({ queryKey: ["qc", "survey", surveyId] })
+    void qc.invalidateQueries({ queryKey: ["surveys", surveyId] })
+  }
+
+  const create = useMutation({
+    mutationFn: (body: {
+      floorPosition: string
+      usageType?: string | null
+      usageFactor?: string | null
+      constructionType?: string | null
+      areaSqFt?: number | null
+    }) =>
+      apiPost(`/floors`, {
+        surveyId,
+        floorPosition: body.floorPosition,
+        usageType: body.usageType ?? undefined,
+        usageFactor: body.usageFactor ?? undefined,
+        constructionType: body.constructionType ?? undefined,
+        areaSqFt: body.areaSqFt ?? undefined,
+      }),
+    onSuccess: invalidateSurvey,
+  })
+
+  const update = useMutation({
+    mutationFn: ({
+      id,
+      body,
+    }: {
+      id: string
+      body: {
+        floorPosition?: string
+        usageType?: string | null
+        usageFactor?: string | null
+        constructionType?: string | null
+        areaSqFt?: number | null
+      }
+    }) => apiPatch(`/floors/${encodeURIComponent(id)}`, body),
+    onSuccess: invalidateSurvey,
+  })
+
+  const remove = useMutation({
+    mutationFn: (id: string) => apiDelete(`/floors/${encodeURIComponent(id)}`),
+    onSuccess: invalidateSurvey,
+  })
+
+  return { create, update, remove }
 }
 
 export type { PaginatedResult }

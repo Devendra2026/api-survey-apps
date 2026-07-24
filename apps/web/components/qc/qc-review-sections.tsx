@@ -1,5 +1,7 @@
 "use client"
 
+import { QcFloorEditor } from "@/components/qc/qc-floor-editor"
+import { QcPhotoEditor } from "@/components/qc/qc-photo-editor"
 import { sortByLeadingNumberAsc } from "@/components/qc/qc-sort"
 import { GisMap } from "@/components/shared/gis-map"
 import {
@@ -9,13 +11,7 @@ import {
   SurveyViewField,
 } from "@/components/surveys/survey-view-field"
 import { useDistricts, useStates, useUlbs, useUsers, useWards } from "@/hooks/use-api"
-import type {
-  QcSurveyDetail,
-  QcSurveyEditable,
-  SurveyAuditHistoryItem,
-  SurveyFloorRow,
-  SurveyOwnerRow,
-} from "@/lib/api/types"
+import type { QcSurveyDetail, QcSurveyEditable, SurveyAuditHistoryItem, SurveyOwnerRow } from "@/lib/api/types"
 import { useAuthStore } from "@/stores/app-store"
 import type { ColumnDef } from "@tanstack/react-table"
 import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table"
@@ -24,8 +20,7 @@ import { Input } from "@workspace/ui/components/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@workspace/ui/components/table"
 import { cn } from "@workspace/ui/lib/utils"
-import { ImageIcon } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useMemo } from "react"
 
 function GlassSection({
   title,
@@ -126,31 +121,6 @@ function EditableField({
   )
 }
 
-function PhotoTile({ photo }: { photo: { id: string; label: string; url: string; surveyorName: string } }) {
-  const [failed, setFailed] = useState(false)
-
-  return (
-    <div className={cn(glassInsetClass, "group overflow-hidden p-2 transition-transform hover:scale-[1.01]")}>
-      {failed ? (
-        <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-white/40 bg-white/20 text-slate-500 dark:border-white/10 dark:bg-white/5 dark:text-slate-400">
-          <ImageIcon className="size-6 opacity-60" />
-          <span className="text-xs">Image unavailable</span>
-        </div>
-      ) : (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={photo.url}
-          alt={photo.label}
-          onError={() => setFailed(true)}
-          className="aspect-video w-full rounded-lg object-cover transition-transform duration-300 group-hover:scale-105"
-        />
-      )}
-      <p className="mt-2 text-sm font-medium">{photo.label}</p>
-      <p className="text-xs text-muted-foreground">{photo.surveyorName}</p>
-    </div>
-  )
-}
-
 const PROPERTY_USE_OPTIONS = ["RESIDENTIAL", "COMMERCIAL", "OPEN_LAND", "RELIGIOUS_PROPERTY", "MIX_PROPERTY"]
 const PROPERTY_TYPE_OPTIONS = [
   "RESIDENTIAL_SELF",
@@ -237,18 +207,6 @@ export function QcReviewSections({
       { accessorKey: "fatherHusband", header: "Father/Husband" },
       { accessorKey: "mobile", header: "Mobile" },
       { accessorKey: "altMobile", header: "Alt Mobile" },
-    ],
-    []
-  )
-
-  const floorColumns = useMemo<ColumnDef<SurveyFloorRow>[]>(
-    () => [
-      { accessorKey: "sNo", header: "S. No." },
-      { accessorKey: "floor", header: "Floor" },
-      { accessorKey: "usageType", header: "Usage Type" },
-      { accessorKey: "usageFactor", header: "Usage Factor" },
-      { accessorKey: "construction", header: "Construction" },
-      { accessorKey: "area", header: "Area" },
     ],
     []
   )
@@ -614,10 +572,13 @@ export function QcReviewSections({
           </div>
         </div>
 
-        <GlassTable columns={floorColumns} data={floorsSorted} empty="No floor records." />
-        <p className="mt-3 text-sm font-medium text-slate-700 dark:text-slate-200">
-          TOTAL BUILT-UP AREA: {survey.builtUpArea}
-        </p>
+        <QcFloorEditor
+          surveyId={survey.id}
+          editMode={editMode}
+          displayFloors={floorsSorted}
+          editableFloors={survey.editable.floors}
+          builtUpArea={survey.builtUpArea}
+        />
       </GlassSection>
 
       <GlassSection title="Municipal Services & Photo Documentation" subtitle="Utilities and field photo evidence.">
@@ -686,36 +647,12 @@ export function QcReviewSections({
           </EditableField>
         </div>
 
-        <div className="mb-3 flex items-center justify-between">
-          <p className="text-[10px] font-semibold tracking-[0.14em] text-slate-500 uppercase dark:text-slate-400">
-            Photos Uploaded {photoItems.length}/{Math.max(photoItems.length, 2)}
-          </p>
-        </div>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {photoItems.length ? (
-            photoItems.map((photo) => (
-              <PhotoTile
-                key={photo.id}
-                photo={{
-                  id: photo.id,
-                  label: photo.label,
-                  url: photo.url,
-                  surveyorName: photo.surveyorName ?? survey.surveyor,
-                }}
-              />
-            ))
-          ) : (
-            <div
-              className={cn(
-                glassInsetClass,
-                "col-span-full flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground"
-              )}
-            >
-              <ImageIcon className="size-4" />
-              No photos uploaded
-            </div>
-          )}
-        </div>
+        <QcPhotoEditor
+          surveyId={survey.id}
+          photos={photoItems}
+          surveyorFallback={survey.surveyor}
+          editMode={editMode}
+        />
       </GlassSection>
 
       <GlassSection title="Audit History" subtitle="Real-time QC and survey workflow timeline.">

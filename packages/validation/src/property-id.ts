@@ -50,9 +50,12 @@ export function padParcelNo(parcelNo: string): string {
 }
 
 export function padUnitNo(unitNo: string): string {
-  const digits = unitNo.replace(/\D/g, "")
-  if (!digits) return ""
-  return digits.padStart(3, "0").slice(-3)
+  const trimmed = unitNo.trim()
+  if (!trimmed) return ""
+  const digits = trimmed.replace(/\D/g, "")
+  if (digits) return digits.padStart(3, "0").slice(-3)
+  // Non-digit unit markers (e.g. "A") — formula requires 3 digits; default to 001.
+  return "001"
 }
 
 export function normalizeParcelKey(parcelNo: string): string {
@@ -132,7 +135,7 @@ export function comparePropertyIds(a?: string, b?: string): number {
   return ka.localeCompare(kb, undefined, { numeric: true })
 }
 
-export type PropertyIdSource = "sheet" | "derived" | "temp"
+export type PropertyIdSource = "sheet" | "derived" | "missing"
 
 /** Stable key to attach CoOwners / Floors / Photos when sheet Property ID is blank. */
 export function importChildJoinKey(row: {
@@ -149,27 +152,10 @@ export function importChildJoinKey(row: {
   return ""
 }
 
-/** Temporary Property ID so blank-formula rows still satisfy uniqueness until QC corrects. */
-export function allocateTempPropertyId(randomUuid: () => string = defaultRandomUuid): string {
-  const hex = randomUuid().replace(/-/g, "").slice(0, 8).toUpperCase()
-  return `TEMP-${hex || "00000000"}`
-}
-
-function defaultRandomUuid(): string {
-  if (typeof globalThis.crypto?.randomUUID === "function") {
-    return globalThis.crypto.randomUUID()
-  }
-  // Fallback for environments without Web Crypto randomUUID.
-  return `xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0
-    const v = c === "x" ? r : (r & 0x3) | 0x8
-    return v.toString(16)
-  })
-}
-
 /**
  * Resolve Property ID for Excel import:
- * 1) sheet value → 2) formula from ULB/Ward/Parcel/Unit/Use → 3) TEMP-{uuid8}
+ * 1) sheet value → 2) formula from ULB/Ward/Parcel/Unit/Use
+ * Does not allocate TEMP-* IDs; returns source "missing" when unresolved.
  */
 export function resolveImportPropertyId(input: {
   sheetPropertyId?: string | null
@@ -178,8 +164,7 @@ export function resolveImportPropertyId(input: {
   parcelNo?: string | null
   unitNo?: string | null
   propertyUse?: string | null
-  allocateTemp?: () => string
-}): { propertyId: string; source: PropertyIdSource } {
+}): { propertyId: string | null; source: PropertyIdSource } {
   const sheet = (input.sheetPropertyId ?? "").trim().toUpperCase()
   if (sheet) return { propertyId: sheet, source: "sheet" }
 
@@ -199,6 +184,5 @@ export function resolveImportPropertyId(input: {
     if (derived) return { propertyId: derived, source: "derived" }
   }
 
-  const allocate = input.allocateTemp ?? allocateTempPropertyId
-  return { propertyId: allocate(), source: "temp" }
+  return { propertyId: null, source: "missing" }
 }

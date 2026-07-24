@@ -1,6 +1,5 @@
 import { describe, expect, it } from "@jest/globals"
 import {
-  allocateTempPropertyId,
   buildWardCandidates,
   canonicalWardNumber,
   checkPropertyIdGeoConsistency,
@@ -43,7 +42,7 @@ describe("import-geo helpers", () => {
     expect(disambiguateImportPropertyId("800726-005-00041-001-R", 3)).toBe("800726-005-00041-001-R-D3")
   })
 
-  it("resolves import Property ID: sheet, formula, then TEMP", () => {
+  it("resolves import Property ID: sheet, formula, or missing (no TEMP)", () => {
     expect(
       resolveImportPropertyId({
         sheetPropertyId: "801262-001-03389-001-R",
@@ -65,16 +64,14 @@ describe("import-geo helpers", () => {
       resolveImportPropertyId({
         sheetPropertyId: "",
         ulbCode: "801262",
-        allocateTemp: () => "TEMP-ABCDEF12",
       })
-    ).toEqual({ propertyId: "TEMP-ABCDEF12", source: "temp" })
+    ).toEqual({ propertyId: null, source: "missing" })
   })
 
   it("builds child join key from Property ID, Local ID, or Survey ID", () => {
     expect(importChildJoinKey({ "Property ID": "801262-001-03389-001-R" })).toBe("801262-001-03389-001-R")
     expect(importChildJoinKey({ "Property ID": "", "Local ID": "L-9" })).toBe("L-9")
     expect(importChildJoinKey({ "Property ID": "", "Local ID": "", "Survey ID": "cuid123" })).toBe("CUID123")
-    expect(allocateTempPropertyId(() => "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")).toBe("TEMP-AAAAAAAA")
   })
 
   it("flags Property ID vs Excel ULB/Ward mismatches", () => {

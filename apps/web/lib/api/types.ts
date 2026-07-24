@@ -481,6 +481,7 @@ export interface SurveyPhotoItem {
   url: string
   capturedAt: string | null
   surveyorName: string
+  importStatus?: string | null
 }
 
 export interface SurveyQcRemarkItem {

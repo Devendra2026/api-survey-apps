@@ -99,12 +99,29 @@ function GlassTable<T>({ columns, data, empty }: { columns: ColumnDef<T>[]; data
   )
 }
 
-function SurveyPhotoCard({ label, url, caption }: { label: string; url: string; caption: string }) {
+function SurveyPhotoCard({
+  label,
+  url,
+  caption,
+  importStatus,
+}: {
+  label: string
+  url: string
+  caption: string
+  importStatus?: string | null
+}) {
   const [failed, setFailed] = useState(false)
+  const usableUrl = url?.trim() && /^https?:\/\//i.test(url.trim()) ? url.trim() : ""
+  const migrating = !usableUrl && importStatus === "PENDING"
 
   return (
     <div className="group relative overflow-hidden rounded-2xl border border-white/40 bg-white/30 shadow-lg backdrop-blur-md dark:border-white/10 dark:bg-white/5">
-      {failed ? (
+      {migrating ? (
+        <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 text-slate-500 dark:text-slate-400">
+          <ImageIcon className="size-8 opacity-50" />
+          <span className="text-xs">Photo migrating…</span>
+        </div>
+      ) : failed || !usableUrl ? (
         <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 text-slate-500 dark:text-slate-400">
           <ImageIcon className="size-8 opacity-50" />
           <span className="text-xs">Image unavailable</span>
@@ -112,7 +129,7 @@ function SurveyPhotoCard({ label, url, caption }: { label: string; url: string; 
       ) : (
         // eslint-disable-next-line @next/next/no-img-element -- external/demo photo URLs
         <img
-          src={url}
+          src={usableUrl}
           alt={label}
           onError={() => setFailed(true)}
           className="aspect-video w-full object-cover transition-transform duration-500 group-hover:scale-110"
@@ -351,6 +368,7 @@ export function SurveyViewContent({ survey, audits }: { survey: SurveyDetails; a
                 label={photo.label}
                 url={photo.url}
                 caption={[photo.capturedAt, photo.surveyorName].filter(Boolean).join(" · ") || survey.surveyor}
+                importStatus={photo.importStatus}
               />
             ))}
           </div>

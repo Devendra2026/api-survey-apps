@@ -37,7 +37,8 @@ export class QcService {
   }
 
   async getSurveyDetail(id: string, user: AuthenticatedUser): Promise<QcSurveyDetailDto> {
-    const row = await this.surveysRepository.findById(id, user)
+    const found = await this.surveysRepository.findById(id, user)
+    const row = await this.surveysService.ensureFormulaPropertyId(found)
     const detail: QcSurveyDetailDto = {
       ...mapSurveyToDetailsDto(row),
       editable: mapQcEditable(row),

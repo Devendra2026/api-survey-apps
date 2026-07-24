@@ -34,12 +34,17 @@ export class PhotosService {
   async getDownloadUrl(id: string, user: AuthenticatedUser, expiresInSeconds = 900) {
     const photo = await this.photosRepository.findById(id)
     await this.surveysService.assertReadableSurvey(photo.surveyId, user)
-    if (!photo.objectKey) {
-      throw new BadRequestException("Photo is not stored in private object storage")
+    if (photo.objectKey) {
+      const url = await this.storageService.getPresignedDownloadUrl(photo.objectKey, expiresInSeconds)
+      return { photoId: photo.id, url, expiresInSeconds }
     }
 
-    const url = await this.storageService.getPresignedDownloadUrl(photo.objectKey, expiresInSeconds)
-    return { photoId: photo.id, url, expiresInSeconds }
+    const fallback = [photo.sourceUrl, photo.url].find((value) => /^https?:\/\//i.test((value ?? "").trim()))
+    if (fallback) {
+      return { photoId: photo.id, url: fallback.trim(), expiresInSeconds: 0 }
+    }
+
+    throw new BadRequestException("Photo is not stored in private object storage")
   }
 
   async create(dto: CreatePhotoDto, user: AuthenticatedUser) {

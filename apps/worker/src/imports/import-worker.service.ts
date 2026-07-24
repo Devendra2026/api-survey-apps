@@ -98,7 +98,7 @@ interface MappedSurvey {
   /** Sheet Property ID used to attach CoOwners / Floors / Photos. */
   sheetPropertyId: string
   /** How propertyId was obtained before duplicate disambiguation. */
-  propertyIdSource: "sheet" | "derived" | "temp"
+  propertyIdSource: "sheet" | "derived"
   /** 1 = first occurrence (upsert); 2+ = force-create with disambiguated id. */
   occurrence: number
   forceCreate: boolean
@@ -621,18 +621,25 @@ export class ImportWorkerService {
       unitNo,
       propertyUse: propertyUseMapped,
     })
-    const propertyId = resolvedPid.propertyId
-    const propertyIdSource = resolvedPid.source
-    const sheetPropertyId = childJoinKey || propertyId
+    let propertyId: string | undefined
+    if (resolvedPid.source === "missing" || !resolvedPid.propertyId) {
+      rowErrors.push("Missing Property ID (provide Property ID or ULB/Ward/Parcel/Unit/Property Use to derive it)")
+    } else {
+      propertyId = resolvedPid.propertyId
+    }
+    const propertyIdSource: "sheet" | "derived" = resolvedPid.source === "derived" ? "derived" : "sheet"
+    const sheetPropertyId = childJoinKey || propertyId || ""
 
-    const consistencyError = checkPropertyIdGeoConsistency({
-      propertyId,
-      excelUlbCode,
-      excelWardNumber,
-    })
+    const consistencyError = propertyId
+      ? checkPropertyIdGeoConsistency({
+          propertyId,
+          excelUlbCode,
+          excelWardNumber,
+        })
+      : undefined
     if (consistencyError) rowErrors.push(consistencyError)
 
-    const parsedPropertyId = parsePropertyId(propertyId)
+    const parsedPropertyId = propertyId ? parsePropertyId(propertyId) : null
     if (!ulbCodeRaw && parsedPropertyId) ulbCodeRaw = parsedPropertyId.ulbCode
     if (!wardNumberRaw && parsedPropertyId) wardNumberRaw = parsedPropertyId.wardNo
     if (!parcelNo && parsedPropertyId) parcelNo = parsedPropertyId.parcelNo

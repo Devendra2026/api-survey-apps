@@ -140,6 +140,9 @@ type SurveyForView = {
     id: string
     photoType: string
     url: string
+    sourceUrl?: string | null
+    objectKey?: string | null
+    importStatus?: string | null
     capturedAt: Date | null
   }>
   qcRemarkThread?: Array<{
@@ -178,6 +181,7 @@ export function mapSurveyToDetailsDto(survey: SurveyForView): SurveyDetailsDto {
     url: photo.url,
     capturedAt: photo.capturedAt ? formatWhen(photo.capturedAt) : null,
     surveyorName: surveyor,
+    importStatus: photo.importStatus ?? null,
   }))
 
   const front = photos.find((p) => p.photoType === "FRONT")

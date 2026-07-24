@@ -34,17 +34,46 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
   const actions = useQcSurveyActions()
 
   const survey = detailQuery.data
-  const editable = survey?.editable
   const [editMode, setEditMode] = useState(false)
-  const [draft, setDraft] = useState<QcSurveyEditable | null>(null)
-  const [trackedEditable, setTrackedEditable] = useState(editable)
+  const [draft, setDraft] = useState<QcSurveyEditable | null>(() => survey?.editable ?? null)
+  const [draftSurveyId, setDraftSurveyId] = useState<string | null>(() => survey?.id ?? null)
   const [reopenOpen, setReopenOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
 
-  if (trackedEditable !== editable) {
-    setTrackedEditable(editable)
-    if (editable) setDraft(editable)
+  // Sync draft when survey loads or the URL/id changes (including prefetched cache hits).
+  if (survey?.editable && (draft === null || draftSurveyId !== survey.id)) {
+    setDraft(survey.editable)
+    setDraftSurveyId(survey.id)
+    if (editMode) setEditMode(false)
+  } else if (!survey && draftSurveyId !== null) {
+    setDraft(null)
+    setDraftSurveyId(null)
+    if (editMode) setEditMode(false)
   }
+
+  // Keep draft floors in sync when floor CRUD refreshes QC detail during edit.
+  useEffect(() => {
+    if (!editMode || !survey?.editable) return
+    const nextFloors = survey.editable.floors
+    setDraft((prev) => {
+      if (!prev) return prev
+      const same =
+        prev.floors.length === nextFloors.length &&
+        prev.floors.every((f, i) => {
+          const n = nextFloors[i]
+          return (
+            n &&
+            f.id === n.id &&
+            f.floorPosition === n.floorPosition &&
+            f.usageType === n.usageType &&
+            f.usageFactor === n.usageFactor &&
+            f.constructionType === n.constructionType &&
+            f.areaSqFt === n.areaSqFt
+          )
+        })
+      return same ? prev : { ...prev, floors: nextFloors }
+    })
+  }, [editMode, survey?.editable.floors, survey?.id])
 
   // Bookmark compat: old /qc/review/{propertyId} links redirect to stable survey UUID.
   useEffect(() => {
@@ -62,7 +91,7 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
     )
   }
 
-  if (detailQuery.isLoading && !survey) {
+  if (detailQuery.isLoading || (survey && !draft)) {
     return <SurveyViewSkeleton />
   }
 
@@ -144,6 +173,7 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
         const detail = updated as QcSurveyDetail
         queryClient.setQueryData(["qc", "survey", survey.id], detail)
         setDraft(detail.editable)
+        setDraftSurveyId(detail.id)
       }
       toast.success("QC corrections saved")
       setEditMode(false)

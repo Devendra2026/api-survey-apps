@@ -127,7 +127,7 @@ interface MappedSurvey {
   rowNumber: number
   propertyId: string
   sheetPropertyId: string
-  propertyIdSource: "sheet" | "derived" | "temp"
+  propertyIdSource: "sheet" | "derived"
   occurrence: number
   forceCreate: boolean
   localId?: string
@@ -407,13 +407,25 @@ export class ImportsService {
 
     workbook.surveys.forEach((row, index) => {
       const excelRow = index + 2
-      const propertyId = normalizeImportString(row["Property ID"])
+      const sheetPropertyId = normalizeImportString(row["Property ID"])
       const ulbCode = normalizeImportString(row["ULB Code"])
       const wardNumber = normalizeImportString(row["Ward Number"])
+      const parcelNo = normalizeImportString(row["Parcel Number"])
+      const unitNo = normalizeImportString(row["Unit / Sub-No"])
+      const propertyUse = mapPropertyUse(row["Property Use"])
+      const resolvedPid = resolveImportPropertyId({
+        sheetPropertyId,
+        ulbCode,
+        wardNo: wardNumber,
+        parcelNo,
+        unitNo,
+        propertyUse,
+      })
+      const propertyId = resolvedPid.propertyId ?? sheetPropertyId
       const errors: string[] = []
-      if (!propertyId) {
+      if (resolvedPid.source === "missing") {
         missingPropertyIdRows += 1
-        // Not a blocking error — import derives formula Property ID or assigns TEMP-*.
+        errors.push("Missing Property ID (provide Property ID or ULB/Ward/Parcel/Unit/Property Use to derive it)")
       }
       if (!ulbCode || !wardNumber) {
         missingUlbOrWardRows += 1
@@ -472,7 +484,7 @@ export class ImportsService {
     if (missingPropertyIdRows > 0) {
       warnings.push({
         code: "MISSING_PROPERTY_ID",
-        message: `${missingPropertyIdRows} row(s) missing Property ID; will derive from ULB/Ward/Parcel/Unit/Use or use TEMP-*.`,
+        message: `${missingPropertyIdRows} row(s) missing Property ID and cannot derive from ULB/Ward/Parcel/Unit/Use (blocking).`,
       })
     }
     if (missingUlbOrWardRows > 0) {
@@ -856,19 +868,26 @@ export class ImportsService {
       unitNo,
       propertyUse: propertyUseMapped,
     })
-    propertyId = resolvedPid.propertyId
-    const propertyIdSource = resolvedPid.source
-    const sheetPropertyId = childJoinKey || propertyId
+    if (resolvedPid.source === "missing" || !resolvedPid.propertyId) {
+      propertyId = undefined
+      rowErrors.push("Missing Property ID (provide Property ID or ULB/Ward/Parcel/Unit/Property Use to derive it)")
+    } else {
+      propertyId = resolvedPid.propertyId
+    }
+    const propertyIdSource: "sheet" | "derived" = resolvedPid.source === "derived" ? "derived" : "sheet"
+    const sheetPropertyId = childJoinKey || propertyId || ""
 
-    const consistencyError = checkPropertyIdGeoConsistency({
-      propertyId,
-      excelUlbCode,
-      excelWardNumber,
-    })
+    const consistencyError = propertyId
+      ? checkPropertyIdGeoConsistency({
+          propertyId,
+          excelUlbCode,
+          excelWardNumber,
+        })
+      : undefined
     if (consistencyError) rowErrors.push(consistencyError)
 
     // Property ID encodes ULB (6) + Ward (3); use it when Excel ULB/Ward columns are blank.
-    const parsedPropertyId = parsePropertyId(propertyId)
+    const parsedPropertyId = propertyId ? parsePropertyId(propertyId) : null
     if (!ulbCodeRaw && parsedPropertyId) ulbCodeRaw = parsedPropertyId.ulbCode
     if (!wardNumberRaw && parsedPropertyId) wardNumberRaw = parsedPropertyId.wardNo
     if (!parcelNo && parsedPropertyId) parcelNo = parsedPropertyId.parcelNo

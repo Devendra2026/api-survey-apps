@@ -53,13 +53,13 @@ function propertyUseLabel(value?: string | null) {
   }
 }
 
-function ReviewActionButton({ propertyId }: { propertyId: string }) {
+function ReviewActionButton({ surveyId }: { surveyId: string }) {
   const queryClient = useQueryClient()
 
   const prefetch = () => {
     void queryClient.prefetchQuery({
-      queryKey: ["qc", "survey", propertyId],
-      queryFn: () => apiGet<QcSurveyDetail>(`/qc/survey/${encodeURIComponent(propertyId)}`),
+      queryKey: ["qc", "survey", surveyId],
+      queryFn: () => apiGet<QcSurveyDetail>(`/qc/survey/${encodeURIComponent(surveyId)}`),
       staleTime: 60_000,
     })
   }
@@ -73,7 +73,7 @@ function ReviewActionButton({ propertyId }: { propertyId: string }) {
       onMouseEnter={prefetch}
       onFocus={prefetch}
     >
-      <Link href={`/qc/review/${encodeURIComponent(propertyId)}`}>
+      <Link href={`/qc/review/${encodeURIComponent(surveyId)}`}>
         <Eye className="size-3.5" />
         Review
       </Link>
@@ -95,7 +95,7 @@ export function buildQcRegistryColumns(page: number, limit: number): ColumnDef<Q
       id: "action",
       header: "Action",
       enableSorting: false,
-      cell: ({ row }) => <ReviewActionButton propertyId={row.original.propertyId} />,
+      cell: ({ row }) => <ReviewActionButton surveyId={row.original.id} />,
     },
     {
       accessorKey: "status",

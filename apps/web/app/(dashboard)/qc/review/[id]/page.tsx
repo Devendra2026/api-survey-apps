@@ -7,11 +7,11 @@ import { Suspense } from "react"
 
 export default function QcReviewDetailPage() {
   const params = useParams<{ id: string }>()
-  const id = decodeURIComponent(params.id ?? "")
+  const surveyId = decodeURIComponent(params.id ?? "")
 
   return (
     <Suspense fallback={<SurveyViewSkeleton />}>
-      <QcReviewDetail propertyId={id} />
+      <QcReviewDetail surveyId={surveyId} />
     </Suspense>
   )
 }

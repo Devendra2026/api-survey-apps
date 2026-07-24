@@ -223,16 +223,24 @@ export class SurveysRepository {
   async findById(id: string, user: AuthenticatedUser) {
     const scope = resolveTenantScope(user.tenantRoles)
     const tenantWhere = buildTenantWhere(scope)
-    const survey = await this.prisma.db.survey.findFirst({
-      where: {
-        OR: [{ id }, { propertyId: id }],
-        deletedAt: null,
-        ...(tenantWhere ?? {}),
-      },
+    const baseWhere = {
+      deletedAt: null,
+      ...(tenantWhere ?? {}),
+    }
+
+    // Prefer primary key so mutable propertyId never shadows the stable survey UUID.
+    const byId = await this.prisma.db.survey.findFirst({
+      where: { ...baseWhere, id },
       include: surveyViewInclude,
     })
-    if (!survey) throw new NotFoundException("Survey not found")
-    return survey
+    if (byId) return byId
+
+    const byPropertyId = await this.prisma.db.survey.findFirst({
+      where: { ...baseWhere, propertyId: id },
+      include: surveyViewInclude,
+    })
+    if (!byPropertyId) throw new NotFoundException("Survey not found")
+    return byPropertyId
   }
 
   async findByIdRaw(id: string) {

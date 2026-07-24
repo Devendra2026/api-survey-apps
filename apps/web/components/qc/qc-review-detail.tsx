@@ -6,8 +6,9 @@ import { EmptyState } from "@/components/shared/page-elements"
 import { SurveyViewSkeleton } from "@/components/surveys/survey-view-skeleton"
 import { useQcSurveyActions, useQcSurveyAuditHistory, useQcSurveyDetail } from "@/hooks/use-api"
 import { getApiErrorMessage } from "@/lib/api/client"
-import type { QcSurveyEditable } from "@/lib/api/types"
+import type { QcSurveyDetail, QcSurveyEditable } from "@/lib/api/types"
 import { useAuthStore } from "@/stores/app-store"
+import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "@workspace/ui/components/button"
 import {
   Dialog,
@@ -18,17 +19,18 @@ import {
   DialogTitle,
 } from "@workspace/ui/components/dialog"
 import { useRouter } from "next/navigation"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
-export function QcReviewDetail({ propertyId }: { propertyId: string }) {
+export function QcReviewDetail({ surveyId }: { surveyId: string }) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const hasPermission = useAuthStore((s) => s.hasPermission)
   const canApprove = hasPermission("survey:approve")
   const canDelete = hasPermission("survey:delete")
 
-  const detailQuery = useQcSurveyDetail(propertyId, Boolean(canApprove))
-  const auditQuery = useQcSurveyAuditHistory(propertyId, Boolean(canApprove) && Boolean(propertyId))
+  const detailQuery = useQcSurveyDetail(surveyId, Boolean(canApprove))
+  const auditQuery = useQcSurveyAuditHistory(surveyId, Boolean(canApprove) && Boolean(surveyId))
   const actions = useQcSurveyActions()
 
   const survey = detailQuery.data
@@ -43,6 +45,13 @@ export function QcReviewDetail({ propertyId }: { propertyId: string }) {
     setTrackedEditable(editable)
     if (editable) setDraft(editable)
   }
+
+  // Bookmark compat: old /qc/review/{propertyId} links redirect to stable survey UUID.
+  useEffect(() => {
+    if (!survey?.id) return
+    if (survey.id === surveyId) return
+    router.replace(`/qc/review/${encodeURIComponent(survey.id)}`)
+  }, [router, survey?.id, surveyId])
 
   if (!canApprove) {
     return (
@@ -81,7 +90,7 @@ export function QcReviewDetail({ propertyId }: { propertyId: string }) {
 
   const saveCorrection = async () => {
     try {
-      await actions.correct.mutateAsync({
+      const updated = await actions.correct.mutateAsync({
         id: survey.id,
         patch: {
           stateId: draft.stateId,
@@ -131,6 +140,11 @@ export function QcReviewDetail({ propertyId }: { propertyId: string }) {
           })),
         },
       })
+      if (updated && typeof updated === "object" && "id" in updated && "editable" in updated) {
+        const detail = updated as QcSurveyDetail
+        queryClient.setQueryData(["qc", "survey", survey.id], detail)
+        setDraft(detail.editable)
+      }
       toast.success("QC corrections saved")
       setEditMode(false)
     } catch (error) {

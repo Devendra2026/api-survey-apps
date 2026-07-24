@@ -321,5 +321,14 @@ export function collectWorkbookGeoPairs(
 
 export function formatDuplicateWorkbookError(kind: "propertyId" | "localId", key: string, rows: number[]): string {
   const label = kind === "propertyId" ? "Property ID" : "Local ID"
-  return `Duplicate ${label} in workbook (Surveys sheet): ${key} (rows ${rows.join(", ")})`
+  if (kind === "propertyId") {
+    return `Duplicate ${label} in workbook: ${key} (rows ${rows.join(", ")}). First row upserts; extras import as ${key}-D2, -D3, … for QC correction.`
+  }
+  return `Duplicate ${label} in workbook: ${key} (rows ${rows.join(", ")}). All rows are still imported.`
+}
+
+/** Suffix duplicate Property ID occurrences so @@unique([ulbId, propertyId, assessmentYear]) holds. */
+export function disambiguateImportPropertyId(sheetPropertyId: string, occurrence: number): string {
+  if (occurrence <= 1) return sheetPropertyId
+  return `${sheetPropertyId}-D${occurrence}`
 }

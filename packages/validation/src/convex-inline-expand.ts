@@ -10,6 +10,7 @@
  */
 
 import { mapConstructionType, mapFloorPosition, mapUsageFactor, mapUsageType } from "./convex-import-map.js"
+import { allocateTempPropertyId, importChildJoinKey } from "./property-id.js"
 
 export type WorkbookRow = Record<string, string>
 
@@ -34,7 +35,7 @@ function trim(value: unknown): string {
 }
 
 function propertyIdOf(row: WorkbookRow): string {
-  return trim(row["Property ID"]).toUpperCase()
+  return importChildJoinKey(row)
 }
 
 function tryParseJson(raw: string): unknown | undefined {
@@ -262,6 +263,8 @@ export function expandInlineCoOwners(propertyId: string, raw: string): WorkbookR
 
 /**
  * Walk Surveys rows and expand inline child columns into synthetic sheet rows.
+ * When Property ID is blank, join via Local ID / Survey ID, or stamp a TEMP-* Property ID
+ * so children are not dropped.
  */
 export function expandInlineChildColumns(surveys: WorkbookRow[]): InlineExpansionResult {
   const coOwners: WorkbookRow[] = []
@@ -270,8 +273,11 @@ export function expandInlineChildColumns(surveys: WorkbookRow[]): InlineExpansio
   let usedInlineColumns = false
 
   for (const row of surveys) {
-    const pid = propertyIdOf(row)
-    if (!pid) continue
+    let pid = propertyIdOf(row)
+    if (!pid) {
+      pid = allocateTempPropertyId()
+      row["Property ID"] = pid
+    }
 
     const photosRaw = trim(row[SURVEY_INLINE_COLUMNS.photos])
     const floorsRaw = trim(row[SURVEY_INLINE_COLUMNS.floors])

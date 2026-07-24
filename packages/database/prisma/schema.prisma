@@ -379,8 +379,8 @@ model TaxConfig {
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
-  ward           Ward              @relation(fields: [wardId], references: [id], onDelete: Cascade)
-  assessmentYear ReferenceEntry    @relation("TaxConfigAssessmentYear", fields: [assessmentYearId], references: [id])
+  ward           Ward               @relation(fields: [wardId], references: [id], onDelete: Cascade)
+  assessmentYear ReferenceEntry     @relation("TaxConfigAssessmentYear", fields: [assessmentYearId], references: [id])
   cells          TaxRateCell[]
   versions       TaxConfigVersion[]
 
@@ -558,7 +558,7 @@ model UserTenantRole {
 /// Soft-deleted via deletedAt. Legacy string fields support data migration only.
 /// Identity: one assessment per (ulbId, propertyId, assessmentYear).
 model Survey {
-  id String @id @default(cuid())
+  id String @id @default(uuid())
 
   // Tenant hierarchy (normalized FKs — do not duplicate tenant names)
   stateId      String

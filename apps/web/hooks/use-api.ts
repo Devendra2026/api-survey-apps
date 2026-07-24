@@ -302,7 +302,12 @@ export function useQcSurveyActions() {
     correct: useMutation({
       mutationFn: ({ id, patch }: { id: string; patch: NonNullable<QcSurveyActionPayload["patch"]> }) =>
         runAction(id, { action: "correct", patch }),
-      onSuccess: invalidate,
+      onSuccess: (data, variables) => {
+        if (data && typeof data === "object" && "id" in data && "propertyId" in data) {
+          qc.setQueryData(["qc", "survey", variables.id], data)
+        }
+        invalidate()
+      },
     }),
   }
 }

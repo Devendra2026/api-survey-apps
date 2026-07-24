@@ -131,3 +131,74 @@ export function comparePropertyIds(a?: string, b?: string): number {
   if (!kb) return -1
   return ka.localeCompare(kb, undefined, { numeric: true })
 }
+
+export type PropertyIdSource = "sheet" | "derived" | "temp"
+
+/** Stable key to attach CoOwners / Floors / Photos when sheet Property ID is blank. */
+export function importChildJoinKey(row: {
+  "Property ID"?: string | null
+  "Local ID"?: string | null
+  "Survey ID"?: string | null
+}): string {
+  const propertyId = (row["Property ID"] ?? "").trim().toUpperCase()
+  if (propertyId) return propertyId
+  const localId = (row["Local ID"] ?? "").trim().toUpperCase()
+  if (localId) return localId
+  const legacySurveyId = (row["Survey ID"] ?? "").trim().toUpperCase()
+  if (legacySurveyId) return legacySurveyId
+  return ""
+}
+
+/** Temporary Property ID so blank-formula rows still satisfy uniqueness until QC corrects. */
+export function allocateTempPropertyId(randomUuid: () => string = defaultRandomUuid): string {
+  const hex = randomUuid().replace(/-/g, "").slice(0, 8).toUpperCase()
+  return `TEMP-${hex || "00000000"}`
+}
+
+function defaultRandomUuid(): string {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID()
+  }
+  // Fallback for environments without Web Crypto randomUUID.
+  return `xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0
+    const v = c === "x" ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}
+
+/**
+ * Resolve Property ID for Excel import:
+ * 1) sheet value → 2) formula from ULB/Ward/Parcel/Unit/Use → 3) TEMP-{uuid8}
+ */
+export function resolveImportPropertyId(input: {
+  sheetPropertyId?: string | null
+  ulbCode?: string | null
+  wardNo?: string | null
+  parcelNo?: string | null
+  unitNo?: string | null
+  propertyUse?: string | null
+  allocateTemp?: () => string
+}): { propertyId: string; source: PropertyIdSource } {
+  const sheet = (input.sheetPropertyId ?? "").trim().toUpperCase()
+  if (sheet) return { propertyId: sheet, source: "sheet" }
+
+  const ulbCode = (input.ulbCode ?? "").trim()
+  const wardNo = (input.wardNo ?? "").trim()
+  const parcelNo = (input.parcelNo ?? "").trim()
+  const unitNo = (input.unitNo ?? "").trim()
+  const propertyUse = (input.propertyUse ?? "").trim()
+  if (ulbCode && wardNo && parcelNo && unitNo && propertyUse) {
+    const derived = formatPropertyId({
+      ulbCode,
+      wardNo,
+      parcelNo,
+      unitNo,
+      propertyUse,
+    })
+    if (derived) return { propertyId: derived, source: "derived" }
+  }
+
+  const allocate = input.allocateTemp ?? allocateTempPropertyId
+  return { propertyId: allocate(), source: "temp" }
+}

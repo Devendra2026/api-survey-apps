@@ -25,11 +25,12 @@ import type { ImportJobPayload } from "@workspace/jobs"
 import {
   checkPropertyIdGeoConsistency,
   collectWorkbookGeoPairs,
+  disambiguateImportPropertyId,
   emptyToUndefinedNormalized,
   formatDuplicateWorkbookError,
   formatGeoResolveError,
   formatMissingUlbMasterAbort,
-  formatPropertyId,
+  importChildJoinKey,
   mapAssessmentYear,
   mapConstructionType,
   mapFloorPosition,
@@ -53,6 +54,7 @@ import {
   parsePropertyId,
   parseYn,
   resolveImportGeo,
+  resolveImportPropertyId,
   sqFtToSqMeter,
   type GeoResolved,
   type GeoResolveResult,
@@ -91,11 +93,50 @@ interface ImportCheckpoint {
 
 interface MappedSurvey {
   rowNumber: number
+  /** Effective propertyId written to DB (may be disambiguated for duplicate rows). */
   propertyId: string
+  /** Sheet Property ID used to attach CoOwners / Floors / Photos. */
+  sheetPropertyId: string
+  /** How propertyId was obtained before duplicate disambiguation. */
+  propertyIdSource: "sheet" | "derived" | "temp"
+  /** 1 = first occurrence (upsert); 2+ = force-create with disambiguated id. */
+  occurrence: number
+  forceCreate: boolean
   localId?: string
   legacySurveyId?: string
   geo: GeoResolved
   data: Prisma.SurveyUncheckedCreateInput
+}
+
+function seedPropertyIdOccurrences(surveys: WorkbookRow[], untilIndex: number): Map<string, number> {
+  const map = new Map<string, number>()
+  for (let i = 0; i < untilIndex; i++) {
+    const key = normalizeImportString(surveys[i]?.["Property ID"]).toUpperCase()
+    if (!key) continue
+    map.set(key, (map.get(key) ?? 0) + 1)
+  }
+  return map
+}
+
+function applyPropertyIdOccurrence(mapped: MappedSurvey, occurrenceByPropertyId: Map<string, number>): MappedSurvey {
+  const sheetKey = mapped.sheetPropertyId.toUpperCase()
+  const occurrence = (occurrenceByPropertyId.get(sheetKey) ?? 0) + 1
+  occurrenceByPropertyId.set(sheetKey, occurrence)
+  if (occurrence <= 1) {
+    return { ...mapped, occurrence, forceCreate: false }
+  }
+  const disambiguated = disambiguateImportPropertyId(mapped.sheetPropertyId, occurrence)
+  return {
+    ...mapped,
+    occurrence,
+    forceCreate: true,
+    propertyId: disambiguated,
+    data: {
+      ...mapped.data,
+      propertyId: disambiguated,
+      propertyIdOld: mapped.data.propertyIdOld || mapped.sheetPropertyId,
+    },
+  }
 }
 
 @Injectable()
@@ -159,24 +200,19 @@ export class ImportWorkerService {
       const floorsByPid = groupRowsByPropertyId(workbook.floors)
       const photosByPid = groupRowsByPropertyId(workbook.photos)
 
-      const errors: ImportRowError[] = duplicates.flatMap((issue) =>
-        issue.rows.map((row) => ({
-          row,
-          propertyId: issue.kind === "propertyId" ? issue.key : undefined,
-          localId: issue.kind === "localId" ? issue.key : undefined,
-          errors: [formatDuplicateWorkbookError(issue.kind, issue.key, issue.rows)],
-        }))
-      )
+      // Duplicates are imported (first upserts; extras get -D2/-D3); report is informational only.
+      const errors: ImportRowError[] = []
       const createdSurveyIds: string[] = []
       const updatedSurveyIds: string[] = []
       let successCount = 0
-      let failureCount = errors.length
+      let failureCount = 0
       let photoSuccessCount = 0
       let photoFailureCount = 0
       let processedRows = retryFailedOnly ? 0 : checkpoint.processedRows
 
       const startIndex = retryFailedOnly ? 0 : Math.min(Math.max(checkpoint.processedRows, 0), surveys.length)
       const remaining = surveys.slice(startIndex)
+      const occurrenceByPropertyId = seedPropertyIdOccurrences(surveys, startIndex)
 
       const geoCache = new Map<string, GeoResolveResult>()
       const scope = resolveTenantScope(payload.tenantRoles)
@@ -187,10 +223,7 @@ export class ImportWorkerService {
         reason: string
         sampleRows: number[]
       }> = []
-      const geoPairs = collectWorkbookGeoPairs(surveys, {
-        skipPropertyIds: duplicatePropertyIds,
-        skipLocalIds: duplicateLocalIds,
-      })
+      const geoPairs = collectWorkbookGeoPairs(surveys)
       const missingUlbCodes: string[] = []
       for (const pair of geoPairs) {
         const resolved = await resolveImportGeo(this.prisma.db, pair.ulbCode, pair.wardNumber, geoCache)
@@ -224,6 +257,8 @@ export class ImportWorkerService {
           duplicates,
           duplicatePropertyIdCount: duplicatePropertyIds.size,
           duplicateLocalIdCount: duplicateLocalIds.size,
+          duplicateImportNote:
+            "Duplicate Property IDs are imported (first upserts; extras use -D2/-D3 for QC correction).",
           errors,
         }
         const errorReportKey = await this.writeValidationReport(payload, validationReport)
@@ -249,23 +284,20 @@ export class ImportWorkerService {
 
         for (const [i, row] of chunkRows.entries()) {
           const rowNumber = startIndex + offset + i + 2
-          const propertyId = normalizeImportString(row["Property ID"]).toUpperCase()
-          const localId = normalizeImportString(row["Local ID"]).toUpperCase()
-          if ((propertyId && duplicatePropertyIds.has(propertyId)) || (localId && duplicateLocalIds.has(localId))) {
-            // Already recorded in workbook duplicate validation report.
-            continue
-          }
           const mapped = await this.mapSurveyRow(row, rowNumber, payload, scope, geoCache, errors)
-          if (mapped) mappedChunk.push(mapped)
+          if (mapped) mappedChunk.push(applyPropertyIdOccurrence(mapped, occurrenceByPropertyId))
           else failureCount += 1
         }
 
-        const propertyIds = mappedChunk.map((item) => item.propertyId)
-        const localIds = mappedChunk.map((item) => item.localId).filter((id): id is string => Boolean(id))
+        const lookupPropertyIds = mappedChunk.filter((item) => !item.forceCreate).map((item) => item.sheetPropertyId)
+        const localIds = mappedChunk
+          .filter((item) => !item.forceCreate)
+          .map((item) => item.localId)
+          .filter((id): id is string => Boolean(id))
 
-        const existingByProperty = propertyIds.length
+        const existingByProperty = lookupPropertyIds.length
           ? await this.prisma.db.survey.findMany({
-              where: { deletedAt: null, propertyId: { in: propertyIds } },
+              where: { deletedAt: null, propertyId: { in: lookupPropertyIds } },
               select: { id: true, propertyId: true, localId: true },
             })
           : []
@@ -280,7 +312,7 @@ export class ImportWorkerService {
                 where: {
                   deletedAt: null,
                   localId: { in: unmatchedLocalIds },
-                  NOT: { propertyId: { in: propertyIds } },
+                  NOT: { propertyId: { in: lookupPropertyIds } },
                 },
                 select: { id: true, propertyId: true, localId: true },
               })
@@ -291,9 +323,10 @@ export class ImportWorkerService {
 
         for (const item of mappedChunk) {
           try {
-            const existing =
-              byPropertyId.get(item.propertyId.toUpperCase()) ??
-              (item.localId ? byLocalId.get(item.localId.toUpperCase()) : undefined)
+            const existing = item.forceCreate
+              ? undefined
+              : (byPropertyId.get(item.sheetPropertyId.toUpperCase()) ??
+                (item.localId ? byLocalId.get(item.localId.toUpperCase()) : undefined))
 
             const result = await this.prisma.db.$transaction(async (tx) => {
               let surveyId: string
@@ -321,14 +354,22 @@ export class ImportWorkerService {
                   data: {
                     surveyId,
                     action: "IMPORTED",
-                    newValue: { propertyId: item.propertyId, jobId: payload.jobId },
+                    newValue: {
+                      propertyId: item.propertyId,
+                      sheetPropertyId: item.sheetPropertyId,
+                      propertyIdSource: item.propertyIdSource,
+                      occurrence: item.occurrence,
+                      jobId: payload.jobId,
+                    },
                     changedBy: payload.createdById,
                   },
                 })
               }
 
+              const childKey = item.sheetPropertyId.toUpperCase()
+
               await tx.coOwner.deleteMany({ where: { surveyId } })
-              const coOwnerRows = coOwnersByPid.get(item.propertyId.toUpperCase()) ?? []
+              const coOwnerRows = coOwnersByPid.get(childKey) ?? []
               for (const [idx, ownerRow] of coOwnerRows.entries()) {
                 const name = String(ownerRow.Name ?? "").trim()
                 if (!name) continue
@@ -345,7 +386,7 @@ export class ImportWorkerService {
               }
 
               await tx.floor.deleteMany({ where: { surveyId } })
-              const floorRows = floorsByPid.get(item.propertyId.toUpperCase()) ?? []
+              const floorRows = floorsByPid.get(childKey) ?? []
               const seenPositions = new Set<string>()
               for (const floorRow of floorRows) {
                 const positionRaw = mapFloorPosition(floorRow.Floor)
@@ -368,7 +409,8 @@ export class ImportWorkerService {
                 })
               }
 
-              const photoRows = photosByPid.get(item.propertyId.toUpperCase()) ?? []
+              await tx.photo.deleteMany({ where: { surveyId } })
+              const photoRows = photosByPid.get(childKey) ?? []
               let photoOk = 0
               let photoFail = 0
               for (const photoRow of photoRows) {
@@ -383,37 +425,19 @@ export class ImportWorkerService {
                     photoFail += 1
                     continue
                   }
-                  const existingPhoto = await tx.photo.findFirst({
-                    where: { surveyId, photoType: photoTypeRaw },
+                  await tx.photo.create({
+                    data: {
+                      surveyId,
+                      photoType: photoTypeRaw,
+                      url: sourceUrl,
+                      sourceUrl,
+                      importStatus: "PENDING",
+                      sizeKB: parseNumber(photoRow["Size (KB)"]),
+                      width: parseNumber(photoRow.Width),
+                      height: parseNumber(photoRow.Height),
+                      capturedAt: parseDate(photoRow["Captured At"]),
+                    },
                   })
-                  if (existingPhoto) {
-                    await tx.photo.update({
-                      where: { id: existingPhoto.id },
-                      data: {
-                        sourceUrl,
-                        importStatus: "PENDING",
-                        url: sourceUrl,
-                        sizeKB: parseNumber(photoRow["Size (KB)"]),
-                        width: parseNumber(photoRow.Width),
-                        height: parseNumber(photoRow.Height),
-                        capturedAt: parseDate(photoRow["Captured At"]),
-                      },
-                    })
-                  } else {
-                    await tx.photo.create({
-                      data: {
-                        surveyId,
-                        photoType: photoTypeRaw,
-                        url: sourceUrl,
-                        sourceUrl,
-                        importStatus: "PENDING",
-                        sizeKB: parseNumber(photoRow["Size (KB)"]),
-                        width: parseNumber(photoRow.Width),
-                        height: parseNumber(photoRow.Height),
-                        capturedAt: parseDate(photoRow["Captured At"]),
-                      },
-                    })
-                  }
                   photoOk += 1
                 } catch {
                   photoFail += 1
@@ -423,8 +447,16 @@ export class ImportWorkerService {
               return { surveyId, created, photoOk, photoFail }
             })
 
-            if (result.created) createdSurveyIds.push(result.surveyId)
-            else updatedSurveyIds.push(result.surveyId)
+            if (result.created) {
+              createdSurveyIds.push(result.surveyId)
+              if (!item.forceCreate) {
+                byPropertyId.set(item.sheetPropertyId.toUpperCase(), {
+                  id: result.surveyId,
+                  propertyId: item.propertyId,
+                  localId: item.localId ?? null,
+                })
+              }
+            } else updatedSurveyIds.push(result.surveyId)
             successCount += 1
             photoSuccessCount += result.photoOk
             photoFailureCount += result.photoFail
@@ -472,6 +504,14 @@ export class ImportWorkerService {
         duplicates,
         duplicatePropertyIdCount: duplicatePropertyIds.size,
         duplicateLocalIdCount: duplicateLocalIds.size,
+        duplicateImportNote:
+          "Duplicate Property IDs are imported (first upserts; extras use -D2/-D3 for QC correction).",
+        duplicateDetails: duplicates.map((issue) => ({
+          kind: issue.kind,
+          key: issue.key,
+          rows: issue.rows,
+          message: formatDuplicateWorkbookError(issue.kind, issue.key, issue.rows),
+        })),
         missingMasterPairs,
         errors,
         resumedFrom: checkpoint.processedRows,
@@ -565,23 +605,25 @@ export class ImportWorkerService {
     let unitNo = emptyToUndefined(row["Unit / Sub-No"])
     const propertyUseMapped = mapPropertyUse(row["Property Use"])
 
-    let propertyId = emptyToUndefined(row["Property ID"])?.toUpperCase()
+    const sheetPropertyIdRaw = emptyToUndefined(row["Property ID"])?.toUpperCase()
+    const childJoinKey = importChildJoinKey(row) || sheetPropertyIdRaw || ""
     const excelUlbCode = firstRowValue(row, ["ULB Code", "Municipality Code", "municipalityCode", "ULB"])
     const excelWardNumber = firstRowValue(row, ["Ward Number", "Ward No", "Ward", "wardNo"])
 
     let ulbCodeRaw = excelUlbCode
     let wardNumberRaw = excelWardNumber
 
-    if (!propertyId && ulbCodeRaw && wardNumberRaw && parcelNo && unitNo && propertyUseMapped) {
-      propertyId = formatPropertyId({
-        ulbCode: ulbCodeRaw,
-        wardNo: wardNumberRaw,
-        parcelNo,
-        unitNo,
-        propertyUse: propertyUseMapped,
-      })
-    }
-    if (!propertyId) rowErrors.push("Missing Property ID (and could not derive from ULB/Ward/Parcel/Unit/Use)")
+    const resolvedPid = resolveImportPropertyId({
+      sheetPropertyId: sheetPropertyIdRaw,
+      ulbCode: ulbCodeRaw,
+      wardNo: wardNumberRaw,
+      parcelNo,
+      unitNo,
+      propertyUse: propertyUseMapped,
+    })
+    const propertyId = resolvedPid.propertyId
+    const propertyIdSource = resolvedPid.source
+    const sheetPropertyId = childJoinKey || propertyId
 
     const consistencyError = checkPropertyIdGeoConsistency({
       propertyId,
@@ -615,7 +657,9 @@ export class ImportWorkerService {
 
     this.logger.debug({
       rowNumber,
-      propertyId: propertyId ?? null,
+      propertyId,
+      propertyIdSource,
+      sheetPropertyId,
       excelUlbCode: excelUlbCode ?? null,
       excelWardNumber: excelWardNumber ?? null,
       derivedUlbCode: ulbCodeRaw ?? null,
@@ -731,7 +775,18 @@ export class ImportWorkerService {
       assignedAt: new Date(),
     }
 
-    return { rowNumber, propertyId, localId, legacySurveyId, geo, data }
+    return {
+      rowNumber,
+      propertyId,
+      sheetPropertyId,
+      propertyIdSource,
+      occurrence: 1,
+      forceCreate: false,
+      localId,
+      legacySurveyId,
+      geo,
+      data,
+    }
   }
 
   private async writeValidationReport(payload: ImportJobPayload, report: Record<string, unknown>): Promise<string> {

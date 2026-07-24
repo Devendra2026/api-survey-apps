@@ -1,14 +1,18 @@
 import { describe, expect, it } from "@jest/globals"
 import {
+  allocateTempPropertyId,
   buildWardCandidates,
   canonicalWardNumber,
   checkPropertyIdGeoConsistency,
   collectWorkbookGeoPairs,
+  disambiguateImportPropertyId,
   formatDuplicateWorkbookError,
   formatMissingUlbMasterAbort,
   geoErrorMessage,
+  importChildJoinKey,
   normalizeImportString,
   resolveImportGeo,
+  resolveImportPropertyId,
   type GeoLookupDb,
   type GeoResolveResult,
 } from "@workspace/validation"
@@ -24,10 +28,53 @@ describe("import-geo helpers", () => {
     expect(canonicalWardNumber("005")).toBe("5")
   })
 
-  it("formats duplicate workbook errors with sheet and rows", () => {
-    expect(formatDuplicateWorkbookError("propertyId", "800726-005-00041-001-R", [53, 371])).toBe(
-      "Duplicate Property ID in workbook (Surveys sheet): 800726-005-00041-001-R (rows 53, 371)"
+  it("formats duplicate workbook errors with import-as-extras guidance", () => {
+    expect(formatDuplicateWorkbookError("propertyId", "800726-005-00041-001-R", [53, 371])).toContain(
+      "800726-005-00041-001-R"
     )
+    expect(formatDuplicateWorkbookError("propertyId", "800726-005-00041-001-R", [53, 371])).toContain("rows 53, 371")
+    expect(formatDuplicateWorkbookError("propertyId", "800726-005-00041-001-R", [53, 371])).toContain("-D2")
+    expect(formatDuplicateWorkbookError("localId", "L-1", [2, 4])).toContain("All rows are still imported")
+  })
+
+  it("disambiguates duplicate Property ID occurrences for unique constraint", () => {
+    expect(disambiguateImportPropertyId("800726-005-00041-001-R", 1)).toBe("800726-005-00041-001-R")
+    expect(disambiguateImportPropertyId("800726-005-00041-001-R", 2)).toBe("800726-005-00041-001-R-D2")
+    expect(disambiguateImportPropertyId("800726-005-00041-001-R", 3)).toBe("800726-005-00041-001-R-D3")
+  })
+
+  it("resolves import Property ID: sheet, formula, then TEMP", () => {
+    expect(
+      resolveImportPropertyId({
+        sheetPropertyId: "801262-001-03389-001-R",
+      })
+    ).toEqual({ propertyId: "801262-001-03389-001-R", source: "sheet" })
+
+    expect(
+      resolveImportPropertyId({
+        sheetPropertyId: "",
+        ulbCode: "801262",
+        wardNo: "1",
+        parcelNo: "3389",
+        unitNo: "1",
+        propertyUse: "RESIDENTIAL",
+      })
+    ).toEqual({ propertyId: "801262-001-03389-001-R", source: "derived" })
+
+    expect(
+      resolveImportPropertyId({
+        sheetPropertyId: "",
+        ulbCode: "801262",
+        allocateTemp: () => "TEMP-ABCDEF12",
+      })
+    ).toEqual({ propertyId: "TEMP-ABCDEF12", source: "temp" })
+  })
+
+  it("builds child join key from Property ID, Local ID, or Survey ID", () => {
+    expect(importChildJoinKey({ "Property ID": "801262-001-03389-001-R" })).toBe("801262-001-03389-001-R")
+    expect(importChildJoinKey({ "Property ID": "", "Local ID": "L-9" })).toBe("L-9")
+    expect(importChildJoinKey({ "Property ID": "", "Local ID": "", "Survey ID": "cuid123" })).toBe("CUID123")
+    expect(allocateTempPropertyId(() => "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")).toBe("TEMP-AAAAAAAA")
   })
 
   it("flags Property ID vs Excel ULB/Ward mismatches", () => {

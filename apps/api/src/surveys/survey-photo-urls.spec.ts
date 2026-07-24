@@ -138,6 +138,7 @@ describe("refreshSurveyPhotoUrls", () => {
           url: "https://cdn.example/a.jpg",
           capturedAt: null,
           surveyorName: "A",
+          importStatus: null as string | null,
         },
       ],
       frontPhotoUrl: "https://cdn.example/a.jpg",

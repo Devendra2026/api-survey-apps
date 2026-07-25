@@ -232,6 +232,38 @@ export class EnvironmentVariables {
   @IsOptional()
   @IsString()
   ALLOW_DEV_AUTH?: string
+
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @IsUrl({ require_tld: false })
+  CONVEX_SITE_URL?: string
+
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @IsString()
+  ETL_CONVEX_SECRET?: string
+
+  @IsOptional()
+  @IsBooleanString()
+  ETL_ENABLED?: string
+
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @IsString()
+  ETL_CRON?: string
+
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(500)
+  ETL_BATCH_SIZE?: number
+
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @IsString()
+  ETL_SYSTEM_USER_ID?: string
 }
 
 export function validateEnv(config: Record<string, unknown>) {

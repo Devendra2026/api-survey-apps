@@ -35,6 +35,7 @@
     "@nestjs/swagger": "^11.4.5",
     "@nestjs/throttler": "^6.5.0",
     "@workspace/database": "workspace:*",
+    "@workspace/etl-core": "workspace:*",
     "@workspace/excel-reports": "workspace:*",
     "@workspace/jobs": "workspace:*",
     "@workspace/validation": "workspace:*",

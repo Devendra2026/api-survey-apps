@@ -9,6 +9,7 @@ export const PERMISSIONS = {
   SURVEY_ASSIGN: "survey:assign",
   SURVEY_EXPORT: "survey:export",
   SURVEY_IMPORT: "survey:import",
+  ETL_MANAGE: "etl:manage",
   USER_CREATE: "user:create",
   USER_UPDATE: "user:update",
   USER_DELETE: "user:delete",

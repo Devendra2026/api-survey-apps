@@ -120,16 +120,39 @@ const SANITATION: Record<string, string> = {
 
 const FLOOR_POSITION: Record<string, string> = {
   basement: "BASEMENT",
+  "-1": "BASEMENT",
+  ground: "GROUND_FLOOR",
   ground_floor: "GROUND_FLOOR",
+  gf: "GROUND_FLOOR",
+  "0": "GROUND_FLOOR",
+  first: "FIRST_FLOOR",
   first_floor: "FIRST_FLOOR",
+  "1": "FIRST_FLOOR",
+  second: "SECOND_FLOOR",
   second_floor: "SECOND_FLOOR",
+  "2": "SECOND_FLOOR",
+  third: "THIRD_FLOOR",
   third_floor: "THIRD_FLOOR",
+  "3": "THIRD_FLOOR",
+  fourth: "FOURTH_FLOOR",
   fourth_floor: "FOURTH_FLOOR",
+  "4": "FOURTH_FLOOR",
+  fifth: "FIFTH_FLOOR_PLUS",
   fifth_floor: "FIFTH_FLOOR_PLUS",
   fifth_floor_plus: "FIFTH_FLOOR_PLUS",
+  "5": "FIFTH_FLOOR_PLUS",
   open_land: "OPEN_LAND",
   open_land_plot: "OPEN_LAND",
 }
+
+const FLOOR_POSITION_BY_INDEX = [
+  "GROUND_FLOOR",
+  "FIRST_FLOOR",
+  "SECOND_FLOOR",
+  "THIRD_FLOOR",
+  "FOURTH_FLOOR",
+  "FIFTH_FLOOR_PLUS",
+] as const
 
 const USAGE_FACTOR: Record<string, string> = {
   residential: "RESIDENTIAL",
@@ -229,6 +252,15 @@ export function mapSanitationType(raw?: string | null) {
 export function mapFloorPosition(raw?: string | null) {
   return mapEnum(FLOOR_POSITION, raw)
 }
+
+/** Map 0-based floor index → Prisma FloorPosition (for Convex numeric positions). */
+export function mapFloorPositionByIndex(index: number | null | undefined): string | undefined {
+  if (index == null || !Number.isFinite(index)) return undefined
+  const i = Math.trunc(index)
+  if (i < 0) return "BASEMENT"
+  if (i >= FLOOR_POSITION_BY_INDEX.length) return "FIFTH_FLOOR_PLUS"
+  return FLOOR_POSITION_BY_INDEX[i]
+}
 export function mapUsageFactor(raw?: string | null) {
   return mapEnum(USAGE_FACTOR, raw)
 }
@@ -254,9 +286,15 @@ export function mapGpsSource(raw?: string | null) {
 export function mapAssessmentYear(raw?: string | null): string | undefined {
   if (raw == null || String(raw).trim() === "") return undefined
   const s = String(raw).trim()
-  if (s === "2025-2026" || s === "AY_2025_2026") return "AY_2025_2026"
-  if (s === "2026-2027" || s === "AY_2026_2027") return "AY_2026_2027"
-  if (s === "2024-2025") return "AY_2025_2026"
+  if (s === "2025-2026" || s === "2025-26" || s === "AY_2025_2026") return "AY_2025_2026"
+  if (s === "2026-2027" || s === "2026-27" || s === "AY_2026_2027") return "AY_2026_2027"
+  if (s === "2024-2025" || s === "2024-25") return "AY_2025_2026"
+  // "2026-2027", "AY 2026-27", etc.
+  const compact = s.replace(/\s+/g, "").toUpperCase()
+  if (compact.includes("2025") && compact.includes("2026")) return "AY_2025_2026"
+  if (compact.includes("2026") && compact.includes("2027")) return "AY_2026_2027"
+  if (/^2025-?26$/.test(compact.replace("AY_", ""))) return "AY_2025_2026"
+  if (/^2026-?27$/.test(compact.replace("AY_", ""))) return "AY_2026_2027"
   return undefined
 }
 

@@ -108,6 +108,35 @@ export class WorkerEnvironmentVariables {
   @Transform(emptyToUndefined)
   @IsString()
   AWS_SECRET_ACCESS_KEY?: string
+
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @IsUrl({ require_tld: false })
+  CONVEX_SITE_URL?: string
+
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @IsString()
+  ETL_CONVEX_SECRET?: string
+
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @IsString()
+  ETL_SYSTEM_USER_ID?: string
+
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  ETL_MAX_RETRIES?: number
+
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  ETL_MAX_IMAGE_BYTES?: number
 }
 
 export function validateWorkerEnv(config: Record<string, unknown>) {

@@ -5,6 +5,14 @@ import { JOB_QUEUE_NAMES } from "@workspace/jobs"
 import { monorepoEnvFiles } from "./config/env-files.js"
 import { validateWorkerEnv } from "./config/env.validation.js"
 import { PrismaService } from "./database/prisma.service.js"
+import { EtlImageDownloadProcessor, EtlImageUploadProcessor } from "./etl/image.processors.js"
+import { EtlOrchestratorService } from "./etl/etl-orchestrator.service.js"
+import { EtlSurveyImportProcessor } from "./etl/survey-import.processor.js"
+import {
+  EtlReportProcessor,
+  EtlRetryProcessor,
+  EtlValidationProcessor,
+} from "./etl/validation-retry-report.processors.js"
 import { ExportWorkerService } from "./exports/export-worker.service.js"
 import { ExportsProcessor } from "./exports/exports.processor.js"
 import { HealthController } from "./health/health.controller.js"
@@ -44,7 +52,13 @@ import { ObjectStorageService } from "./storage/object-storage.service.js"
       { name: JOB_QUEUE_NAMES.imports },
       { name: JOB_QUEUE_NAMES.exports },
       { name: JOB_QUEUE_NAMES.storageCleanup },
-      { name: JOB_QUEUE_NAMES.imageMigration }
+      { name: JOB_QUEUE_NAMES.imageMigration },
+      { name: JOB_QUEUE_NAMES.etlSurveyImport },
+      { name: JOB_QUEUE_NAMES.etlImageDownload },
+      { name: JOB_QUEUE_NAMES.etlImageUpload },
+      { name: JOB_QUEUE_NAMES.etlValidation },
+      { name: JOB_QUEUE_NAMES.etlRetry },
+      { name: JOB_QUEUE_NAMES.etlReport }
     ),
   ],
   controllers: [HealthController],
@@ -60,6 +74,13 @@ import { ObjectStorageService } from "./storage/object-storage.service.js"
     ExportsProcessor,
     StorageCleanupProcessor,
     ImageMigrationProcessor,
+    EtlOrchestratorService,
+    EtlSurveyImportProcessor,
+    EtlImageDownloadProcessor,
+    EtlImageUploadProcessor,
+    EtlValidationProcessor,
+    EtlRetryProcessor,
+    EtlReportProcessor,
   ],
 })
 export class WorkerModule {}

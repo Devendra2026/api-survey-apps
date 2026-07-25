@@ -3,6 +3,12 @@ export const JOB_QUEUE_NAMES = {
   exports: "exports",
   storageCleanup: "storage-cleanup",
   imageMigration: "image-migration",
+  etlSurveyImport: "etl-survey-import",
+  etlImageDownload: "etl-image-download",
+  etlImageUpload: "etl-image-upload",
+  etlValidation: "etl-validation",
+  etlRetry: "etl-retry",
+  etlReport: "etl-report",
 } as const
 
 export const JOB_NAMES = {
@@ -10,6 +16,13 @@ export const JOB_NAMES = {
   processExport: "process-export",
   deleteObjects: "delete-objects",
   migrateImages: "migrate-images",
+  importSurveyBatch: "import-survey-batch",
+  importSurvey: "import-survey",
+  downloadPhoto: "download-photo",
+  uploadPhoto: "upload-photo",
+  validateJob: "validate-job",
+  retryFailed: "retry-failed",
+  generateReport: "generate-report",
 } as const
 
 export type JobQueueName = (typeof JOB_QUEUE_NAMES)[keyof typeof JOB_QUEUE_NAMES]
@@ -88,4 +101,55 @@ export interface ImageMigrationPayload {
   sourceUrl: string
   photoType: string
   createdById: string
+}
+
+export type EtlJobType = "FULL" | "INCREMENTAL" | "RETRY_FAILED" | "VALIDATE"
+
+export interface EtlSurveyBatchPayload {
+  migrationJobId: string
+  correlationId: string
+  type: EtlJobType
+  cursor: string | null
+  batchSize: number
+  force?: boolean
+  createdById?: string
+}
+
+export interface EtlSurveyImportPayload {
+  migrationJobId: string
+  correlationId: string
+  legacySurveyId: string
+  type: EtlJobType
+  createdById?: string
+}
+
+export interface EtlPhotoPayload {
+  migrationJobId: string
+  correlationId: string
+  legacySurveyId: string
+  slot: "front" | "inside" | "side" | "document"
+  sourceUrl: string
+  objectKey: string
+  width?: number
+  height?: number
+  sizeKb?: number
+  capturedAt?: number
+}
+
+export interface EtlValidatePayload {
+  migrationJobId: string
+  correlationId: string
+  createdById?: string
+}
+
+export interface EtlRetryPayload {
+  migrationJobId: string
+  correlationId: string
+  maxRetries: number
+  createdById?: string
+}
+
+export interface EtlReportPayload {
+  migrationJobId: string
+  correlationId: string
 }

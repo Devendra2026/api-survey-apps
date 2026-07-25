@@ -16,6 +16,7 @@ import { monorepoEnvFiles } from "./config/env-files.js"
 import { validateEnv } from "./config/env.validation.js"
 import { DashboardModule } from "./dashboard/dashboard.module.js"
 import { DistrictsModule } from "./districts/districts.module.js"
+import { EtlModule } from "./etl/etl.module.js"
 import { FloorsModule } from "./floors/floors.module.js"
 import { HealthController } from "./health/health.controller.js"
 import { ImportsModule } from "./imports/imports.module.js"
@@ -85,6 +86,7 @@ import { ReferenceCatalogsModule } from "./reference-catalogs/reference-catalogs
     DashboardModule,
     ReportsModule,
     ImportsModule,
+    EtlModule,
     NotificationsModule,
   ],
   controllers: [HealthController],

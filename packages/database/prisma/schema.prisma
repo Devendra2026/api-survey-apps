@@ -194,6 +194,21 @@ enum JobStatus {
   CANCELLED
 }
 
+enum MigrationStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+  FAILED
+}
+
+enum MigrationJobType {
+  FULL
+  INCREMENTAL
+  RETRY_FAILED
+  VALIDATE
+}
+
 enum ExportFormat {
   CSV
   XLSX
@@ -681,7 +696,7 @@ model Survey {
   @@index([mobileNumber])
   @@index([propertyId])
   @@index([localId])
-  @@index([legacySurveyId])
+  @@unique([legacySurveyId])
   @@map("surveys")
 }
 
@@ -897,4 +912,89 @@ model SavedView {
   @@unique([userId, entity, name])
   @@index([userId, entity])
   @@map("saved_views")
+}
+
+/// Per-Convex-survey ETL resume / duplicate-detection state (keyed by legacySurveyId).
+model MigrationState {
+  id             String          @id @default(cuid())
+  /// Convex surveys._id — permanent unique identity for ETL dedupe
+  legacySurveyId String          @unique
+  surveyId       String?
+  status         MigrationStatus @default(PENDING)
+  lastSyncedAt   DateTime?
+  imagesImported Int             @default(0)
+  imagesExpected Int             @default(0)
+  retryCount     Int             @default(0)
+  checksum       String?
+  lastError      String?
+  correlationId  String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([status, updatedAt])
+  @@index([surveyId])
+  @@map("migration_state")
+}
+
+/// ETL job run (full migration, incremental sync, retry, validate).
+model MigrationJob {
+  id            String           @id @default(cuid())
+  type          MigrationJobType
+  status        String           @default("QUEUED")
+  batchSize     Int              @default(100)
+  cursor        String?
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  statsJson     Json?
+  createdById   String?
+  correlationId String
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  logs     MigrationLog[]
+  failures FailedImport[]
+
+  @@index([status, createdAt])
+  @@index([type, createdAt])
+  @@index([correlationId])
+  @@map("migration_jobs")
+}
+
+/// Structured ETL log lines for a migration job.
+model MigrationLog {
+  id             String   @id @default(cuid())
+  jobId          String
+  level          String
+  message        String
+  legacySurveyId String?
+  correlationId  String?
+  metaJson       Json?
+  createdAt      DateTime @default(now())
+
+  job MigrationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, createdAt])
+  @@index([legacySurveyId])
+  @@map("migration_logs")
+}
+
+/// Failed survey import stages for retry / reporting.
+model FailedImport {
+  id             String    @id @default(cuid())
+  jobId          String
+  legacySurveyId String
+  stage          String
+  errorMessage   String
+  stackTrace     String?
+  payloadJson    Json?
+  retryCount     Int       @default(0)
+  resolvedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  job MigrationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, legacySurveyId, stage])
+  @@index([legacySurveyId])
+  @@index([resolvedAt])
+  @@map("failed_imports")
 }

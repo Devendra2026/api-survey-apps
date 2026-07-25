@@ -15,6 +15,10 @@
     "db:seed": "pnpm --filter @workspace/database db:seed",
     "verify:dev": "node scripts/verify-dev.mjs",
     "verify:google-maps-key": "node ./scripts/verify-google-maps-key.mjs",
+    "etl:run": "node ./scripts/etl-run.mjs",
+    "etl:full": "node ./scripts/etl-run.mjs full",
+    "etl:incremental": "node ./scripts/etl-run.mjs incremental",
+    "etl:status": "node ./scripts/etl-run.mjs status",
     "prepare": "node -e \"try{require('fs').accessSync('.git');require('child_process').execSync('husky',{stdio:'inherit'})}catch{}\""
   },
   "devDependencies": {

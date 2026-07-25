@@ -16,6 +16,7 @@ const PERMISSIONS: Array<{ name: string; description: string }> = [
   { name: "survey:assign", description: "Assign survey work" },
   { name: "survey:export", description: "Export survey data" },
   { name: "survey:import", description: "Import survey data" },
+  { name: "etl:manage", description: "Run and monitor Convex→Postgres ETL migration" },
   { name: "user:create", description: "Create users" },
   { name: "user:update", description: "Update users" },
   { name: "user:delete", description: "Deactivate users" },

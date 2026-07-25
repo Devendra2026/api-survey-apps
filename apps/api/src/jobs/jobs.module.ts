@@ -25,7 +25,13 @@ import { RedisPreflightService } from "./redis-preflight.service.js"
       { name: JOB_QUEUE_NAMES.imports },
       { name: JOB_QUEUE_NAMES.exports },
       { name: JOB_QUEUE_NAMES.storageCleanup },
-      { name: JOB_QUEUE_NAMES.imageMigration }
+      { name: JOB_QUEUE_NAMES.imageMigration },
+      { name: JOB_QUEUE_NAMES.etlSurveyImport },
+      { name: JOB_QUEUE_NAMES.etlImageDownload },
+      { name: JOB_QUEUE_NAMES.etlImageUpload },
+      { name: JOB_QUEUE_NAMES.etlValidation },
+      { name: JOB_QUEUE_NAMES.etlRetry },
+      { name: JOB_QUEUE_NAMES.etlReport }
     ),
   ],
   providers: [RedisPreflightService, JobsService],

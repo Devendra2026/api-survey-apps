@@ -45,14 +45,18 @@ export class ClerkAuthGuard implements CanActivate {
 
     const token = authHeader.slice(7)
     const secretKey = this.configService.get<string>("CLERK_SECRET_KEY")
+    const nodeEnv = this.configService.get<string>("NODE_ENV") ?? "development"
+    const allowDevAuth = this.configService.get<string>("ALLOW_DEV_AUTH") === "true"
+    const devMode = nodeEnv !== "production" && allowDevAuth
 
-    if (!secretKey) {
-      const nodeEnv = this.configService.get<string>("NODE_ENV") ?? "development"
-      const allowDevAuth = this.configService.get<string>("ALLOW_DEV_AUTH") === "true"
-      const devMode = nodeEnv !== "production" && allowDevAuth
-      const devUserId = (request.headers as Record<string, string | string[] | undefined>)["x-dev-clerk-user-id"]
-      const resolvedDevUserId = Array.isArray(devUserId) ? devUserId[0] : devUserId
-      if (devMode && resolvedDevUserId) {
+    // Local ETL / scripts: Authorization: Bearer dev  + x-dev-clerk-user-id
+    // or Authorization: Bearer dev:<clerkUserId>
+    if (devMode) {
+      const headerDevUserId = (request.headers as Record<string, string | string[] | undefined>)["x-dev-clerk-user-id"]
+      const fromHeader = Array.isArray(headerDevUserId) ? headerDevUserId[0] : headerDevUserId
+      const fromBearer = token.startsWith("dev:") ? token.slice(4).trim() : token === "dev" ? fromHeader : undefined
+      const resolvedDevUserId = (fromBearer || fromHeader)?.trim()
+      if (resolvedDevUserId) {
         request.user = await this.resolveLocalUser({
           clerkUserId: resolvedDevUserId,
           email: `${resolvedDevUserId}@dev.local`,
@@ -62,6 +66,9 @@ export class ClerkAuthGuard implements CanActivate {
         })
         return true
       }
+    }
+
+    if (!secretKey) {
       throw new UnauthorizedException("CLERK_SECRET_KEY is not configured")
     }
 

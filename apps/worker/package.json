@@ -20,6 +20,7 @@
     "@nestjs/core": "^11.1.28",
     "@nestjs/platform-express": "^11.1.28",
     "@workspace/database": "workspace:*",
+    "@workspace/etl-core": "workspace:*",
     "@workspace/excel-reports": "workspace:*",
     "@workspace/jobs": "workspace:*",
     "@workspace/validation": "workspace:*",

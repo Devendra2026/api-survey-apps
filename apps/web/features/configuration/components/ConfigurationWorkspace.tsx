@@ -24,7 +24,9 @@ export function ConfigurationWorkspace({
       <div className="sticky top-0 z-20 -mx-1 space-y-3 border-b border-border/60 bg-background/95 px-1 pb-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Configuration Registry</p>
+            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+              {pathname.startsWith("/configuration/geography") ? "Master Data" : "Configuration Registry"}
+            </p>
             <h1 className="text-2xl font-semibold tracking-tight text-foreground">{title}</h1>
             {description ? <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{description}</p> : null}
           </div>

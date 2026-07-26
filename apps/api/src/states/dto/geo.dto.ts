@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from "@nestjs/swagger"
 import { UlbType } from "@workspace/database"
-import { IsEnum, IsOptional, IsString, MaxLength, MinLength } from "class-validator"
+import { IsEnum, IsOptional, IsString, Matches, MaxLength, MinLength } from "class-validator"
 
 export class CreateStateDto {
   @ApiProperty()
@@ -28,6 +28,11 @@ export class CreateDistrictDto {
   @MinLength(1)
   @MaxLength(200)
   name!: string
+
+  @ApiProperty({ example: "BAG", description: "Exactly 3 uppercase A–Z letters" })
+  @IsString()
+  @Matches(/^[A-Za-z]{3}$/, { message: "District code must be exactly 3 letters (A–Z)" })
+  code!: string
 }
 
 export class UpdateDistrictDto {
@@ -42,6 +47,12 @@ export class UpdateDistrictDto {
   @MinLength(1)
   @MaxLength(200)
   name?: string
+
+  @ApiPropertyOptional({ example: "BAG" })
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Za-z]{3}$/, { message: "District code must be exactly 3 letters (A–Z)" })
+  code?: string
 }
 
 export class CreateUlbDto {

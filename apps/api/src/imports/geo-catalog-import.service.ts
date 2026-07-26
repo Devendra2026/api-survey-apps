@@ -1,8 +1,11 @@
 import { BadRequestException, Injectable, Logger } from "@nestjs/common"
 import { UlbType } from "@workspace/database"
 import {
+  allocateUniqueDistrictCode,
   canonicalWardNumber,
   emptyToUndefinedNormalized,
+  isValidDistrictCode,
+  normalizeDistrictCode,
   normalizeImportString,
   padUlbCode,
 } from "@workspace/validation"
@@ -23,7 +26,7 @@ export interface GeoCatalogImportSummary {
  * Does not create surveys. Ward numbers are stored in canonical unpadded form ("5").
  *
  * Expected columns (first sheet or sheet named "GeoCatalog"):
- * State Code, State Name, District Name, ULB Code, ULB Name, ULB Type?, Ward Number, Ward Name
+ * State Code, State Name, District Code?, District Name, ULB Code, ULB Name, ULB Type?, Ward Number, Ward Name
  */
 @Injectable()
 export class GeoCatalogImportService {
@@ -45,6 +48,8 @@ export class GeoCatalogImportService {
     const stateCache = new Map<string, string>()
     const districtCache = new Map<string, string>()
     const ulbCache = new Map<string, string>()
+    /** Codes already claimed per stateId during this import (plus loaded from DB on first use). */
+    const districtCodesByState = new Map<string, Set<string>>()
 
     for (const [index, row] of rows.entries()) {
       const rowNumber = index + 2
@@ -53,6 +58,9 @@ export class GeoCatalogImportService {
       const stateCode = emptyToUndefinedNormalized(firstValue(row, ["State Code", "stateCode", "State"]))?.toUpperCase()
       const stateName = emptyToUndefinedNormalized(firstValue(row, ["State Name", "stateName"]))
       const districtName = emptyToUndefinedNormalized(firstValue(row, ["District Name", "District", "districtName"]))
+      const districtCodeRaw = emptyToUndefinedNormalized(
+        firstValue(row, ["District Code", "DistrictCode", "districtCode"])
+      )
       const ulbCodeRaw = emptyToUndefinedNormalized(
         firstValue(row, ["ULB Code", "Municipality Code", "ulbCode", "Code"])
       )
@@ -70,6 +78,14 @@ export class GeoCatalogImportService {
       if (!ulbCodeRaw) rowErrors.push("Missing ULB Code")
       if (!ulbName) rowErrors.push("Missing ULB Name")
       if (!wardNumberRaw) rowErrors.push("Missing Ward Number")
+
+      let districtCode: string | undefined
+      if (districtCodeRaw) {
+        districtCode = normalizeDistrictCode(districtCodeRaw)
+        if (!isValidDistrictCode(districtCode)) {
+          rowErrors.push("District Code must be exactly 3 letters (A–Z)")
+        }
+      }
 
       if (rowErrors.length) {
         errors.push({ row: rowNumber, errors: rowErrors })
@@ -94,17 +110,60 @@ export class GeoCatalogImportService {
           statesUpserted += 1
         }
 
+        let usedCodes = districtCodesByState.get(stateId)
+        if (!usedCodes) {
+          const existing = await this.prisma.db.district.findMany({
+            where: { stateId },
+            select: { code: true },
+          })
+          usedCodes = new Set(existing.map((d) => d.code))
+          districtCodesByState.set(stateId, usedCodes)
+        }
+
         const districtKey = `${stateId}|${districtName!.toLowerCase()}`
         let districtId = districtCache.get(districtKey)
         if (!districtId) {
-          const district = await this.prisma.db.district.upsert({
-            where: {
-              stateId_name: { stateId, name: districtName! },
-            },
-            create: { stateId, name: districtName! },
-            update: {},
+          const existingDistrict = await this.prisma.db.district.findUnique({
+            where: { stateId_name: { stateId, name: districtName! } },
           })
-          districtId = district.id
+
+          if (existingDistrict) {
+            if (districtCode && districtCode !== existingDistrict.code) {
+              const conflict = await this.prisma.db.district.findFirst({
+                where: {
+                  stateId,
+                  code: districtCode,
+                  NOT: { id: existingDistrict.id },
+                },
+              })
+              if (conflict) {
+                throw new Error("District code already exists in this state")
+              }
+              usedCodes.delete(existingDistrict.code)
+              usedCodes.add(districtCode)
+              await this.prisma.db.district.update({
+                where: { id: existingDistrict.id },
+                data: { code: districtCode },
+              })
+            }
+            districtId = existingDistrict.id
+          } else {
+            const code = districtCode
+              ? (() => {
+                  if (usedCodes.has(districtCode)) {
+                    throw new Error("District code already exists in this state")
+                  }
+                  usedCodes.add(districtCode)
+                  return districtCode
+                })()
+              : allocateUniqueDistrictCode(districtName!, usedCodes)
+
+            const district = await this.prisma.db.district.create({
+              data: { stateId, name: districtName!, code },
+            })
+            districtId = district.id
+          }
+
           districtCache.set(districtKey, districtId)
           districtsUpserted += 1
         }

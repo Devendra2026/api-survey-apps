@@ -1,26 +1,15 @@
 "use client"
 
 import { EmptyState } from "@/components/shared/page-elements"
-import { apiDelete, apiPatch, apiPost } from "@/lib/api/client"
-import { AuditTimeline } from "@/features/configuration/components/AuditTimeline"
 import { ConfigurationWorkspace } from "@/features/configuration/components/ConfigurationWorkspace"
 import { DistrictDrawer, StateDrawer, ULBDrawer, WardDrawer } from "@/features/configuration/components/GeoDrawers"
-import { HierarchyDetailsPanel } from "@/features/configuration/components/HierarchyDetailsPanel"
-import { HierarchyExplorer } from "@/features/configuration/components/HierarchyExplorer"
-import { useConfigAudit, useGeographyTree } from "@/features/configuration/hooks/use-configuration"
+import { GeographyAccordion } from "@/features/configuration/components/GeographyAccordion"
+import { useGeographyTree } from "@/features/configuration/hooks/use-configuration"
 import type { GeographyTreeNode } from "@/features/configuration/lib/types"
+import { apiPatch, apiPost } from "@/lib/api/client"
 import { useAuthStore } from "@/stores/app-store"
-import { Button } from "@workspace/ui/components/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@workspace/ui/components/dialog"
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@workspace/ui/components/resizable"
 import { useQueryClient } from "@tanstack/react-query"
+import { Button } from "@workspace/ui/components/button"
 import { useState } from "react"
 import { toast } from "sonner"
 
@@ -32,13 +21,11 @@ export default function GeographyPage() {
   const canManage = hasPermission("settings:manage") || hasPermission("role:assign")
   const { data: tree = [], isLoading, refetch } = useGeographyTree()
   const [selected, setSelected] = useState<GeographyTreeNode | null>(null)
+  const [parent, setParent] = useState<GeographyTreeNode | null>(null)
   const [drawer, setDrawer] = useState<DrawerKind>(null)
   const [drawerMode, setDrawerMode] = useState<"create" | "edit">("create")
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const [auditOpen, setAuditOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const qc = useQueryClient()
-  const audit = useConfigAudit(selected ? { entityType: selected.type, entityId: selected.id } : undefined)
 
   const invalidate = async () => {
     await qc.invalidateQueries({ queryKey: ["configuration", "geography-tree"] })
@@ -46,15 +33,7 @@ export default function GeographyPage() {
   }
 
   if (!canView) {
-    return <EmptyState title="Geography unavailable" description="Requires settings:view." />
-  }
-
-  const openCreateChild = () => {
-    if (!selected || !canManage) return
-    setDrawerMode("create")
-    if (selected.type === "state") setDrawer("district")
-    else if (selected.type === "district") setDrawer("ulb")
-    else if (selected.type === "ulb") setDrawer("ward")
+    return <EmptyState title="Master Data unavailable" description="Requires settings:view." />
   }
 
   const endpointFor = (node: GeographyTreeNode) => {
@@ -70,47 +49,47 @@ export default function GeographyPage() {
     }
   }
 
+  const openEdit = (node: GeographyTreeNode) => {
+    if (!canManage) return
+    setParent(null)
+    setSelected(node)
+    setDrawerMode("edit")
+    setDrawer(node.type)
+  }
+
+  const openCreate = (kind: Exclude<DrawerKind, null>, parentNode: GeographyTreeNode | null) => {
+    if (!canManage) return
+    setSelected(null)
+    setParent(parentNode)
+    setDrawerMode("create")
+    setDrawer(kind)
+  }
+
   return (
     <ConfigurationWorkspace
       title="Geographic Hierarchy"
-      description="State → District → ULB → Ward explorer with CRUD and audit."
+      description="State → District → ULB → Ward master data with codes and inline edit."
       actions={
         <Button
           type="button"
           className="cursor-pointer"
           disabled={!canManage}
-          onClick={() => {
-            setDrawerMode("create")
-            setDrawer("state")
-          }}
+          onClick={() => openCreate("state", null)}
         >
           Create State
         </Button>
       }
     >
-      <ResizablePanelGroup orientation="horizontal" className="min-h-[560px] rounded-lg border border-border/70">
-        <ResizablePanel defaultSize={42} minSize={28}>
-          <div className="h-full p-3">
-            <HierarchyExplorer nodes={tree} selectedId={selected?.id} onSelect={setSelected} loading={isLoading} />
-          </div>
-        </ResizablePanel>
-        <ResizableHandle withHandle />
-        <ResizablePanel defaultSize={58} minSize={35}>
-          <div className="h-full p-3">
-            <HierarchyDetailsPanel
-              node={selected}
-              onCreateChild={openCreateChild}
-              onEdit={() => {
-                if (!selected || !canManage) return
-                setDrawerMode("edit")
-                setDrawer(selected.type)
-              }}
-              onDelete={() => setDeleteOpen(true)}
-              onAudit={() => setAuditOpen(true)}
-            />
-          </div>
-        </ResizablePanel>
-      </ResizablePanelGroup>
+      <GeographyAccordion
+        nodes={tree}
+        loading={isLoading}
+        canManage={canManage}
+        onEdit={openEdit}
+        onAddDistrict={(state) => openCreate("district", state)}
+        onAddUlb={(district) => openCreate("ulb", district)}
+        onAddWard={(ulb) => openCreate("ward", ulb)}
+        onWardClick={openEdit}
+      />
 
       <StateDrawer
         open={drawer === "state"}
@@ -141,13 +120,17 @@ export default function GeographyPage() {
         open={drawer === "district"}
         onOpenChange={(o) => !o && setDrawer(null)}
         mode={drawerMode}
-        initial={drawerMode === "edit" && selected?.type === "district" ? { name: selected.name } : undefined}
+        initial={
+          drawerMode === "edit" && selected?.type === "district"
+            ? { name: selected.name, code: selected.code ?? "" }
+            : undefined
+        }
         saving={saving}
         onSubmit={async (values) => {
           setSaving(true)
           try {
-            if (drawerMode === "create" && selected?.type === "state") {
-              await apiPost("/districts", { ...values, stateId: selected.id })
+            if (drawerMode === "create" && parent?.type === "state") {
+              await apiPost("/districts", { ...values, stateId: parent.id })
             } else if (selected) await apiPatch(endpointFor(selected), values)
             toast.success("District saved")
             setDrawer(null)
@@ -172,8 +155,8 @@ export default function GeographyPage() {
         onSubmit={async (values) => {
           setSaving(true)
           try {
-            if (drawerMode === "create" && selected?.type === "district") {
-              await apiPost("/ulbs", { ...values, districtId: selected.id })
+            if (drawerMode === "create" && parent?.type === "district") {
+              await apiPost("/ulbs", { ...values, districtId: parent.id })
             } else if (selected) await apiPatch(endpointFor(selected), values)
             toast.success("ULB saved")
             setDrawer(null)
@@ -198,8 +181,8 @@ export default function GeographyPage() {
         onSubmit={async (values) => {
           setSaving(true)
           try {
-            if (drawerMode === "create" && selected?.type === "ulb") {
-              await apiPost("/wards", { ...values, ulbId: selected.id })
+            if (drawerMode === "create" && parent?.type === "ulb") {
+              await apiPost("/wards", { ...values, ulbId: parent.id })
             } else if (selected) await apiPatch(endpointFor(selected), values)
             toast.success("Ward saved")
             setDrawer(null)
@@ -211,43 +194,6 @@ export default function GeographyPage() {
           }
         }}
       />
-
-      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete {selected?.type}?</DialogTitle>
-            <DialogDescription>
-              This permanently removes {selected?.name}. Related child records may block deletion.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button type="button" variant="outline" className="cursor-pointer" onClick={() => setDeleteOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              className="cursor-pointer"
-              onClick={async () => {
-                if (!selected) return
-                try {
-                  await apiDelete(endpointFor(selected))
-                  toast.success("Deleted")
-                  setSelected(null)
-                  setDeleteOpen(false)
-                  await invalidate()
-                } catch (err) {
-                  toast.error(err instanceof Error ? err.message : "Delete failed")
-                }
-              }}
-            >
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <AuditTimeline open={auditOpen} onOpenChange={setAuditOpen} logs={audit.data} loading={audit.isLoading} />
     </ConfigurationWorkspace>
   )
 }

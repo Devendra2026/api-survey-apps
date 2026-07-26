@@ -94,8 +94,8 @@ export const appNav: NavItem[] = [
       { title: "Users", href: "/admin/users", icon: Users, permission: "user:view" },
       { title: "Roles", href: "/admin/roles", icon: Shield, permission: "role:assign" },
       {
-        title: "Configuration",
-        href: "/configuration",
+        title: "Master Data",
+        href: "/master-data",
         icon: Database,
         permission: "settings:view",
       },

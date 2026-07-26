@@ -1,9 +1,9 @@
 "use client"
 
-import { Button } from "@workspace/ui/components/button"
 import { Badge } from "@workspace/ui/components/badge"
+import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
-import { Building2, ChevronDown, ChevronRight, MapPin, Landmark, Home } from "lucide-react"
+import { Building2, ChevronDown, ChevronRight, Home, Landmark, MapPin } from "lucide-react"
 import { useMemo, useState } from "react"
 import type { GeographyTreeNode } from "../lib/types"
 import { SearchToolbar } from "./ConfigurationToolbar"
@@ -100,6 +100,9 @@ function TreeNodeRow({
         <Icon className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate font-medium">
           {node.type === "ward" ? `${node.wardNumber} — ${node.name}` : node.name}
+          {node.type !== "ward" && node.code ? (
+            <span className="ml-1.5 font-mono text-xs font-normal text-muted-foreground">{node.code}</span>
+          ) : null}
         </span>
         <Badge variant="secondary" className="tabular-nums opacity-80">
           {count}

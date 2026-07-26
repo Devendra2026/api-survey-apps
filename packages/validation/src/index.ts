@@ -1,6 +1,7 @@
 export * from "./catalog-map.js"
 export * from "./convex-import-map.js"
 export * from "./convex-inline-expand.js"
+export * from "./district-code.js"
 export * from "./import-geo.js"
 export * from "./property-id.js"
 export * from "./survey.schema.js"

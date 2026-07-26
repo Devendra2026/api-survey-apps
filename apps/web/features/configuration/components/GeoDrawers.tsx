@@ -118,13 +118,17 @@ export function DistrictDrawer({
   open: boolean
   onOpenChange: (o: boolean) => void
   mode: GeoDrawerMode
-  initial?: { name: string }
+  initial?: { name: string; code: string }
   saving?: boolean
-  onSubmit: (values: { name: string }) => void
+  onSubmit: (values: { name: string; code: string }) => void
 }) {
   const [name, setName] = useState("")
+  const [code, setCode] = useState("")
   useEffect(() => {
-    if (open) setName(initial?.name ?? "")
+    if (open) {
+      setName(initial?.name ?? "")
+      setCode(initial?.code ?? "")
+    }
   }, [open, initial])
 
   return (
@@ -134,11 +138,33 @@ export function DistrictDrawer({
       title={mode === "create" ? "Create District" : "Edit District"}
       description="District within the selected state"
       saving={saving}
-      onSubmit={() => onSubmit({ name })}
+      onSubmit={() => {
+        const normalized = code.trim().toUpperCase()
+        if (!/^[A-Z]{3}$/.test(normalized)) {
+          return
+        }
+        onSubmit({ name, code: normalized })
+      }}
     >
       <div className="space-y-2">
         <Label htmlFor="district-name">Name</Label>
         <Input id="district-name" value={name} onChange={(e) => setName(e.target.value)} required />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="district-code">Code</Label>
+        <Input
+          id="district-code"
+          value={code}
+          onChange={(e) => setCode(e.target.value.toUpperCase())}
+          onBlur={() => setCode((c) => c.trim().toUpperCase())}
+          required
+          maxLength={3}
+          pattern="[A-Za-z]{3}"
+          title="Exactly 3 letters (A–Z)"
+          placeholder="BAG"
+          className="font-mono uppercase"
+        />
+        <p className="text-xs text-muted-foreground">3 letters, e.g. BAG</p>
       </div>
     </GeoDrawerShell>
   )

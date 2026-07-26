@@ -23,7 +23,7 @@ const labelMap: Record<string, string> = {
   review: "Review",
   reports: "Reports",
   import: "Import",
-  "master-data": "Configuration",
+  "master-data": "Master Data",
   configuration: "Configuration",
   reference: "Reference Data",
   "tax-engine": "Tax Engine",
@@ -31,7 +31,7 @@ const labelMap: Record<string, string> = {
   admin: "Administration",
   users: "Users",
   roles: "Roles",
-  geography: "Geography",
+  geography: "Geographic Hierarchy",
   settings: "Settings",
 }
 

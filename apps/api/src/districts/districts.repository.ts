@@ -1,11 +1,24 @@
-import { Injectable, NotFoundException } from "@nestjs/common"
+import { ConflictException, Injectable, NotFoundException } from "@nestjs/common"
 import type { Prisma } from "@workspace/database"
+import { normalizeDistrictCode } from "@workspace/validation"
 import type { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { buildOrderBy, getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
 import { resolveTenantScope } from "../common/utils/tenant-scope.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import type { CreateDistrictDto, UpdateDistrictDto } from "../states/dto/geo.dto.js"
+
+function isUniqueViolation(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code: string }).code === "P2002"
+}
+
+function uniqueTargetIncludesCode(error: unknown): boolean {
+  if (!isUniqueViolation(error)) return false
+  const target = (error as { meta?: { target?: string[] | string } }).meta?.target
+  if (Array.isArray(target)) return target.some((t) => t === "code" || t.includes("code"))
+  if (typeof target === "string") return target.includes("code")
+  return false
+}
 
 @Injectable()
 export class DistrictsRepository {
@@ -28,7 +41,14 @@ export class DistrictsRepository {
       AND: [
         this.scopedWhere(user),
         stateId ? { stateId } : {},
-        query.search ? { name: { contains: query.search, mode: "insensitive" } } : {},
+        query.search
+          ? {
+              OR: [
+                { name: { contains: query.search, mode: "insensitive" } },
+                { code: { contains: query.search, mode: "insensitive" } },
+              ],
+            }
+          : {},
       ],
     }
     const [items, total] = await Promise.all([
@@ -36,7 +56,7 @@ export class DistrictsRepository {
         where,
         skip,
         take,
-        orderBy: buildOrderBy(query.sortBy, query.sortOrder, ["createdAt", "name"], "name"),
+        orderBy: buildOrderBy(query.sortBy, query.sortOrder, ["createdAt", "name", "code"], "name"),
       }),
       this.prisma.db.district.count({ where }),
     ])
@@ -51,13 +71,40 @@ export class DistrictsRepository {
     return item
   }
 
-  create(data: CreateDistrictDto) {
-    return this.prisma.db.district.create({ data })
+  async create(data: CreateDistrictDto) {
+    const code = normalizeDistrictCode(data.code)
+    try {
+      return await this.prisma.db.district.create({
+        data: {
+          stateId: data.stateId,
+          name: data.name,
+          code,
+        },
+      })
+    } catch (error) {
+      if (uniqueTargetIncludesCode(error)) {
+        throw new ConflictException("District code already exists in this state")
+      }
+      throw error
+    }
   }
 
   async update(id: string, data: UpdateDistrictDto, user: AuthenticatedUser) {
     await this.findById(id, user)
-    return this.prisma.db.district.update({ where: { id }, data })
+    const payload: Prisma.DistrictUpdateInput = {}
+    if (data.name !== undefined) payload.name = data.name
+    if (data.stateId !== undefined) {
+      payload.state = { connect: { id: data.stateId } }
+    }
+    if (data.code !== undefined) payload.code = normalizeDistrictCode(data.code)
+    try {
+      return await this.prisma.db.district.update({ where: { id }, data: payload })
+    } catch (error) {
+      if (uniqueTargetIncludesCode(error)) {
+        throw new ConflictException("District code already exists in this state")
+      }
+      throw error
+    }
   }
 
   async delete(id: string, user: AuthenticatedUser) {

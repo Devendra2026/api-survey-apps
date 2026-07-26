@@ -219,8 +219,9 @@ async function seedGeography(db: PrismaClient): Promise<Geography> {
     create: {
       stateId: state.id,
       name: "Etah",
+      code: "ETA",
     },
-    update: {},
+    update: { code: "ETA" },
   })
 
   const ulb = await db.ulb.upsert({

@@ -46,6 +46,7 @@ export class ConfigurationGeographyService {
         id: district.id,
         type: "district" as const,
         name: district.name,
+        code: district.code,
         status: district.status,
         parentId: state.id,
         counts: {

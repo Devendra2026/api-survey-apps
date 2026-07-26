@@ -4,7 +4,7 @@
  * This documents the expected CSV shape and can upsert a minimal example.
  *
  * CSV columns:
- * State Code, State Name, District Name, ULB Code, ULB Name, ULB Type, Ward Number, Ward Name
+ * State Code, State Name, District Code?, District Name, ULB Code, ULB Name, ULB Type, Ward Number, Ward Name
  */
 import { UlbType, type PrismaClient } from "../src/generated/prisma/client.js"
 
@@ -17,8 +17,8 @@ export async function seedGeoCatalogExample(db: PrismaClient) {
 
   const district = await db.district.upsert({
     where: { stateId_name: { stateId: state.id, name: "Example District" } },
-    create: { stateId: state.id, name: "Example District" },
-    update: {},
+    create: { stateId: state.id, name: "Example District", code: "EXD" },
+    update: { code: "EXD" },
   })
 
   // Example LGD-style code used in import workbooks (replace with real catalog).

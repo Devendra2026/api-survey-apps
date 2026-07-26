@@ -783,6 +783,7 @@ export interface GeoState {
 export interface GeoDistrict {
   id: string
   name: string
+  code: string
   stateId: string
 }
 

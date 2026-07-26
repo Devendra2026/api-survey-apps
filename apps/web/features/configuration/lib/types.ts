@@ -133,7 +133,7 @@ export const CONFIG_NAV = [
   {
     href: "/configuration/geography",
     label: "Geographic Hierarchy",
-    match: (p: string) => p.startsWith("/configuration/geography"),
+    match: (p: string) => p.startsWith("/configuration/geography") || p.startsWith("/master-data"),
   },
   {
     href: "/configuration/tax-engine",

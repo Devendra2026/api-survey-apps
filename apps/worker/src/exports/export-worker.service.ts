@@ -1,4 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common"
+import { ConfigService } from "@nestjs/config"
 import { JobStatus, type Prisma, SurveyStatus } from "@workspace/database"
 import {
   renderConvexFullWorkbook,
@@ -13,6 +14,7 @@ import PDFDocument from "pdfkit"
 import { PrismaService } from "../database/prisma.service.js"
 import { ObjectStorageService } from "../storage/object-storage.service.js"
 import { buildTenantWhere, resolveTenantScope } from "../tenant/tenant-scope.js"
+import { renderWardDemandNoticePdf } from "./demand-notice-pdf.js"
 
 type ExportRow = {
   id: string
@@ -36,7 +38,8 @@ export class ExportWorkerService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly storageService: ObjectStorageService
+    private readonly storageService: ObjectStorageService,
+    private readonly config: ConfigService
   ) {}
 
   async process(payload: ExportJobPayload, updateProgress: (progress: number) => Promise<void>): Promise<void> {
@@ -47,37 +50,22 @@ export class ExportWorkerService {
     await updateProgress(10)
 
     try {
+      if (payload.reportType === "demand_notices" && payload.format === "pdf") {
+        const artifact = await this.renderDemandNoticeWardPdf(payload)
+        await updateProgress(75)
+        await this.finishUpload(payload, artifact, artifact.rowCount)
+        await updateProgress(100)
+        this.logger.log(`Export job ${payload.jobId} completed demand_notices rows=${artifact.rowCount}`)
+        return
+      }
+
       const rows = await this.findRows(payload)
       await updateProgress(35)
 
       const artifact = await this.renderArtifact(payload, rows)
       await updateProgress(75)
 
-      const objectKey = ["exports", payload.createdById, payload.jobId, artifact.filename].join("/")
-      const uploaded = await this.storageService.putObject({
-        key: objectKey,
-        body: artifact.buffer,
-        mimeType: artifact.contentType,
-        metadata: {
-          exportJobId: payload.jobId,
-          createdById: payload.createdById,
-          reportType: payload.reportType,
-          format: payload.format,
-        },
-      })
-
-      await this.prisma.db.exportJob.update({
-        where: { id: payload.jobId },
-        data: {
-          status: JobStatus.SUCCEEDED,
-          rowCount: rows.length,
-          storageProvider: uploaded.provider,
-          bucket: uploaded.bucket,
-          objectKey: uploaded.key,
-          filename: artifact.filename,
-          finishedAt: new Date(),
-        },
-      })
+      await this.finishUpload(payload, artifact, rows.length)
       await updateProgress(100)
       this.logger.log(`Export job ${payload.jobId} completed rows=${rows.length}`)
     } catch (err) {
@@ -90,6 +78,79 @@ export class ExportWorkerService {
         },
       })
       throw err
+    }
+  }
+
+  private async finishUpload(
+    payload: ExportJobPayload,
+    artifact: { contentType: string; filename: string; buffer: Buffer },
+    rowCount: number
+  ) {
+    const objectKey = ["exports", payload.createdById, payload.jobId, artifact.filename].join("/")
+    const uploaded = await this.storageService.putObject({
+      key: objectKey,
+      body: artifact.buffer,
+      mimeType: artifact.contentType,
+      metadata: {
+        exportJobId: payload.jobId,
+        createdById: payload.createdById,
+        reportType: payload.reportType,
+        format: payload.format,
+      },
+    })
+
+    await this.prisma.db.exportJob.update({
+      where: { id: payload.jobId },
+      data: {
+        status: JobStatus.SUCCEEDED,
+        rowCount,
+        storageProvider: uploaded.provider,
+        bucket: uploaded.bucket,
+        objectKey: uploaded.key,
+        filename: artifact.filename,
+        finishedAt: new Date(),
+      },
+    })
+  }
+
+  private async renderDemandNoticeWardPdf(payload: ExportJobPayload) {
+    const wardId = payload.filters.wardId
+    if (!wardId) throw new Error("wardId is required for demand_notices PDF")
+
+    const webInternalUrl =
+      this.config.get<string>("WEB_INTERNAL_URL") ||
+      this.config.get<string>("APP_URL") ||
+      this.config.get<string>("NEXT_PUBLIC_APP_URL")
+    if (!webInternalUrl) {
+      throw new Error("WEB_INTERNAL_URL (or APP_URL) is required for demand notice PDF generation")
+    }
+
+    const printSecret =
+      this.config.get<string>("DEMAND_NOTICE_PRINT_SECRET") || this.config.get<string>("CLERK_SECRET_KEY") || ""
+    if (!printSecret) {
+      throw new Error("DEMAND_NOTICE_PRINT_SECRET is not configured")
+    }
+
+    const buffer = await renderWardDemandNoticePdf({
+      webInternalUrl,
+      printSecret,
+      wardId,
+      assessmentYearId: payload.filters.assessmentYearId,
+    })
+
+    const wardCount = await this.prisma.db.survey.count({
+      where: {
+        deletedAt: null,
+        qcStatus: "APPROVED",
+        wardId,
+      },
+    })
+
+    return {
+      contentType: "application/pdf",
+      filename: `demand-notices-ward-${wardId}.pdf`,
+      buffer,
+      rowCount: wardCount,
     }
   }
 

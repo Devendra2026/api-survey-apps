@@ -15,6 +15,7 @@ import { ResponseTransformInterceptor } from "./common/interceptors/response-tra
 import { monorepoEnvFiles } from "./config/env-files.js"
 import { validateEnv } from "./config/env.validation.js"
 import { DashboardModule } from "./dashboard/dashboard.module.js"
+import { DemandNoticesModule } from "./demand-notices/demand-notices.module.js"
 import { DistrictsModule } from "./districts/districts.module.js"
 import { EtlModule } from "./etl/etl.module.js"
 import { FloorsModule } from "./floors/floors.module.js"
@@ -85,6 +86,7 @@ import { ReferenceCatalogsModule } from "./reference-catalogs/reference-catalogs
     SurveyAuditsModule,
     DashboardModule,
     ReportsModule,
+    DemandNoticesModule,
     ImportsModule,
     EtlModule,
     NotificationsModule,

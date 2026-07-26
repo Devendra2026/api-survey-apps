@@ -420,8 +420,8 @@ export default function ReportsPage() {
               title="Demand Notice Panel"
               description="Filtered demand register with printable property notices."
             >
-              <Button variant="outline" size="sm" className="cursor-pointer gap-1.5" disabled title="Coming soon">
-                Open Panel
+              <Button asChild variant="outline" size="sm" className="cursor-pointer gap-1.5">
+                <Link href="/reports/demand-notices">Open Panel</Link>
               </Button>
             </ReportActionCard>
           </div>

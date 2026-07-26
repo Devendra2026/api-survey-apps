@@ -144,6 +144,7 @@
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -154,6 +155,7 @@
     opacity: 0;
     transform: translateY(6px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -199,5 +201,90 @@
 
   .surface-elevated:hover {
     @apply shadow-md shadow-black/6;
+  }
+}
+
+/* Demand notice A4 print — single page, notice only */
+.demand-notice-sheet {
+  width: 210mm;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.demand-notice-print-page {
+  break-after: page;
+  page-break-after: always;
+}
+
+.demand-notice-print-page:last-child {
+  break-after: auto;
+  page-break-after: auto;
+}
+
+@page {
+  size: A4 portrait;
+  margin: 6mm;
+}
+
+@media print {
+  .print-hidden {
+    display: none !important;
+  }
+
+  html.demand-notice-print-mode aside,
+  html.demand-notice-print-mode nav,
+  html.demand-notice-print-mode [data-sidebar],
+  html.demand-notice-print-mode header:not(.demand-notice-sheet header) {
+    display: none !important;
+  }
+
+  html.demand-notice-print-mode body {
+    background: white !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  html.demand-notice-print-mode main,
+  html.demand-notice-print-mode main > div,
+  html.demand-notice-print-mode .demand-notice-page {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: none !important;
+    width: 100% !important;
+    background: white !important;
+  }
+
+  html.demand-notice-print-mode .demand-notice-print-root {
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .demand-notice-sheet {
+    width: 100% !important;
+    max-width: none !important;
+    box-shadow: none !important;
+    border: none !important;
+    /* Fit content to one A4 printable area (~285mm usable height with 6mm margins) */
+    max-height: 285mm;
+    overflow: hidden;
+  }
+
+  .demand-notice-sheet header {
+    padding: 6px 8px !important;
+  }
+
+  .demand-notice-sheet h1 {
+    font-size: 16px !important;
+    margin-top: 2px !important;
+  }
+
+  .demand-notice-gis {
+    min-height: 72px !important;
+  }
+
+  .demand-notice-gis .relative.min-h-28 {
+    min-height: 64px !important;
   }
 }

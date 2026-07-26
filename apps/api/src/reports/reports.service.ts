@@ -124,6 +124,16 @@ export class ReportsService {
     reportType: ExportReportType,
     filters: ExportFilters
   ) {
+    if (reportType === "demand_notices") {
+      if (format !== "pdf") {
+        throw new BadRequestException("demand_notices export requires format=pdf")
+      }
+      if (!filters.wardId) {
+        throw new BadRequestException("wardId is required for demand_notices PDF export")
+      }
+      filters = { ...filters, qcStatus: "APPROVED" }
+    }
+
     const normalizedFilters = this.normalizeFilters(filters)
     const job = await this.prisma.db.exportJob.create({
       data: {

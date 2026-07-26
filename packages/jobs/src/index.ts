@@ -30,7 +30,16 @@ export type JobQueueName = (typeof JOB_QUEUE_NAMES)[keyof typeof JOB_QUEUE_NAMES
 export type ExportFormat = "json" | "xlsx" | "csv" | "pdf"
 
 export type ExportReportType =
-  "surveys" | "ward" | "ulb" | "district" | "summary" | "convex_full" | "survey_data" | "nagar_panchayat" | "qc_final"
+  | "surveys"
+  | "ward"
+  | "ulb"
+  | "district"
+  | "summary"
+  | "convex_full"
+  | "survey_data"
+  | "nagar_panchayat"
+  | "qc_final"
+  | "demand_notices"
 
 export interface TenantRolePayload {
   id: string
@@ -56,6 +65,7 @@ export interface ExportFiltersPayload {
   dateFrom?: string
   dateTo?: string
   selectedIds?: string[]
+  assessmentYearId?: string
 }
 
 export interface StoredObjectRef {

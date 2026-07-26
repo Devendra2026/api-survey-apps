@@ -59,6 +59,12 @@ export class EnvironmentVariables {
   @IsUrl({ require_tld: false })
   APP_URL?: string
 
+  /** HMAC secret for demand-notice print/PDF routes (falls back to CLERK_SECRET_KEY). */
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @IsString()
+  DEMAND_NOTICE_PRINT_SECRET?: string
+
   @IsOptional()
   @Transform(emptyToUndefined)
   @IsUrl({ require_tld: false })

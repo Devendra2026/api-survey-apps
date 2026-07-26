@@ -41,11 +41,23 @@ class ExportQueryDto {
       "survey_data",
       "nagar_panchayat",
       "qc_final",
+      "demand_notices",
     ],
     default: "surveys",
   })
   @IsOptional()
-  @IsIn(["surveys", "ward", "ulb", "district", "summary", "convex_full", "survey_data", "nagar_panchayat", "qc_final"])
+  @IsIn([
+    "surveys",
+    "ward",
+    "ulb",
+    "district",
+    "summary",
+    "convex_full",
+    "survey_data",
+    "nagar_panchayat",
+    "qc_final",
+    "demand_notices",
+  ])
   reportType: ExportReportType = "surveys"
 
   @ApiPropertyOptional({ enum: SurveyStatus })
@@ -87,6 +99,11 @@ class ExportQueryDto {
   @IsOptional()
   @IsString()
   wardId?: string
+
+  @ApiPropertyOptional({ description: "ReferenceEntry id for ASSESSMENT_YEAR (demand_notices)" })
+  @IsOptional()
+  @IsString()
+  assessmentYearId?: string
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -150,6 +167,7 @@ export class ReportsController {
       search: query.search,
       dateFrom: query.dateFrom,
       dateTo: query.dateTo,
+      assessmentYearId: query.assessmentYearId,
     }
 
     if (query.sync !== "true") {

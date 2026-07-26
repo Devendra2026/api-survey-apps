@@ -2,7 +2,16 @@ import type { SurveyStatus } from "@workspace/database"
 
 export type ExportFormat = "json" | "xlsx" | "csv" | "pdf"
 export type ExportReportType =
-  "surveys" | "ward" | "ulb" | "district" | "summary" | "convex_full" | "survey_data" | "nagar_panchayat" | "qc_final"
+  | "surveys"
+  | "ward"
+  | "ulb"
+  | "district"
+  | "summary"
+  | "convex_full"
+  | "survey_data"
+  | "nagar_panchayat"
+  | "qc_final"
+  | "demand_notices"
 
 export interface ExportFilters {
   surveyStatus?: SurveyStatus
@@ -16,4 +25,5 @@ export interface ExportFilters {
   search?: string
   dateFrom?: string
   dateTo?: string
+  assessmentYearId?: string
 }

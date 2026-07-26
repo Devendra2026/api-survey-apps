@@ -44,11 +44,31 @@ export const ROLE_LABELS: Record<string, string> = {
   FIELD_SUPERVISOR: "Supervisor",
   QC_SUPERVISOR: "QC Supervisor",
   ADMIN: "Admin",
+  DEPT_ADMIN: "Admin",
+  DEPT_CLERK: "Clerk",
+  DEPT_OPERATOR: "Operator",
 }
 
-export const ASSIGNABLE_ROLES = ["PENDING_APPROVAL", "SURVEYOR", "FIELD_SUPERVISOR", "QC_SUPERVISOR", "ADMIN"] as const
+/** Platform (SDV) roles assignable by global admins */
+export const PLATFORM_ASSIGNABLE_ROLES = [
+  "PENDING_APPROVAL",
+  "SURVEYOR",
+  "FIELD_SUPERVISOR",
+  "QC_SUPERVISOR",
+  "ADMIN",
+] as const
+
+/** Municipal department roles (ULB-scoped) */
+export const DEPARTMENT_ASSIGNABLE_ROLES = ["DEPT_ADMIN", "DEPT_CLERK", "DEPT_OPERATOR"] as const
+
+export const ASSIGNABLE_ROLES = [...PLATFORM_ASSIGNABLE_ROLES, ...DEPARTMENT_ASSIGNABLE_ROLES] as const
 
 export type AssignableRoleName = (typeof ASSIGNABLE_ROLES)[number]
+export type DepartmentRoleName = (typeof DEPARTMENT_ASSIGNABLE_ROLES)[number]
+
+export function isDepartmentRoleName(roleName: string): boolean {
+  return (DEPARTMENT_ASSIGNABLE_ROLES as readonly string[]).includes(roleName)
+}
 
 export function tenantRoleCode(role: TenantRole): string {
   return role.role?.name ?? role.roleName ?? "UNKNOWN"
@@ -87,6 +107,9 @@ export interface UserDirectoryStats {
   supervisors: number
   qcSupervisors: number
   admins: number
+  deptAdmins?: number
+  deptClerks?: number
+  deptOperators?: number
   byRole: Record<string, number>
 }
 
@@ -94,6 +117,7 @@ export interface CatalogRole {
   id: string
   name: string
   description?: string | null
+  family?: "PLATFORM" | "DEPARTMENT"
   createdAt?: string
   updatedAt?: string
   permissionCount?: number
@@ -120,6 +144,36 @@ export interface SecurityAuditItem {
   newValue?: unknown
   createdAt: string
   actor?: { id: string; fullName: string; email: string }
+}
+
+export interface ClerkUserSyncSummary {
+  created: number
+  updated: number
+  skipped: number
+  errors: Array<{ clerkUserId?: string; email?: string; message: string }>
+  totalFetched: number
+}
+
+export interface UserImportRowPreview {
+  rowNumber: number
+  email: string
+  clerkUserId?: string
+  fullName?: string
+  phone?: string
+  roleName?: string
+  status: "ok" | "warn" | "error"
+  action: "create" | "update" | "skip"
+  message: string
+  warnings: string[]
+}
+
+export interface UserImportResult {
+  dryRun: boolean
+  created: number
+  updated: number
+  skipped: number
+  errors: number
+  rows: UserImportRowPreview[]
 }
 
 export interface DashboardSummary {

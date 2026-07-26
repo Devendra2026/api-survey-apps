@@ -80,8 +80,13 @@ describe("tenant-scope.util", () => {
   it("enforces role grant ceilings", () => {
     expect(canGrantRole(["ADMIN"], "SURVEYOR")).toBe(true)
     expect(canGrantRole(["ADMIN"], "QC_SUPERVISOR")).toBe(true)
+    expect(canGrantRole(["ADMIN"], "DEPT_ADMIN")).toBe(true)
     expect(canGrantRole(["FIELD_SUPERVISOR"], "ADMIN")).toBe(false)
     expect(canGrantRole(["FIELD_SUPERVISOR"], "SURVEYOR")).toBe(true)
     expect(canGrantRole(["QC_SUPERVISOR"], "SURVEYOR")).toBe(false)
+    expect(canGrantRole(["DEPT_ADMIN"], "DEPT_CLERK")).toBe(true)
+    expect(canGrantRole(["DEPT_ADMIN"], "DEPT_OPERATOR")).toBe(true)
+    expect(canGrantRole(["DEPT_ADMIN"], "ADMIN")).toBe(false)
+    expect(canGrantRole(["DEPT_CLERK"], "DEPT_OPERATOR")).toBe(false)
   })
 })

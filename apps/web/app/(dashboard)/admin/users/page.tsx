@@ -1,5 +1,6 @@
 "use client"
 
+import { BulkConfirmDialog } from "@/components/admin/bulk-confirm-dialog"
 import { UserAssignRoleDialog } from "@/components/admin/user-assign-role-dialog"
 import {
   assignmentGeoLabels,
@@ -8,18 +9,21 @@ import {
   StatusBadge,
   UserAvatar,
 } from "@/components/admin/user-badges"
+import { UserDeleteDialog } from "@/components/admin/user-delete-dialog"
 import {
   EMPTY_USER_FILTERS,
   UserDirectoryFiltersBar,
   type UserDirectoryFilters,
 } from "@/components/admin/user-directory-filters"
+import { UserDirectoryKpis } from "@/components/admin/user-directory-kpis"
 import { UserEditDialog } from "@/components/admin/user-edit-dialog"
+import { UserImportDialog, UserSyncFromClerkDialog } from "@/components/admin/user-import-sync-dialogs"
 import { UserOnboardWizard } from "@/components/admin/user-onboard-wizard"
 import { UserProfileDrawer } from "@/components/admin/user-profile-drawer"
 import { UserStatusDialog } from "@/components/admin/user-status-dialog"
 import { DataTable, DataTableSelectColumn } from "@/components/data-table/data-table"
-import { EmptyState, PageHeader, StatCard } from "@/components/shared/page-elements"
-import { useUpdateUser, useUserStats, useUsers } from "@/hooks/use-api"
+import { EmptyState, PageHeader, QueryErrorBanner } from "@/components/shared/page-elements"
+import { useDeleteUser, useUpdateUser, useUsers, useUserStats } from "@/hooks/use-api"
 import { getApiErrorMessage } from "@/lib/api/client"
 import type { AuthenticatedProfile } from "@/lib/api/types"
 import { useAuthStore } from "@/stores/app-store"
@@ -33,19 +37,9 @@ import {
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu"
 import { motion, useReducedMotion } from "framer-motion"
-import {
-  ClipboardCheck,
-  Download,
-  FileSpreadsheet,
-  MoreHorizontal,
-  Shield,
-  UserCheck,
-  UserCog,
-  UserRound,
-  Users,
-  UserX,
-} from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { CloudDownload, Download, FileSpreadsheet, MoreHorizontal, Shield, Upload, UserRound } from "lucide-react"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { toast } from "sonner"
 import * as XLSX from "xlsx"
 
@@ -81,26 +75,65 @@ function exportUsers(users: AuthenticatedProfile[], format: "xlsx" | "csv") {
   XLSX.writeFile(book, `users-export.${format === "csv" ? "csv" : "xlsx"}`)
 }
 
-export default function AdminUsersPage() {
+function scopeSummary(user: AuthenticatedProfile): string {
+  const assignment = primaryAssignment(user.tenantRoles)
+  if (!assignment) return "—"
+  const geo = assignmentGeoLabels(assignment)
+  const parts = [geo.state, geo.district, geo.ulb, geo.ward].filter((part) => part && part !== "—")
+  return parts.length ? parts.join(" → ") : "Full access"
+}
+
+type BulkAction = "activate" | "disable" | "delete" | null
+
+function AdminUsersPage() {
   const reduceMotion = useReducedMotion()
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const [, startTransition] = useTransition()
   const hasPermission = useAuthStore((s) => s.hasPermission)
+  const currentUserId = useAuthStore((s) => s.profile?.id)
   const canView = hasPermission("user:view")
   const canUpdate = hasPermission("user:update")
+  const canDelete = hasPermission("user:delete")
   const canAssign = hasPermission("role:assign")
+  const canCreate = hasPermission("user:create")
   const updateUser = useUpdateUser()
+  const deleteUser = useDeleteUser()
 
-  const [page, setPage] = useState(1)
-  const [filters, setFilters] = useState<UserDirectoryFilters>(EMPTY_USER_FILTERS)
+  const [page, setPage] = useState(() => {
+    const raw = Number(searchParams.get("page") ?? "1")
+    return Number.isFinite(raw) && raw > 0 ? raw : 1
+  })
+  const [filters, setFilters] = useState<UserDirectoryFilters>(() => ({
+    ...EMPTY_USER_FILTERS,
+    search: searchParams.get("search") ?? "",
+    roleName: searchParams.get("role") ?? "",
+    isActive: searchParams.get("status") ?? "",
+  }))
   const debouncedSearch = useDebouncedValue(filters.search, 300)
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
+    phone: false,
+    email: true,
+    state: false,
+    district: false,
+    ulb: false,
+    ward: false,
+  })
 
   const [selected, setSelected] = useState<AuthenticatedProfile | null>(null)
   const [editUser, setEditUser] = useState<AuthenticatedProfile | null>(null)
   const [assignUser, setAssignUser] = useState<AuthenticatedProfile | null>(null)
   const [assignMode, setAssignMode] = useState<"role" | "location">("role")
   const [statusUser, setStatusUser] = useState<AuthenticatedProfile | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<AuthenticatedProfile | null>(null)
   const [onboardUser, setOnboardUser] = useState<AuthenticatedProfile | null>(null)
+  const [bulkAction, setBulkAction] = useState<BulkAction>(null)
+  const [bulkPending, setBulkPending] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [syncOpen, setSyncOpen] = useState(false)
+  const drawerDismissedRef = useRef(false)
 
   const queryParams = useMemo(
     () => ({
@@ -119,8 +152,73 @@ export default function AdminUsersPage() {
     [page, debouncedSearch, filters]
   )
 
-  const { data, isLoading } = useUsers(queryParams)
-  const { data: stats } = useUserStats()
+  const { data, isLoading, isError, error, refetch } = useUsers(queryParams)
+  const { data: stats, isLoading: statsLoading, isError: statsError } = useUserStats()
+
+  const selectedUserId = searchParams.get("user")
+
+  const replaceQuery = useCallback(
+    (mutate: (params: URLSearchParams) => void) => {
+      const params = new URLSearchParams(searchParams.toString())
+      mutate(params)
+      const next = params.toString()
+      const current = searchParams.toString()
+      if (next === current) return
+      router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false })
+    },
+    [pathname, router, searchParams]
+  )
+
+  const closeProfileDrawer = useCallback(() => {
+    drawerDismissedRef.current = true
+    setSelected(null)
+    // Clear ?user= immediately so a refetch cannot re-hydrate the drawer open.
+    replaceQuery((params) => {
+      params.delete("user")
+    })
+  }, [replaceQuery])
+
+  const openProfileDrawer = useCallback((user: AuthenticatedProfile) => {
+    drawerDismissedRef.current = false
+    setSelected(user)
+  }, [])
+
+  /** Close the sheet before opening a dialog to avoid nested Sheet+Dialog focus traps. */
+  const openDialogFromDrawer = useCallback(
+    (user: AuthenticatedProfile, open: (u: AuthenticatedProfile) => void) => {
+      closeProfileDrawer()
+      queueMicrotask(() => open(user))
+    },
+    [closeProfileDrawer]
+  )
+
+  useEffect(() => {
+    const params = new URLSearchParams()
+    if (page > 1) params.set("page", String(page))
+    if (debouncedSearch) params.set("search", debouncedSearch)
+    if (filters.roleName) params.set("role", filters.roleName)
+    if (filters.isActive) params.set("status", filters.isActive)
+    if (selected?.id) params.set("user", selected.id)
+    const next = params.toString()
+    const current = searchParams.toString()
+    if (next === current) return
+    startTransition(() => {
+      router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false })
+    })
+  }, [page, debouncedSearch, filters.roleName, filters.isActive, selected?.id, pathname, router, searchParams])
+
+  // Deep-link / refresh: keep drawer user in sync with list data. Do not depend on
+  // `selected` — closing sets selected=null while ?user= may briefly remain; depending
+  // on selected would re-open the drawer.
+  useEffect(() => {
+    if (!selectedUserId) {
+      drawerDismissedRef.current = false
+      return
+    }
+    if (drawerDismissedRef.current || !data?.items) return
+    const match = data.items.find((u) => u.id === selectedUserId)
+    if (match) setSelected(match)
+  }, [data?.items, selectedUserId])
 
   const selectedRows = useMemo(() => {
     const items = data?.items ?? []
@@ -130,6 +228,15 @@ export default function AdminUsersPage() {
       .map((key) => byId.get(key))
       .filter(Boolean) as AuthenticatedProfile[]
   }, [data?.items, rowSelection])
+
+  const kpiActiveId = useMemo(() => {
+    if (filters.roleName === "PENDING_APPROVAL") return "pending" as const
+    if (filters.roleName === "ADMIN") return "admins" as const
+    if (filters.isActive === "true") return "active" as const
+    if (filters.isActive === "false") return "disabled" as const
+    if (!filters.roleName && !filters.isActive) return "total" as const
+    return null
+  }, [filters.isActive, filters.roleName])
 
   const columns = useMemo<ColumnDef<AuthenticatedProfile>[]>(
     () => [
@@ -141,13 +248,13 @@ export default function AdminUsersPage() {
         cell: ({ row }) => (
           <button
             type="button"
-            className="group flex cursor-pointer items-center gap-3 text-left"
-            onClick={() => setSelected(row.original)}
+            className="group flex cursor-pointer items-center gap-3 text-left transition-colors duration-200"
+            onClick={() => openProfileDrawer(row.original)}
           >
             <UserAvatar name={row.original.fullName} />
             <span className="min-w-0">
               <span className="block truncate font-medium group-hover:text-primary">{row.original.fullName}</span>
-              <span className="block truncate text-xs text-muted-foreground md:hidden">{row.original.email}</span>
+              <span className="block truncate text-xs text-muted-foreground">{row.original.email}</span>
             </span>
           </button>
         ),
@@ -171,6 +278,13 @@ export default function AdminUsersPage() {
           const assignment = primaryAssignment(row.original.tenantRoles)
           return assignment ? <RoleBadge role={assignment} /> : "—"
         },
+      },
+      {
+        id: "scope",
+        header: "Scope",
+        cell: ({ row }) => (
+          <span className="max-w-56 truncate text-xs text-muted-foreground">{scopeSummary(row.original)}</span>
+        ),
       },
       {
         id: "state",
@@ -200,7 +314,19 @@ export default function AdminUsersPage() {
         accessorKey: "isActive",
         id: "status",
         header: "Status",
-        cell: ({ row }) => <StatusBadge isActive={row.original.isActive} />,
+        cell: ({ row }) => {
+          const pending =
+            primaryAssignment(row.original.tenantRoles)?.role?.name === "PENDING_APPROVAL" ||
+            primaryAssignment(row.original.tenantRoles)?.roleName === "PENDING_APPROVAL"
+          if (pending) {
+            return (
+              <span className="inline-flex items-center rounded-md border border-amber-300/60 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-200">
+                Pending approval
+              </span>
+            )
+          }
+          return <StatusBadge isActive={row.original.isActive} />
+        },
       },
       {
         accessorKey: "lastLoginAt",
@@ -215,27 +341,46 @@ export default function AdminUsersPage() {
         id: "actions",
         header: "",
         enableSorting: false,
+        enableHiding: false,
         cell: ({ row }) => {
           const user = row.original
           const pending = primaryAssignment(user.tenantRoles)?.role?.name === "PENDING_APPROVAL"
           return (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button type="button" variant="ghost" size="icon" className="size-8 rounded-lg" aria-label="Actions">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 cursor-pointer rounded-lg"
+                  aria-label={`Actions for ${user.fullName}`}
+                >
                   <MoreHorizontal className="size-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48 rounded-xl">
-                <DropdownMenuItem className="cursor-pointer" onClick={() => setSelected(user)}>
+                <DropdownMenuItem className="cursor-pointer" onSelect={() => openProfileDrawer(user)}>
                   View profile
                 </DropdownMenuItem>
                 {canUpdate ? (
-                  <DropdownMenuItem className="cursor-pointer" onClick={() => setEditUser(user)}>
+                  <DropdownMenuItem
+                    className="cursor-pointer"
+                    onSelect={(e) => {
+                      e.preventDefault()
+                      queueMicrotask(() => setEditUser(user))
+                    }}
+                  >
                     Edit details
                   </DropdownMenuItem>
                 ) : null}
                 {canAssign && pending ? (
-                  <DropdownMenuItem className="cursor-pointer" onClick={() => setOnboardUser(user)}>
+                  <DropdownMenuItem
+                    className="cursor-pointer"
+                    onSelect={(e) => {
+                      e.preventDefault()
+                      queueMicrotask(() => setOnboardUser(user))
+                    }}
+                  >
                     Onboard user
                   </DropdownMenuItem>
                 ) : null}
@@ -243,31 +388,52 @@ export default function AdminUsersPage() {
                   <>
                     <DropdownMenuItem
                       className="cursor-pointer"
-                      onClick={() => {
-                        setAssignMode("role")
-                        setAssignUser(user)
+                      onSelect={(e) => {
+                        e.preventDefault()
+                        queueMicrotask(() => {
+                          setAssignMode("role")
+                          setAssignUser(user)
+                        })
                       }}
                     >
                       Assign role
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       className="cursor-pointer"
-                      onClick={() => {
-                        setAssignMode("location")
-                        setAssignUser(user)
+                      onSelect={(e) => {
+                        e.preventDefault()
+                        queueMicrotask(() => {
+                          setAssignMode("location")
+                          setAssignUser(user)
+                        })
                       }}
                     >
                       Assign location
                     </DropdownMenuItem>
                   </>
                 ) : null}
+                {canUpdate || canDelete ? <DropdownMenuSeparator /> : null}
                 {canUpdate ? (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem className="cursor-pointer" onClick={() => setStatusUser(user)}>
-                      {user.isActive ? "Disable account" : "Activate account"}
-                    </DropdownMenuItem>
-                  </>
+                  <DropdownMenuItem
+                    className="cursor-pointer"
+                    onSelect={(e) => {
+                      e.preventDefault()
+                      queueMicrotask(() => setStatusUser(user))
+                    }}
+                  >
+                    {user.isActive ? "Disable account" : "Activate account"}
+                  </DropdownMenuItem>
+                ) : null}
+                {canDelete && user.id !== currentUserId ? (
+                  <DropdownMenuItem
+                    className="cursor-pointer text-destructive focus:text-destructive"
+                    onSelect={(e) => {
+                      e.preventDefault()
+                      queueMicrotask(() => setDeleteTarget(user))
+                    }}
+                  >
+                    Delete user
+                  </DropdownMenuItem>
                 ) : null}
               </DropdownMenuContent>
             </DropdownMenu>
@@ -275,7 +441,7 @@ export default function AdminUsersPage() {
         },
       },
     ],
-    [canAssign, canUpdate]
+    [canAssign, canDelete, canUpdate, currentUserId, openProfileDrawer]
   )
 
   if (!canView) {
@@ -294,16 +460,71 @@ export default function AdminUsersPage() {
     setRowSelection({})
   }
 
+  const runBulkAction = async () => {
+    if (!bulkAction) return
+    setBulkPending(true)
+    try {
+      if (bulkAction === "activate") {
+        await Promise.all(selectedRows.map((u) => updateUser.mutateAsync({ id: u.id, body: { isActive: true } })))
+        toast.success(`Activated ${selectedRows.length} user${selectedRows.length === 1 ? "" : "s"}`)
+      } else if (bulkAction === "disable") {
+        await Promise.all(selectedRows.map((u) => updateUser.mutateAsync({ id: u.id, body: { isActive: false } })))
+        toast.success(`Disabled ${selectedRows.length} user${selectedRows.length === 1 ? "" : "s"}`)
+      } else {
+        const targets = selectedRows.filter((u) => u.id !== currentUserId)
+        if (!targets.length) {
+          toast.error("You cannot delete your own account")
+          setBulkAction(null)
+          return
+        }
+        await Promise.all(targets.map((u) => deleteUser.mutateAsync(u.id)))
+        toast.success(
+          targets.length === selectedRows.length
+            ? `Deleted ${targets.length} user${targets.length === 1 ? "" : "s"}`
+            : `Deleted ${targets.length} user${targets.length === 1 ? "" : "s"} (your account was skipped)`
+        )
+      }
+      setRowSelection({})
+      setBulkAction(null)
+    } catch (e) {
+      toast.error(getApiErrorMessage(e))
+    } finally {
+      setBulkPending(false)
+    }
+  }
+
+  const bulkCopy =
+    bulkAction === "activate"
+      ? {
+          title: "Activate selected users",
+          description: `Activate ${selectedRows.length} selected account${selectedRows.length === 1 ? "" : "s"}. They will regain portal access.`,
+          confirmWord: "ACTIVATE" as const,
+          confirmLabel: "Activate users",
+        }
+      : bulkAction === "disable"
+        ? {
+            title: "Disable selected users",
+            description: `Disable ${selectedRows.length} selected account${selectedRows.length === 1 ? "" : "s"}. They will be blocked from portal and API access.`,
+            confirmWord: "DISABLE" as const,
+            confirmLabel: "Disable users",
+          }
+        : {
+            title: "Delete selected users",
+            description: `Permanently delete ${selectedRows.filter((u) => u.id !== currentUserId).length} selected account${selectedRows.filter((u) => u.id !== currentUserId).length === 1 ? "" : "s"}. Users with linked surveys, audits, or jobs cannot be deleted — disable them instead.`,
+            confirmWord: "DELETE" as const,
+            confirmLabel: "Delete users",
+          }
+
   return (
     <motion.div
-      className="space-y-6"
+      className="space-y-5"
       initial={reduceMotion ? false : { opacity: 0, y: 8 }}
       animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
       transition={{ duration: 0.2 }}
     >
       <PageHeader
-        title="User management"
-        description="Enterprise directory for approvals, role assignment, geographic scope, and account lifecycle."
+        title="Users"
+        description={`${data?.meta.total ?? stats?.total ?? "—"} people in the directory · approvals, roles, geography, and lifecycle`}
         breadcrumbs={[{ label: "Administration", href: "/admin/users" }, { label: "Users" }]}
         actions={
           <div className="flex flex-wrap gap-2">
@@ -311,7 +532,7 @@ export default function AdminUsersPage() {
               type="button"
               variant="outline"
               size="sm"
-              className="rounded-xl"
+              className="cursor-pointer rounded-xl transition-colors duration-200"
               onClick={() => setFilterPreset({ roleName: "PENDING_APPROVAL" })}
             >
               <UserRound className="mr-1.5 size-3.5" aria-hidden />
@@ -322,9 +543,38 @@ export default function AdminUsersPage() {
                 </span>
               ) : null}
             </Button>
+            {canCreate ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="cursor-pointer rounded-xl transition-colors duration-200"
+                  onClick={() => setImportOpen(true)}
+                >
+                  <Upload className="mr-1.5 size-3.5" aria-hidden />
+                  Import
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="cursor-pointer rounded-xl transition-colors duration-200"
+                  onClick={() => setSyncOpen(true)}
+                >
+                  <CloudDownload className="mr-1.5 size-3.5" aria-hidden />
+                  Sync from Clerk
+                </Button>
+              </>
+            ) : null}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button type="button" variant="outline" size="sm" className="rounded-xl">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="cursor-pointer rounded-xl transition-colors duration-200"
+                >
                   <Download className="mr-1.5 size-3.5" aria-hidden />
                   Export
                 </Button>
@@ -342,7 +592,7 @@ export default function AdminUsersPage() {
                   onClick={() => exportUsers(selectedRows.length ? selectedRows : (data?.items ?? []), "csv")}
                 >
                   <Download className="mr-2 size-3.5" />
-                  CSV / PDF-ready
+                  CSV
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -350,77 +600,20 @@ export default function AdminUsersPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          label="Total users"
-          value={stats?.total ?? "—"}
-          hint="Directory size"
-          icon={<Users className="size-4" />}
-          active={!filters.roleName && !filters.isActive}
-          onClick={() => setFilterPreset({})}
+      {!statsError ? (
+        <UserDirectoryKpis
+          stats={stats}
+          isLoading={statsLoading}
+          activeId={kpiActiveId}
+          onSelect={(id) => {
+            if (id === "total") setFilterPreset({})
+            if (id === "active") setFilterPreset({ isActive: "true" })
+            if (id === "disabled") setFilterPreset({ isActive: "false" })
+            if (id === "pending") setFilterPreset({ roleName: "PENDING_APPROVAL" })
+            if (id === "admins") setFilterPreset({ roleName: "ADMIN" })
+          }}
         />
-        <StatCard
-          label="Active"
-          value={stats?.active ?? "—"}
-          hint="Can sign in"
-          icon={<UserCheck className="size-4" />}
-          tone="success"
-          active={filters.isActive === "true"}
-          onClick={() => setFilterPreset({ isActive: "true" })}
-        />
-        <StatCard
-          label="Disabled"
-          value={stats?.disabled ?? "—"}
-          hint="Login blocked"
-          icon={<UserX className="size-4" />}
-          tone="danger"
-          active={filters.isActive === "false"}
-          onClick={() => setFilterPreset({ isActive: "false" })}
-        />
-        <StatCard
-          label="Pending approval"
-          value={stats?.pending ?? "—"}
-          hint="Awaiting onboarding"
-          icon={<UserRound className="size-4" />}
-          tone="warning"
-          active={filters.roleName === "PENDING_APPROVAL"}
-          onClick={() => setFilterPreset({ roleName: "PENDING_APPROVAL" })}
-        />
-        <StatCard
-          label="Surveyors"
-          value={stats?.surveyors ?? "—"}
-          hint="Field capture"
-          icon={<ClipboardCheck className="size-4" />}
-          tone="info"
-          active={filters.roleName === "SURVEYOR"}
-          onClick={() => setFilterPreset({ roleName: "SURVEYOR" })}
-        />
-        <StatCard
-          label="Supervisors"
-          value={stats?.supervisors ?? "—"}
-          hint="Field oversight"
-          icon={<UserCog className="size-4" />}
-          active={filters.roleName === "FIELD_SUPERVISOR"}
-          onClick={() => setFilterPreset({ roleName: "FIELD_SUPERVISOR" })}
-        />
-        <StatCard
-          label="QC Supervisors"
-          value={stats?.qcSupervisors ?? "—"}
-          hint="Quality control"
-          icon={<Shield className="size-4" />}
-          tone="info"
-          active={filters.roleName === "QC_SUPERVISOR"}
-          onClick={() => setFilterPreset({ roleName: "QC_SUPERVISOR" })}
-        />
-        <StatCard
-          label="Admins"
-          value={stats?.admins ?? "—"}
-          hint="Full access"
-          icon={<Shield className="size-4" />}
-          active={filters.roleName === "ADMIN"}
-          onClick={() => setFilterPreset({ roleName: "ADMIN" })}
-        />
-      </div>
+      ) : null}
 
       <UserDirectoryFiltersBar
         filters={filters}
@@ -432,46 +625,62 @@ export default function AdminUsersPage() {
         onReset={() => setFilterPreset({})}
       />
 
-      {selectedRows.length > 0 && canUpdate ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-2xl border bg-primary/5 px-4 py-3 text-sm">
+      {isError ? (
+        <QueryErrorBanner
+          title="Unable to load users"
+          message={getApiErrorMessage(error)}
+          onRetry={() => void refetch()}
+        />
+      ) : null}
+
+      {selectedRows.length > 0 && (canUpdate || canDelete) ? (
+        <div
+          className="flex flex-wrap items-center gap-2 rounded-2xl border bg-primary/5 px-4 py-3 text-sm"
+          role="region"
+          aria-label="Bulk actions"
+        >
           <span className="font-medium">{selectedRows.length} selected</span>
+          {canUpdate ? (
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="cursor-pointer rounded-xl"
+                onClick={() => setBulkAction("activate")}
+              >
+                Activate
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                className="cursor-pointer rounded-xl"
+                onClick={() => setBulkAction("disable")}
+              >
+                Disable
+              </Button>
+            </>
+          ) : null}
+          {canDelete ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              className="cursor-pointer rounded-xl"
+              onClick={() => setBulkAction("delete")}
+            >
+              Delete
+            </Button>
+          ) : null}
           <Button
             type="button"
             size="sm"
-            variant="outline"
-            className="rounded-xl"
-            onClick={async () => {
-              try {
-                await Promise.all(
-                  selectedRows.map((u) => updateUser.mutateAsync({ id: u.id, body: { isActive: true } }))
-                )
-                toast.success("Selected users activated")
-                setRowSelection({})
-              } catch (e) {
-                toast.error(getApiErrorMessage(e))
-              }
-            }}
+            variant="ghost"
+            className="cursor-pointer rounded-xl"
+            onClick={() => setRowSelection({})}
           >
-            Activate
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="destructive"
-            className="rounded-xl"
-            onClick={async () => {
-              try {
-                await Promise.all(
-                  selectedRows.map((u) => updateUser.mutateAsync({ id: u.id, body: { isActive: false } }))
-                )
-                toast.success("Selected users disabled")
-                setRowSelection({})
-              } catch (e) {
-                toast.error(getApiErrorMessage(e))
-              }
-            }}
-          >
-            Disable
+            Clear selection
           </Button>
         </div>
       ) : null}
@@ -481,7 +690,7 @@ export default function AdminUsersPage() {
           <div>
             <p className="text-sm font-semibold tracking-tight">Directory</p>
             <p className="text-xs text-muted-foreground">
-              {data?.meta.total != null ? `${data.meta.total} users` : "Loading…"}
+              {data?.meta.total != null ? `${data.meta.total} users` : isLoading ? "Loading…" : "No results"}
             </p>
           </div>
         </div>
@@ -519,17 +728,24 @@ export default function AdminUsersPage() {
       <UserProfileDrawer
         user={selected}
         open={Boolean(selected)}
-        onOpenChange={(open) => !open && setSelected(null)}
+        onOpenChange={(open) => !open && closeProfileDrawer()}
         canUpdate={canUpdate}
         canAssign={canAssign}
-        onEdit={() => selected && setEditUser(selected)}
+        canDelete={canDelete && selected?.id !== currentUserId}
+        onEdit={() => selected && openDialogFromDrawer(selected, setEditUser)}
         onAssignRole={() => {
           if (!selected) return
-          setAssignMode("role")
-          setAssignUser(selected)
+          openDialogFromDrawer(selected, (u) => {
+            setAssignMode("role")
+            setAssignUser(u)
+          })
         }}
-        onToggleStatus={() => selected && setStatusUser(selected)}
-        onOnboard={() => selected && setOnboardUser(selected)}
+        onToggleStatus={() => selected && openDialogFromDrawer(selected, setStatusUser)}
+        onDelete={() => {
+          if (!selected) return
+          openDialogFromDrawer(selected, setDeleteTarget)
+        }}
+        onOnboard={() => selected && openDialogFromDrawer(selected, setOnboardUser)}
       />
 
       <UserEditDialog user={editUser} open={Boolean(editUser)} onOpenChange={(o) => !o && setEditUser(null)} />
@@ -540,11 +756,52 @@ export default function AdminUsersPage() {
         onOpenChange={(o) => !o && setAssignUser(null)}
       />
       <UserStatusDialog user={statusUser} open={Boolean(statusUser)} onOpenChange={(o) => !o && setStatusUser(null)} />
+      <UserDeleteDialog
+        user={deleteTarget}
+        open={Boolean(deleteTarget)}
+        onOpenChange={(o) => !o && setDeleteTarget(null)}
+        onDeleted={(userId) => {
+          if (selected?.id === userId) closeProfileDrawer()
+          setRowSelection((prev) => {
+            if (!prev[userId]) return prev
+            const next = { ...prev }
+            delete next[userId]
+            return next
+          })
+        }}
+      />
       <UserOnboardWizard
         user={onboardUser}
         open={Boolean(onboardUser)}
         onOpenChange={(o) => !o && setOnboardUser(null)}
       />
+      <BulkConfirmDialog
+        open={bulkAction !== null}
+        onOpenChange={(open) => !open && setBulkAction(null)}
+        title={bulkCopy.title}
+        description={bulkCopy.description}
+        confirmWord={bulkCopy.confirmWord}
+        confirmLabel={bulkCopy.confirmLabel}
+        pending={bulkPending}
+        onConfirm={runBulkAction}
+      />
+      <UserImportDialog open={importOpen} onOpenChange={setImportOpen} />
+      <UserSyncFromClerkDialog open={syncOpen} onOpenChange={setSyncOpen} />
     </motion.div>
+  )
+}
+
+export default function AdminUsersPageSuspense() {
+  return (
+    <Suspense
+      fallback={
+        <div className="space-y-4 p-1" aria-busy="true">
+          <div className="h-10 w-64 animate-pulse rounded-lg bg-muted" />
+          <div className="h-40 animate-pulse rounded-xl bg-muted" />
+        </div>
+      }
+    >
+      <AdminUsersPage />
+    </Suspense>
   )
 }

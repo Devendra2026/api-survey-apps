@@ -4,9 +4,9 @@ import {
   type MatrixActionId,
   type MatrixModuleDef,
 } from "@/components/admin/roles/matrix-config"
-import { SYSTEM_ROLE_CODES } from "@/components/admin/roles/system-role-policy"
+import { DEPARTMENT_ROLE_CODES, SYSTEM_ROLE_CODES } from "@/components/admin/roles/system-role-policy"
 
-export { SYSTEM_ROLE_CODES }
+export { DEPARTMENT_ROLE_CODES, SYSTEM_ROLE_CODES }
 
 export function rolePermissionIdSet(
   role?: {
@@ -79,11 +79,32 @@ export function allMatrixPermissionIds(resolve: PermissionNameResolver): string[
  * Count how many modules share a given permission ID (linked cells).
  */
 export function sharedModuleCount(permissionId: string, resolve: PermissionNameResolver): number {
-  let count = 0
+  return sharedModuleLabels(permissionId, resolve).length
+}
+
+/** Module labels that share a catalog permission ID (linked cells). */
+export function sharedModuleLabels(permissionId: string, resolve: PermissionNameResolver): string[] {
+  const labels: string[] = []
   for (const mod of MATRIX_MODULES) {
-    if (modulePermissionIds(mod, resolve).includes(permissionId)) count += 1
+    if (modulePermissionIds(mod, resolve).includes(permissionId)) {
+      labels.push(mod.label)
+    }
   }
-  return count
+  return labels
+}
+
+export function diffPermissionIds(baseline: Set<string>, draft: Set<string>): { granted: string[]; revoked: string[] } {
+  const granted: string[] = []
+  const revoked: string[] = []
+  for (const id of draft) {
+    if (!baseline.has(id)) granted.push(id)
+  }
+  for (const id of baseline) {
+    if (!draft.has(id)) revoked.push(id)
+  }
+  granted.sort()
+  revoked.sort()
+  return { granted, revoked }
 }
 
 export function moduleSummary(

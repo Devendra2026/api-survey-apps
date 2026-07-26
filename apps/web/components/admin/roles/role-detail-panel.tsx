@@ -3,6 +3,7 @@
 import { ROLE_PERMISSION_HINTS } from "@/components/admin/roles/matrix-config"
 import {
   canModifyPermissions,
+  isDepartmentRole,
   isFullyLockedSystemRole,
   isSystemRole,
 } from "@/components/admin/roles/system-role-policy"
@@ -49,6 +50,7 @@ export function RoleDetailPanel({
   roleUsers,
   roleUsersLoading,
   matrix,
+  templateReadOnly = false,
 }: {
   role: CatalogRole
   tab: string
@@ -63,10 +65,13 @@ export function RoleDetailPanel({
   roleUsers?: RoleUserRow[]
   roleUsersLoading?: boolean
   matrix: ReactNode
+  /** Municipal viewers: show permission checklist, assign users, no matrix edits */
+  templateReadOnly?: boolean
 }) {
   const isSystem = isSystemRole(role.name)
+  const isDept = isDepartmentRole(role.name)
   const fullyLocked = isFullyLockedSystemRole(role.name)
-  const canEditPerms = canModifyPermissions(role.name)
+  const canEditPerms = canModifyPermissions(role.name) && !templateReadOnly
   const permCount = role.permissionCount ?? role.permissions?.length ?? 0
   const assigned = role.assignedUsersCount ?? roleUsers?.length ?? 0
 
@@ -81,12 +86,14 @@ export function RoleDetailPanel({
                 variant="outline"
                 className={cn(
                   "h-5 rounded-md px-1.5 text-[10px]",
-                  isSystem
-                    ? "border-slate-300 bg-slate-100 dark:border-slate-600 dark:bg-slate-800"
-                    : "border-primary/30 bg-primary/5 text-primary"
+                  isDept
+                    ? "border-sky-300 bg-sky-50 text-sky-800 dark:border-sky-700 dark:bg-sky-950 dark:text-sky-100"
+                    : isSystem
+                      ? "border-slate-300 bg-slate-100 dark:border-slate-600 dark:bg-slate-800"
+                      : "border-primary/30 bg-primary/5 text-primary"
                 )}
               >
-                {isSystem ? "System" : "Custom"}
+                {isDept ? "Department" : isSystem ? "System" : "Custom"}
               </Badge>
               <Badge
                 variant="outline"
@@ -108,34 +115,38 @@ export function RoleDetailPanel({
           {canManage ? (
             <TooltipProvider delayDuration={200}>
               <div className="flex shrink-0 flex-wrap items-center gap-1">
-                <Button
-                  type="button"
-                  size="sm"
-                  className="h-7 cursor-pointer rounded-md text-xs"
-                  variant={isEditing ? "secondary" : "default"}
-                  onClick={onStartEditPermissions}
-                  disabled={fullyLocked}
-                  title={
-                    fullyLocked
-                      ? "System role permissions are locked — clone to customize"
-                      : isSystem
-                        ? "Add permissions only — baseline cannot be removed"
-                        : undefined
-                  }
-                >
-                  <Pencil className="mr-1 size-3" aria-hidden />
-                  {fullyLocked ? "Locked" : isEditing ? "Editing" : canEditPerms ? "Edit Role" : "View"}
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-7 cursor-pointer rounded-md text-xs"
-                  onClick={onClone}
-                >
-                  <Copy className="mr-1 size-3" aria-hidden />
-                  Clone
-                </Button>
+                {!templateReadOnly ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-7 cursor-pointer rounded-md text-xs"
+                    variant={isEditing ? "secondary" : "default"}
+                    onClick={onStartEditPermissions}
+                    disabled={fullyLocked}
+                    title={
+                      fullyLocked
+                        ? "System role permissions are locked — clone to customize"
+                        : isSystem
+                          ? "Add permissions only — baseline cannot be removed"
+                          : undefined
+                    }
+                  >
+                    <Pencil className="mr-1 size-3" aria-hidden />
+                    {fullyLocked ? "Locked" : isEditing ? "Editing" : canEditPerms ? "Edit Role" : "View"}
+                  </Button>
+                ) : null}
+                {!templateReadOnly ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 cursor-pointer rounded-md text-xs"
+                    onClick={onClone}
+                  >
+                    <Copy className="mr-1 size-3" aria-hidden />
+                    Clone
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
                   size="sm"
@@ -146,16 +157,18 @@ export function RoleDetailPanel({
                   <UserPlus className="mr-1 size-3" aria-hidden />
                   Assign Users
                 </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 cursor-pointer rounded-md text-xs"
-                  onClick={onEdit}
-                >
-                  Metadata
-                </Button>
-                {!isSystem ? (
+                {!templateReadOnly ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 cursor-pointer rounded-md text-xs"
+                    onClick={onEdit}
+                  >
+                    Metadata
+                  </Button>
+                ) : null}
+                {!templateReadOnly && !isSystem ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -178,7 +191,7 @@ export function RoleDetailPanel({
         </div>
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 rounded-md border border-border/50 bg-muted/25 px-2.5 py-1 text-[11px] text-muted-foreground">
-          <MetaItem label="Type" value={isSystem ? "System" : "Custom"} />
+          <MetaItem label="Type" value={isDept ? "Department" : isSystem ? "System" : "Custom"} />
           <Sep />
           <MetaItem label="Permissions" value={String(permCount)} />
           <Sep />

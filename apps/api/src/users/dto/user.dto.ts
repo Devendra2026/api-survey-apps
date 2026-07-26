@@ -124,7 +124,16 @@ export class CreateUserDto {
   phone?: string
 }
 
-const ROLE_FILTER_NAMES = ["PENDING_APPROVAL", "SURVEYOR", "FIELD_SUPERVISOR", "QC_SUPERVISOR", "ADMIN"] as const
+const ROLE_FILTER_NAMES = [
+  "PENDING_APPROVAL",
+  "SURVEYOR",
+  "FIELD_SUPERVISOR",
+  "QC_SUPERVISOR",
+  "ADMIN",
+  "DEPT_ADMIN",
+  "DEPT_CLERK",
+  "DEPT_OPERATOR",
+] as const
 
 export class ListUsersQueryDto {
   @ApiPropertyOptional({ default: 1, minimum: 1 })

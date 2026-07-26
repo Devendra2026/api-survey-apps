@@ -44,7 +44,16 @@ export class UsersRepository {
 
   async getStats(scope?: import("../common/interfaces/authenticated-user.interface.js").TenantScope) {
     const baseWhere = this.buildListWhere({}, scope)
-    const roleNames = ["PENDING_APPROVAL", "SURVEYOR", "FIELD_SUPERVISOR", "QC_SUPERVISOR", "ADMIN"] as const
+    const roleNames = [
+      "PENDING_APPROVAL",
+      "SURVEYOR",
+      "FIELD_SUPERVISOR",
+      "QC_SUPERVISOR",
+      "ADMIN",
+      "DEPT_ADMIN",
+      "DEPT_CLERK",
+      "DEPT_OPERATOR",
+    ] as const
 
     const [total, active, disabled, ...roleCounts] = await Promise.all([
       this.prisma.db.user.count({ where: baseWhere }),
@@ -79,6 +88,9 @@ export class UsersRepository {
       supervisors: byRole.FIELD_SUPERVISOR,
       qcSupervisors: byRole.QC_SUPERVISOR,
       admins: byRole.ADMIN,
+      deptAdmins: byRole.DEPT_ADMIN,
+      deptClerks: byRole.DEPT_CLERK,
+      deptOperators: byRole.DEPT_OPERATOR,
       byRole,
     }
   }
@@ -204,11 +216,44 @@ export class UsersRepository {
     })
   }
 
-  async softDelete(id: string) {
+  async countDeleteBlockers(id: string) {
+    const [
+      surveysCreated,
+      surveysAssigned,
+      surveyAuditsChanged,
+      securityAuditsActor,
+      importJobsCreated,
+      exportJobsCreated,
+      qcRemarksAuthored,
+      rolesAssigned,
+      rolesDeactivated,
+    ] = await Promise.all([
+      this.prisma.db.survey.count({ where: { createdById: id } }),
+      this.prisma.db.survey.count({ where: { assignedToId: id } }),
+      this.prisma.db.surveyAudit.count({ where: { changedBy: id } }),
+      this.prisma.db.securityAudit.count({ where: { actorId: id } }),
+      this.prisma.db.importJob.count({ where: { createdById: id } }),
+      this.prisma.db.exportJob.count({ where: { createdById: id } }),
+      this.prisma.db.qcRemark.count({ where: { authorId: id } }),
+      this.prisma.db.userTenantRole.count({ where: { assignedBy: id } }),
+      this.prisma.db.userTenantRole.count({ where: { deactivatedBy: id } }),
+    ])
+
+    return {
+      surveysCreated,
+      surveysAssigned,
+      surveyAuditsChanged,
+      securityAuditsActor,
+      importJobsCreated,
+      exportJobsCreated,
+      qcRemarksAuthored,
+      rolesAssigned,
+      rolesDeactivated,
+    }
+  }
+
+  async hardDelete(id: string) {
     await this.findById(id)
-    return this.prisma.db.user.update({
-      where: { id },
-      data: { isActive: false },
-    })
+    return this.prisma.db.user.delete({ where: { id } })
   }
 }

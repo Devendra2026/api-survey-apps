@@ -1,6 +1,7 @@
 "use client"
 
 import {
+  apiClient,
   apiDelete,
   apiGet,
   apiGetPaginated,
@@ -16,6 +17,7 @@ import type {
   BulkExportResult,
   CatalogPermission,
   CatalogRole,
+  ClerkUserSyncSummary,
   CommandCenterFilters,
   CommandCenterKpis,
   CommandCenterWard,
@@ -50,6 +52,7 @@ import type {
   SurveyRegistryFilters,
   SurveyRegistryResponse,
   UserDirectoryStats,
+  UserImportResult,
   WardCommandStat,
 } from "@/lib/api/types"
 import { useAuthStore } from "@/stores/app-store"
@@ -640,6 +643,54 @@ export function useUpdateUser() {
       void queryClient.invalidateQueries({ queryKey: ["users"] })
     },
   })
+}
+
+export function useDeleteUser() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => apiDelete(`/users/${id}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["users"] })
+      void queryClient.invalidateQueries({ queryKey: ["users", "stats"] })
+    },
+  })
+}
+
+export function useSyncUsersFromClerk() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => apiPost<ClerkUserSyncSummary>("/users/sync-from-clerk"),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["users"] })
+    },
+  })
+}
+
+export function useImportUsers() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ file, dryRun }: { file: File; dryRun: boolean }) => {
+      const formData = new FormData()
+      formData.append("file", file)
+      return apiUpload<UserImportResult>(`/users/import${dryRun ? "?dryRun=true" : ""}`, formData)
+    },
+    onSuccess: (_data, variables) => {
+      if (!variables.dryRun) {
+        void queryClient.invalidateQueries({ queryKey: ["users"] })
+      }
+    },
+  })
+}
+
+export async function downloadUsersImportTemplate(): Promise<void> {
+  const response = await apiClient.get("/users/import/template", { responseType: "blob" })
+  const blob = response.data as Blob
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement("a")
+  anchor.href = url
+  anchor.download = "users-import-template.csv"
+  anchor.click()
+  URL.revokeObjectURL(url)
 }
 
 export function useAssignTenantRole() {

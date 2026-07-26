@@ -1,20 +1,24 @@
 "use client"
 
+import { PermissionChangePreview } from "@/components/admin/roles/permission-change-preview"
 import { PermissionMatrixTable } from "@/components/admin/roles/permission-matrix-table"
 import { RolePermissionSummary } from "@/components/admin/roles/role-permission-summary"
 import { RolesUnsavedBar } from "@/components/admin/roles/roles-unsaved-bar"
 import { useRolePermissionsEditor } from "@/hooks/use-role-permissions-editor"
+import { Button } from "@workspace/ui/components/button"
 import { AnimatePresence } from "framer-motion"
 import { Controller } from "react-hook-form"
 
 export function RolePermissionsEditor({
   roleId,
   canManage,
+  onDirtyChange,
 }: {
   roleId: string | null | undefined
   canManage: boolean
+  onDirtyChange?: (dirty: boolean) => void
 }) {
-  const editor = useRolePermissionsEditor({ roleId, canManage })
+  const editor = useRolePermissionsEditor({ roleId, canManage, onDirtyChange })
 
   if (!roleId) {
     return (
@@ -26,17 +30,29 @@ export function RolePermissionsEditor({
 
   if (editor.loadError) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-center">
+      <div className="flex h-full flex-col items-center justify-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-center">
         <p className="text-sm font-medium text-destructive">Unable to load permission editor</p>
         <p className="text-xs text-muted-foreground">{editor.loadError}</p>
+        <Button type="button" variant="outline" size="sm" className="rounded-lg" onClick={() => void editor.refetch()}>
+          Retry
+        </Button>
       </div>
     )
   }
 
+  const assignedUsers = editor.roleDetail?.assignedUsersCount ?? editor.roleUsers?.length ?? 0
+
   return (
     <>
-      <div className="flex h-full min-h-0 gap-2">
-        <div className="min-h-0 min-w-0 flex-1">
+      <div className="flex h-full min-h-0 flex-col gap-2 xl:flex-row">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2">
+          {editor.dirty ? (
+            <PermissionChangePreview
+              grantedNames={editor.grantedNames}
+              revokedNames={editor.revokedNames}
+              assignedUsers={assignedUsers}
+            />
+          ) : null}
           <Controller
             control={editor.form.control}
             name="permissionIds"
@@ -44,34 +60,13 @@ export function RolePermissionsEditor({
               <PermissionMatrixTable
                 permissions={editor.catalog}
                 selectedIds={new Set(field.value ?? [])}
+                baselineIds={editor.baselineIds}
                 loading={!editor.editorReady}
                 readOnly={!editor.canEditMatrix}
                 protectedIds={editor.protectedIds}
                 onChange={
                   editor.canEditMatrix
                     ? (next) => {
-                        // #region agent log
-                        fetch("http://127.0.0.1:7363/ingest/7e05a85b-205b-4ccb-b81d-e5a353e86608", {
-                          method: "POST",
-                          headers: {
-                            "Content-Type": "application/json",
-                            "X-Debug-Session-Id": "792eec",
-                          },
-                          body: JSON.stringify({
-                            sessionId: "792eec",
-                            runId: "pre-fix",
-                            hypothesisId: "E",
-                            location: "role-permissions-editor.tsx:onChange",
-                            message: "matrix onChange fired",
-                            data: {
-                              nextSize: next.size,
-                              fieldLen: (field.value ?? []).length,
-                              canEditMatrix: editor.canEditMatrix,
-                            },
-                            timestamp: Date.now(),
-                          }),
-                        }).catch(() => {})
-                        // #endregion
                         const merged = new Set(next)
                         for (const id of editor.protectedIds) merged.add(id)
                         field.onChange([...merged])
@@ -87,7 +82,7 @@ export function RolePermissionsEditor({
             className="hidden w-56 shrink-0 xl:flex"
             selectedIds={editor.draftIds}
             permissions={editor.catalog}
-            assignedUsers={editor.roleDetail.assignedUsersCount ?? editor.roleUsers?.length ?? 0}
+            assignedUsers={assignedUsers}
             roleType={editor.category}
             createdAt={editor.roleDetail.createdAt}
             updatedAt={editor.roleDetail.updatedAt}

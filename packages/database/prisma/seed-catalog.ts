@@ -72,6 +72,19 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     "report:view",
   ],
   ADMIN: PERMISSIONS.map((p) => p.name),
+  // Municipal department template (same for every ULB client)
+  DEPT_ADMIN: [
+    "user:view",
+    "user:create",
+    "user:update",
+    "role:assign",
+    "dashboard:view",
+    "survey:view",
+    "report:view",
+    "report:export",
+  ],
+  DEPT_CLERK: ["user:view", "survey:view", "survey:update", "report:view", "dashboard:view"],
+  DEPT_OPERATOR: ["survey:create", "survey:submit", "survey:view", "photo:create", "dashboard:view"],
 }
 
 const ROLE_DESCRIPTIONS: Record<string, string> = {
@@ -80,7 +93,12 @@ const ROLE_DESCRIPTIONS: Record<string, string> = {
   FIELD_SUPERVISOR: "Supervises field surveyors and assignments",
   QC_SUPERVISOR: "Quality-control review and approve/reject",
   ADMIN: "Full system administration",
+  DEPT_ADMIN: "Municipal department admin — manages users and roles within their ULB",
+  DEPT_CLERK: "Municipal clerk — office review and reporting within their ULB",
+  DEPT_OPERATOR: "Municipal operator — field survey capture within their ULB",
 }
+
+const DEPARTMENT_ROLES = new Set(["DEPT_ADMIN", "DEPT_CLERK", "DEPT_OPERATOR"])
 
 type RoleMap = Record<string, { id: string; name: string }>
 
@@ -98,14 +116,17 @@ async function seedPermissionsAndRoles(db: PrismaClient): Promise<RoleMap> {
   const roles: RoleMap = {}
 
   for (const [roleName, permissionNames] of Object.entries(ROLE_PERMISSIONS)) {
+    const family = DEPARTMENT_ROLES.has(roleName) ? "DEPARTMENT" : "PLATFORM"
     const role = await db.role.upsert({
       where: { name: roleName },
       create: {
         name: roleName,
         description: ROLE_DESCRIPTIONS[roleName],
+        family,
       },
       update: {
         description: ROLE_DESCRIPTIONS[roleName],
+        family,
       },
     })
 

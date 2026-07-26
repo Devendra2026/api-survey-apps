@@ -1,11 +1,29 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from "@nestjs/common"
-import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger"
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Header,
+  Param,
+  Patch,
+  Post,
+  Query,
+  StreamableFile,
+  UploadedFile,
+  UseInterceptors,
+} from "@nestjs/common"
+import { FileInterceptor } from "@nestjs/platform-express"
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from "@nestjs/swagger"
+import { Throttle } from "@nestjs/throttler"
+import { memoryStorage } from "multer"
 import { PERMISSIONS } from "../common/constants/permissions.js"
 import { CurrentUser } from "../common/decorators/current-user.decorator.js"
 import { RequirePermission } from "../common/decorators/require-permission.decorator.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { AssignTenantRoleDto, CreateUserDto, ListUsersQueryDto, SyncUserDto, UpdateUserDto } from "./dto/user.dto.js"
 import { UsersService } from "./users.service.js"
+
+const USER_IMPORT_MAX_BYTES = 10 * 1024 * 1024
 
 @ApiTags("users")
 @ApiBearerAuth()
@@ -23,6 +41,54 @@ export class UsersController {
   @ApiOperation({ summary: "Sync profile fields from client after Clerk login" })
   sync(@CurrentUser() user: AuthenticatedUser, @Body() dto: SyncUserDto) {
     return this.usersService.sync(user, dto)
+  }
+
+  @Post("sync-from-clerk")
+  @RequirePermission(PERMISSIONS.USER_CREATE)
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @ApiOperation({
+    summary: "Paginate Clerk users.list and upsert into the app DB (PENDING_APPROVAL when no role)",
+  })
+  syncFromClerk() {
+    return this.usersService.syncFromClerk()
+  }
+
+  @Get("import/template")
+  @RequirePermission(PERMISSIONS.USER_VIEW)
+  @ApiOperation({ summary: "Download CSV template for user import" })
+  @Header("Content-Type", "text/csv; charset=utf-8")
+  @Header("Content-Disposition", 'attachment; filename="users-import-template.csv"')
+  importTemplate(): StreamableFile {
+    const csv = this.usersService.getImportTemplateCsv()
+    return new StreamableFile(Buffer.from(csv, "utf8"))
+  }
+
+  @Post("import")
+  @RequirePermission(PERMISSIONS.USER_CREATE)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiOperation({ summary: "Import users from CSV/XLSX into the app DB (optional ?dryRun=true)" })
+  @ApiConsumes("multipart/form-data")
+  @ApiBody({
+    schema: {
+      type: "object",
+      required: ["file"],
+      properties: {
+        file: { type: "string", format: "binary" },
+      },
+    },
+  })
+  @UseInterceptors(
+    FileInterceptor("file", {
+      storage: memoryStorage(),
+      limits: { fileSize: USER_IMPORT_MAX_BYTES },
+    })
+  )
+  importUsers(
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: AuthenticatedUser,
+    @Query("dryRun") dryRun?: string
+  ) {
+    return this.usersService.importUsers(file, user, { dryRun: dryRun === "true" })
   }
 
   @Get("stats")
@@ -77,7 +143,7 @@ export class UsersController {
 
   @Delete(":id")
   @RequirePermission(PERMISSIONS.USER_DELETE)
-  @ApiOperation({ summary: "Soft-delete (deactivate) a user" })
+  @ApiOperation({ summary: "Permanently delete a user" })
   remove(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.usersService.remove(id, user)
   }

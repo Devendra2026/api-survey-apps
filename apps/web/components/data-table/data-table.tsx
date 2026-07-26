@@ -201,7 +201,7 @@ export function DataTable<TData, TValue>({
           ) : null}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-8">
+              <Button variant="outline" size="sm" className="h-8 cursor-pointer">
                 <Columns3 className="size-3.5" />
                 Columns
                 <ChevronDown className="size-3.5 opacity-60" />

@@ -131,11 +131,29 @@ export function buildStateTenantWhere(scope: TenantScope): Prisma.StateWhereInpu
 
 /** Roles a given actor role may grant (ceiling). */
 export const ROLE_GRANT_CEILINGS: Record<string, string[]> = {
-  ADMIN: ["ADMIN", "QC_SUPERVISOR", "FIELD_SUPERVISOR", "SURVEYOR", "PENDING_APPROVAL"],
+  ADMIN: [
+    "ADMIN",
+    "QC_SUPERVISOR",
+    "FIELD_SUPERVISOR",
+    "SURVEYOR",
+    "PENDING_APPROVAL",
+    "DEPT_ADMIN",
+    "DEPT_CLERK",
+    "DEPT_OPERATOR",
+  ],
   FIELD_SUPERVISOR: ["SURVEYOR", "PENDING_APPROVAL"],
   QC_SUPERVISOR: [],
   SURVEYOR: [],
   PENDING_APPROVAL: [],
+  DEPT_ADMIN: ["DEPT_CLERK", "DEPT_OPERATOR"],
+  DEPT_CLERK: [],
+  DEPT_OPERATOR: [],
+}
+
+export const DEPARTMENT_ROLE_NAMES = new Set(["DEPT_ADMIN", "DEPT_CLERK", "DEPT_OPERATOR"])
+
+export function isDepartmentRole(roleName: string): boolean {
+  return DEPARTMENT_ROLE_NAMES.has(roleName)
 }
 
 export function canGrantRole(actorRoleNames: string[], targetRoleName: string): boolean {

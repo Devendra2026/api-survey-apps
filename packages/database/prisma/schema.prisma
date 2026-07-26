@@ -488,17 +488,25 @@ model User {
 }
 
 /// Named role (e.g. SURVEYOR, ADMIN). Permissions attached via RolePermission.
+/// family: platform = SDV ops roles; department = municipal Admin/Clerk/Operator template.
 model Role {
-  id          String   @id @default(cuid())
-  name        String   @unique
+  id          String     @id @default(cuid())
+  name        String     @unique
   description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  family      RoleFamily @default(PLATFORM)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 
   permissions     RolePermission[]
   userTenantRoles UserTenantRole[]
 
+  @@index([family])
   @@map("roles")
+}
+
+enum RoleFamily {
+  PLATFORM
+  DEPARTMENT
 }
 
 /// Fine-grained permission (e.g. survey:create, report:export).
@@ -681,6 +689,7 @@ model Survey {
   qcRemarkThread QcRemark[]
 
   @@unique([ulbId, propertyId, assessmentYear])
+  @@unique([legacySurveyId])
   @@index([stateId, surveyStatus])
   @@index([districtId, surveyStatus])
   @@index([ulbId, surveyStatus])
@@ -696,7 +705,6 @@ model Survey {
   @@index([mobileNumber])
   @@index([propertyId])
   @@index([localId])
-  @@unique([legacySurveyId])
   @@map("surveys")
 }
 

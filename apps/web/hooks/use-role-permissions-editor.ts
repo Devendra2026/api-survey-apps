@@ -1,6 +1,6 @@
 "use client"
 
-import { rolePermissionIdSet, setsEqual } from "@/components/admin/roles/permission-utils"
+import { diffPermissionIds, rolePermissionIdSet, setsEqual } from "@/components/admin/roles/permission-utils"
 import {
   canModifyPermissions,
   isFullyLockedSystemRole,
@@ -10,7 +10,7 @@ import {
 import { usePermissionsCatalog, useRole, useRoleUsers, useSetRolePermissions } from "@/hooks/use-api"
 import { getApiErrorMessage } from "@/lib/api/client"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useEffect, useMemo, useRef } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useForm } from "react-hook-form"
 import { toast } from "sonner"
 import { z } from "zod"
@@ -24,15 +24,18 @@ export type RolePermissionsFormValues = z.infer<typeof schema>
 export function useRolePermissionsEditor({
   roleId,
   canManage,
+  onDirtyChange,
 }: {
   roleId: string | null | undefined
   canManage: boolean
+  onDirtyChange?: (dirty: boolean) => void
 }) {
   const {
     data: permissionsPage,
     isLoading: permsLoading,
     isError: permsError,
     error: permsErr,
+    refetch: refetchPermissions,
   } = usePermissionsCatalog()
   const {
     data: roleDetail,
@@ -51,10 +54,25 @@ export function useRolePermissionsEditor({
   })
 
   const baselineRef = useRef<Set<string>>(new Set())
+  const [baselineIds, setBaselineIds] = useState<Set<string>>(new Set())
   const hydratedKeyRef = useRef<string | null>(null)
   const permissionIds = form.watch("permissionIds")
   const draftIds = useMemo(() => new Set(permissionIds ?? []), [permissionIds])
-  const dirty = !setsEqual(draftIds, baselineRef.current)
+  const dirty = !setsEqual(draftIds, baselineIds)
+
+  const { granted: grantedIds, revoked: revokedIds } = useMemo(
+    () => diffPermissionIds(baselineIds, draftIds),
+    [baselineIds, draftIds]
+  )
+
+  const idToName = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const perm of catalog) map.set(perm.id, perm.name)
+    return map
+  }, [catalog])
+
+  const grantedNames = useMemo(() => grantedIds.map((id) => idToName.get(id) ?? id), [grantedIds, idToName])
+  const revokedNames = useMemo(() => revokedIds.map((id) => idToName.get(id) ?? id), [revokedIds, idToName])
 
   const editorReady =
     !permsLoading && !permsError && catalog.length > 0 && !roleLoading && !roleError && Boolean(roleDetail)
@@ -68,53 +86,18 @@ export function useRolePermissionsEditor({
     [roleName, catalog]
   )
 
-  // #region agent log
   useEffect(() => {
-    fetch("http://127.0.0.1:7363/ingest/7e05a85b-205b-4ccb-b81d-e5a353e86608", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "792eec" },
-      body: JSON.stringify({
-        sessionId: "792eec",
-        runId: "pre-fix",
-        hypothesisId: "A_B_C",
-        location: "use-role-permissions-editor.ts:gate",
-        message: "editor gate state",
-        data: {
-          roleId,
-          roleName,
-          canManage,
-          fullyLocked,
-          canEditMatrix,
-          editorReady,
-          catalogLen: catalog.length,
-          permsLoading,
-          roleLoading,
-          permsError,
-          roleError,
-          assignedCount: roleDetail ? rolePermissionIdSet(roleDetail).size : 0,
-          draftCount: draftIds.size,
-          protectedCount: protectedIds.size,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {})
-  }, [
-    roleId,
-    roleName,
-    canManage,
-    fullyLocked,
-    canEditMatrix,
-    editorReady,
-    catalog.length,
-    permsLoading,
-    roleLoading,
-    permsError,
-    roleError,
-    roleDetail,
-    draftIds.size,
-    protectedIds.size,
-  ])
-  // #endregion
+    onDirtyChange?.(dirty)
+  }, [dirty, onDirtyChange])
+
+  useEffect(() => {
+    if (!dirty) return
+    const handler = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+    }
+    window.addEventListener("beforeunload", handler)
+    return () => window.removeEventListener("beforeunload", handler)
+  }, [dirty])
 
   // Hydrate once per role + permission payload signature (not on dirty).
   useEffect(() => {
@@ -123,28 +106,14 @@ export function useRolePermissionsEditor({
     const key = `${roleDetail.id}:${ids.join(",")}`
     if (hydratedKeyRef.current === key) return
     hydratedKeyRef.current = key
-    baselineRef.current = new Set(ids)
+    const nextBaseline = new Set(ids)
+    baselineRef.current = nextBaseline
+    setBaselineIds(nextBaseline)
     form.reset({ permissionIds: ids })
-    // #region agent log
-    fetch("http://127.0.0.1:7363/ingest/7e05a85b-205b-4ccb-b81d-e5a353e86608", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "792eec" },
-      body: JSON.stringify({
-        sessionId: "792eec",
-        runId: "pre-fix",
-        hypothesisId: "D",
-        location: "use-role-permissions-editor.ts:hydrate",
-        message: "form reset hydrate",
-        data: { roleId: roleDetail.id, roleName: roleDetail.name, idCount: ids.length, keyLen: key.length },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {})
-    // #endregion
   }, [roleDetail, catalog, form])
 
   const applyDraft = (next: Set<string>) => {
     if (!canEditMatrix) return
-    // Never drop protected system permissions
     const merged = new Set(next)
     for (const id of protectedIds) merged.add(id)
     form.setValue("permissionIds", [...merged], {
@@ -155,14 +124,24 @@ export function useRolePermissionsEditor({
   }
 
   const cancel = () => {
-    form.reset({ permissionIds: [...baselineRef.current] })
+    form.reset({ permissionIds: [...baselineIds] })
     toast.message("Changes discarded")
   }
 
   const reset = () => {
-    form.reset({ permissionIds: [...baselineRef.current] })
+    form.reset({ permissionIds: [...baselineIds] })
     toast.message("Matrix reset to last saved state")
   }
+
+  const refetch = useCallback(async () => {
+    const tasks: Array<Promise<unknown>> = []
+    if (permsError) tasks.push(refetchPermissions())
+    if (roleError) tasks.push(refetchRole())
+    if (tasks.length === 0) {
+      tasks.push(refetchPermissions(), refetchRole())
+    }
+    await Promise.all(tasks)
+  }, [permsError, roleError, refetchPermissions, refetchRole])
 
   const save = async () => {
     if (!roleDetail || !canEditMatrix) return
@@ -180,7 +159,9 @@ export function useRolePermissionsEditor({
         permissionIds: [...draftIds],
       })
       const next = rolePermissionIdSet(updated)
-      baselineRef.current = new Set(next)
+      const nextBaseline = new Set(next)
+      baselineRef.current = nextBaseline
+      setBaselineIds(nextBaseline)
       hydratedKeyRef.current = `${updated.id}:${[...next].sort().join(",")}`
       form.reset({ permissionIds: [...next] })
       await refetchRole()
@@ -197,6 +178,11 @@ export function useRolePermissionsEditor({
     roleUsers,
     usersLoading,
     draftIds,
+    baselineIds,
+    grantedIds,
+    revokedIds,
+    grantedNames,
+    revokedNames,
     dirty,
     editorReady,
     permsLoading,
@@ -216,6 +202,7 @@ export function useRolePermissionsEditor({
     cancel,
     reset,
     save,
+    refetch,
     saving: setPermissions.isPending,
   }
 }

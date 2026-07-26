@@ -1,12 +1,23 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common"
+import { createClerkClient } from "@clerk/backend"
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common"
+import { ConfigService } from "@nestjs/config"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import {
   canAccessTenant,
   canGrantRole,
+  isDepartmentRole,
   resolveTenantScope,
   userHasPermissionInTenant,
 } from "../common/utils/tenant-scope.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
+import { ClerkUserSyncService } from "./clerk-user-sync.service.js"
 import type {
   AssignTenantRoleDto,
   CreateUserDto,
@@ -14,10 +25,13 @@ import type {
   SyncUserDto,
   UpdateUserDto,
 } from "./dto/user.dto.js"
+import { isPendingClerkUserId } from "./pending-clerk-id.util.js"
+import { UserImportService } from "./user-import.service.js"
 import { UsersRepository } from "./users.repository.js"
 
 const ROLES_REQUIRING_FULL_GEO = new Set(["SURVEYOR", "FIELD_SUPERVISOR"])
 const ROLES_REQUIRING_GLOBAL = new Set(["ADMIN", "PENDING_APPROVAL"])
+const ROLES_REQUIRING_ULB = new Set(["DEPT_ADMIN", "DEPT_CLERK", "DEPT_OPERATOR"])
 
 @Injectable()
 export class UsersService {
@@ -25,7 +39,10 @@ export class UsersService {
 
   constructor(
     private readonly usersRepository: UsersRepository,
-    private readonly prisma: PrismaService
+    private readonly prisma: PrismaService,
+    private readonly clerkUserSync: ClerkUserSyncService,
+    private readonly userImport: UserImportService,
+    private readonly configService: ConfigService
   ) {}
 
   findAll(query: ListUsersQueryDto, actor: AuthenticatedUser) {
@@ -68,6 +85,18 @@ export class UsersService {
     })
   }
 
+  syncFromClerk() {
+    return this.clerkUserSync.syncFromClerk()
+  }
+
+  getImportTemplateCsv() {
+    return this.userImport.getTemplateCsv()
+  }
+
+  importUsers(file: Express.Multer.File, actor: AuthenticatedUser, options: { dryRun: boolean }) {
+    return this.userImport.importFile(file, actor, options)
+  }
+
   create(dto: CreateUserDto) {
     return this.usersRepository.create(dto)
   }
@@ -96,6 +125,21 @@ export class UsersService {
       stateId = undefined
       districtId = undefined
       ulbId = undefined
+      wardId = undefined
+    }
+
+    if (ROLES_REQUIRING_ULB.has(role.name)) {
+      if (!ulbId) {
+        throw new BadRequestException("Department roles require a ULB (municipal client)")
+      }
+      const ulb = await this.prisma.db.ulb.findUnique({
+        where: { id: ulbId },
+        include: { district: true },
+      })
+      if (!ulb) throw new NotFoundException("Invalid ulbId")
+      // Department roles are ULB-scoped (client); derive parent geo, no ward
+      stateId = ulb.district.stateId
+      districtId = ulb.districtId
       wardId = undefined
     }
 
@@ -132,6 +176,16 @@ export class UsersService {
     const actorRoleNames = actor.tenantRoles.filter((r) => r.isActive).map((r) => r.roleName)
     if (!canGrantRole(actorRoleNames, role.name)) {
       throw new ForbiddenException(`Your role cannot grant ${role.name}`)
+    }
+
+    // DEPT_ADMIN may only grant Clerk/Operator inside the same ULB
+    if (isDepartmentRole(role.name) && !actorScope.isGlobal) {
+      const actorDeptUlbs = actor.tenantRoles
+        .filter((r) => r.isActive && isDepartmentRole(r.roleName) && r.ulbId)
+        .map((r) => r.ulbId as string)
+      if (ulbId && actorDeptUlbs.length && !actorDeptUlbs.includes(ulbId)) {
+        throw new ForbiddenException("Cannot assign department roles outside your ULB")
+      }
     }
 
     const target = await this.usersRepository.findById(dto.userId)
@@ -203,11 +257,77 @@ export class UsersService {
 
   async remove(id: string, actor: AuthenticatedUser) {
     if (id === actor.id) {
-      throw new ForbiddenException("You cannot deactivate your own account")
+      throw new ForbiddenException("You cannot delete your own account")
     }
-    await this.findById(id, actor)
-    this.logger.log(`User soft-delete ${id} by ${actor.id}`)
-    return this.usersRepository.softDelete(id)
+
+    const user = await this.findById(id, actor)
+    const blockers = await this.usersRepository.countDeleteBlockers(id)
+    const reasons = this.formatDeleteBlockers(blockers)
+    if (reasons.length > 0) {
+      throw new ConflictException(
+        `Cannot delete user — linked records still reference them: ${reasons.join(", ")}. Remove or reassign that work first, or disable the account instead.`
+      )
+    }
+
+    await this.prisma.db.securityAudit.create({
+      data: {
+        action: "USER_DELETED",
+        actorId: actor.id,
+        targetType: "User",
+        targetId: id,
+        oldValue: {
+          email: user.email,
+          fullName: user.fullName,
+          clerkUserId: user.clerkUserId,
+          isActive: user.isActive,
+        },
+      },
+    })
+
+    await this.usersRepository.hardDelete(id)
+    this.logger.log(`User hard-delete ${id} by ${actor.id}`)
+
+    if (!isPendingClerkUserId(user.clerkUserId)) {
+      await this.deleteClerkUser(user.clerkUserId)
+    }
+
+    return { id, deleted: true as const }
+  }
+
+  private formatDeleteBlockers(blockers: Awaited<ReturnType<UsersRepository["countDeleteBlockers"]>>): string[] {
+    const labels: Array<[keyof typeof blockers, string]> = [
+      ["surveysCreated", "surveys created"],
+      ["surveysAssigned", "surveys assigned"],
+      ["surveyAuditsChanged", "survey audit entries"],
+      ["securityAuditsActor", "security audit entries"],
+      ["importJobsCreated", "import jobs"],
+      ["exportJobsCreated", "export jobs"],
+      ["qcRemarksAuthored", "QC remarks"],
+      ["rolesAssigned", "roles assigned by them"],
+      ["rolesDeactivated", "roles deactivated by them"],
+    ]
+    return labels.filter(([key]) => blockers[key] > 0).map(([key, label]) => `${blockers[key]} ${label}`)
+  }
+
+  private async deleteClerkUser(clerkUserId: string) {
+    const secretKey = this.configService.get<string>("CLERK_SECRET_KEY")
+    if (!secretKey) {
+      this.logger.warn(`CLERK_SECRET_KEY missing — skipped Clerk delete for ${clerkUserId}`)
+      return
+    }
+
+    try {
+      const clerk = createClerkClient({ secretKey })
+      await clerk.users.deleteUser(clerkUserId)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      const status = typeof err === "object" && err !== null && "status" in err ? Number(err.status) : undefined
+      if (status === 404 || /not found/i.test(message)) {
+        this.logger.log(`Clerk user ${clerkUserId} already absent`)
+        return
+      }
+      this.logger.warn(`Clerk delete failed for ${clerkUserId} after DB delete: ${message}`)
+    }
   }
 
   private canViewUser(

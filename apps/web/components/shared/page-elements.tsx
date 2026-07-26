@@ -104,6 +104,42 @@ export function EmptyState({
   )
 }
 
+export function QueryErrorBanner({
+  title = "Something went wrong",
+  message,
+  onRetry,
+  className,
+}: {
+  title?: string
+  message?: string
+  onRetry?: () => void
+  className?: string
+}) {
+  return (
+    <div
+      role="alert"
+      className={cn(
+        "flex flex-col gap-3 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between",
+        className
+      )}
+    >
+      <div className="min-w-0 space-y-0.5">
+        <p className="text-sm font-medium text-destructive">{title}</p>
+        {message ? <p className="text-xs text-muted-foreground">{message}</p> : null}
+      </div>
+      {onRetry ? (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="inline-flex h-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-border bg-background px-3 text-xs font-medium transition-colors duration-200 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          Retry
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
 export function StatCard({
   label,
   value,

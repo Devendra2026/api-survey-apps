@@ -31,11 +31,10 @@ export function UserEditDialog({
   const [phone, setPhone] = useState("")
 
   useEffect(() => {
-    if (user) {
-      setFullName(user.fullName)
-      setPhone(user.phone ?? "")
-    }
-  }, [user])
+    if (!open || !user) return
+    setFullName(user.fullName)
+    setPhone(user.phone ?? "")
+  }, [open, user])
 
   const handleSave = async () => {
     if (!user) return

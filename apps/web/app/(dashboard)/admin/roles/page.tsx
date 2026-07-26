@@ -10,12 +10,13 @@ import { RolePermissionsEditor } from "@/components/admin/roles/role-permissions
 import {
   canDeleteRole,
   canModifyPermissions,
+  isDepartmentRole,
   isFullyLockedSystemRole,
   isSystemRole,
 } from "@/components/admin/roles/system-role-policy"
 import { UserAssignRoleDialog } from "@/components/admin/user-assign-role-dialog"
 import { UserAvatar } from "@/components/admin/user-badges"
-import { EmptyState } from "@/components/shared/page-elements"
+import { EmptyState, PageHeader, QueryErrorBanner } from "@/components/shared/page-elements"
 import {
   useCloneRole,
   useCreateRole,
@@ -30,16 +31,14 @@ import {
   useUsers,
 } from "@/hooks/use-api"
 import { getApiErrorMessage } from "@/lib/api/client"
-import { roleDisplayName, type AuthenticatedProfile, type SecurityAuditItem } from "@/lib/api/types"
-import { useAuthStore } from "@/stores/app-store"
 import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@workspace/ui/components/breadcrumb"
+  isDepartmentRoleName,
+  roleDisplayName,
+  tenantRoleCode,
+  type AuthenticatedProfile,
+  type SecurityAuditItem,
+} from "@/lib/api/types"
+import { useAuthStore } from "@/stores/app-store"
 import { Button } from "@workspace/ui/components/button"
 import {
   Dialog,
@@ -55,10 +54,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu"
+import { Input } from "@workspace/ui/components/input"
+import { Tabs, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
 import { motion, useReducedMotion } from "framer-motion"
 import { ClipboardList, Download, FileUp, Plus, Upload } from "lucide-react"
-import Link from "next/link"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { Suspense, useEffect, useMemo, useRef, useState, useTransition } from "react"
+
 import { toast } from "sonner"
 
 function auditsToLocal(entries: SecurityAuditItem[], fallbackRoleName: string): LocalPermissionAudit[] {
@@ -76,13 +78,24 @@ function auditsToLocal(entries: SecurityAuditItem[], fallbackRoleName: string): 
   })
 }
 
-export default function AdminRolesPage() {
+function AdminRolesPage() {
   const reduceMotion = useReducedMotion()
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const [, startTransition] = useTransition()
   const hasPermission = useAuthStore((s) => s.hasPermission)
+  const profile = useAuthStore((s) => s.profile)
   const canManage = hasPermission("role:assign")
   const canView = hasPermission("user:view") || canManage
 
-  const { data, isLoading, refetch } = useRoles()
+  const actorIsDeptOnly = useMemo(() => {
+    const active = profile?.tenantRoles?.filter((r) => r.isActive) ?? []
+    if (!active.length) return false
+    return active.every((r) => isDepartmentRoleName(tenantRoleCode(r)))
+  }, [profile?.tenantRoles])
+
+  const { data, isLoading, isError, error, refetch } = useRoles()
   const { data: permissions, isLoading: permsLoading } = usePermissionsCatalog()
   const { data: userStats, isLoading: statsLoading } = useUserStats()
   const createRole = useCreateRole()
@@ -90,10 +103,22 @@ export default function AdminRolesPage() {
   const cloneRole = useCloneRole()
   const deleteRole = useDeleteRole()
 
-  const roles = data?.items ?? []
+  const [familyTab, setFamilyTab] = useState<"platform" | "department">(actorIsDeptOnly ? "department" : "platform")
+
+  const allRoles = data?.items ?? []
+  const roles = useMemo(() => {
+    if (actorIsDeptOnly) {
+      return allRoles.filter((r) => isDepartmentRole(r.name) || r.family === "DEPARTMENT")
+    }
+    if (familyTab === "department") {
+      return allRoles.filter((r) => isDepartmentRole(r.name) || r.family === "DEPARTMENT")
+    }
+    return allRoles.filter((r) => !isDepartmentRole(r.name) && r.family !== "DEPARTMENT")
+  }, [allRoles, familyTab, actorIsDeptOnly])
   const catalog = permissions?.items ?? []
 
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const roleFromUrl = searchParams.get("role")
+  const [selectedId, setSelectedId] = useState<string | null>(roleFromUrl)
   const listSelected = useMemo(() => {
     if (selectedId) return roles.find((r) => r.id === selectedId) ?? null
     return roles[0] ?? null
@@ -112,6 +137,9 @@ export default function AdminRolesPage() {
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [tab, setTab] = useState("permissions")
+  const [matrixDirty, setMatrixDirty] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState("")
   const importInputRef = useRef<HTMLInputElement>(null)
 
   const { data: roleUsers, isLoading: roleUsersLoading, refetch: refetchRoleUsers } = useRoleUsers(selected?.id)
@@ -133,12 +161,34 @@ export default function AdminRolesPage() {
     return map
   }, [userStats?.byRole, roles])
 
+  // When switching family tab, select first role in that family
+  useEffect(() => {
+    if (!roles.length) return
+    if (selectedId && roles.some((r) => r.id === selectedId)) return
+    setSelectedId(roles[0]?.id ?? null)
+  }, [familyTab, roles, selectedId])
+
   useEffect(() => {
     if (selectedId) return
+    if (roleFromUrl && roles.some((r) => r.id === roleFromUrl)) {
+      setSelectedId(roleFromUrl)
+      return
+    }
     const firstCustom = roles.find((r) => !SYSTEM_ROLE_CODES.has(r.name))
     const fallback = firstCustom ?? roles[0]
     if (fallback) setSelectedId(fallback.id)
-  }, [roles, selectedId])
+  }, [roles, selectedId, roleFromUrl])
+
+  useEffect(() => {
+    if (!effectiveSelectedId) return
+    const params = new URLSearchParams(searchParams.toString())
+    if (params.get("role") === effectiveSelectedId) return
+    params.set("role", effectiveSelectedId)
+    const next = params.toString()
+    startTransition(() => {
+      router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false })
+    })
+  }, [effectiveSelectedId, pathname, router, searchParams])
 
   const auditEntries = useMemo(() => {
     const serverLocal = serverAudits
@@ -152,6 +202,10 @@ export default function AdminRolesPage() {
   }
 
   const selectRole = (id: string) => {
+    if (matrixDirty && id !== effectiveSelectedId) {
+      const confirmed = window.confirm("You have unsaved permission changes. Switch roles anyway?")
+      if (!confirmed) return
+    }
     setSelectedId(id)
     setTab("permissions")
   }
@@ -198,8 +252,10 @@ export default function AdminRolesPage() {
     }
   }
 
+  const canEditMatrix = canManage && !actorIsDeptOnly
+
   const isEditingMatrix = Boolean(
-    selected && canManage && canModifyPermissions(selected.name) && !isFullyLockedSystemRole(selected.name)
+    selected && canEditMatrix && canModifyPermissions(selected.name) && !isFullyLockedSystemRole(selected.name)
   )
 
   const renderDetail = (key: string) => {
@@ -223,23 +279,19 @@ export default function AdminRolesPage() {
           setCloneOpen(true)
         }}
         onAssign={() => setAssignOpen(true)}
-        onDelete={async () => {
-          if (!canDeleteRole(selected.name)) return
-          try {
-            await deleteRole.mutateAsync(selected.id)
-            toast.success("Role deleted")
-            setSelectedId(null)
-          } catch (error) {
-            toast.error(getApiErrorMessage(error))
-          }
+        onDelete={() => {
+          if (!canDeleteRole(selected.name) || actorIsDeptOnly) return
+          setDeleteConfirm("")
+          setDeleteOpen(true)
         }}
         onStartEditPermissions={() => {
-          if (!canManage || isFullyLockedSystemRole(selected.name)) return
+          if (!canEditMatrix || isFullyLockedSystemRole(selected.name)) return
           setTab("permissions")
         }}
         roleUsers={roleUsers}
         roleUsersLoading={roleUsersLoading || detailLoading}
-        matrix={<RolePermissionsEditor roleId={selected.id} canManage={canManage} />}
+        matrix={<RolePermissionsEditor roleId={selected.id} canManage={canEditMatrix} onDirtyChange={setMatrixDirty} />}
+        templateReadOnly={actorIsDeptOnly}
       />
     )
   }
@@ -251,93 +303,91 @@ export default function AdminRolesPage() {
       animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
       transition={{ duration: 0.15 }}
     >
-      <div className="flex shrink-0 flex-col gap-2 border-b border-border/50 pb-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0 space-y-0.5">
-          <Breadcrumb>
-            <BreadcrumbList className="text-xs">
-              <BreadcrumbItem>
-                <BreadcrumbLink asChild>
-                  <Link href="/admin/users">Administration</Link>
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage>Roles & Permissions</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0">
-            <h1 className="text-lg font-semibold tracking-tight md:text-xl">Roles & Permissions</h1>
-            <p className="text-xs text-muted-foreground">Enterprise RBAC</p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-1.5">
-          {canManage ? (
-            <Button
-              type="button"
-              size="sm"
-              className="h-8 cursor-pointer rounded-lg shadow-xs"
-              onClick={() => {
-                setName("")
-                setDescription("")
-                setCreateOpen(true)
-              }}
-            >
-              <Plus className="mr-1.5 size-3.5" aria-hidden />
-              Create Role
-            </Button>
-          ) : null}
-          {canManage ? (
-            <>
-              <input
-                ref={importInputRef}
-                type="file"
-                accept="application/json,.json"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0]
-                  if (file) void importRolesFile(file)
-                  e.target.value = ""
-                }}
-              />
+      <PageHeader
+        title="Roles"
+        description={
+          actorIsDeptOnly
+            ? "Department roles for your municipal ULB — view what Admin, Clerk, and Operator can do"
+            : "Platform RBAC and municipal department permission template"
+        }
+        breadcrumbs={[{ label: "Administration", href: "/admin/users" }, { label: "Roles" }]}
+        actions={
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
+            {canManage && !actorIsDeptOnly ? (
               <Button
                 type="button"
-                variant="outline"
                 size="sm"
-                className="h-8 cursor-pointer rounded-lg"
-                onClick={() => importInputRef.current?.click()}
+                className="h-8 cursor-pointer rounded-lg shadow-xs"
+                onClick={() => {
+                  setName("")
+                  setDescription("")
+                  setCreateOpen(true)
+                }}
               >
-                <Upload className="mr-1.5 size-3.5" aria-hidden />
-                Import
+                <Plus className="mr-1.5 size-3.5" aria-hidden />
+                Create Role
               </Button>
-            </>
-          ) : null}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button type="button" variant="outline" size="sm" className="h-8 cursor-pointer rounded-lg">
-                <Download className="mr-1.5 size-3.5" aria-hidden />
-                Export
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="rounded-xl">
-              <DropdownMenuItem className="cursor-pointer" onClick={exportRoles}>
-                <FileUp className="mr-2 size-3.5" />
-                Export roles JSON
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8 cursor-pointer rounded-lg"
-            onClick={() => setAuditOpen(true)}
-          >
-            <ClipboardList className="mr-1.5 size-3.5" aria-hidden />
-            Audit Logs
-          </Button>
-        </div>
-      </div>
+            ) : null}
+            {canManage && !actorIsDeptOnly ? (
+              <>
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept="application/json,.json"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) void importRolesFile(file)
+                    e.target.value = ""
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 cursor-pointer rounded-lg"
+                  onClick={() => importInputRef.current?.click()}
+                >
+                  <Upload className="mr-1.5 size-3.5" aria-hidden />
+                  Import
+                </Button>
+              </>
+            ) : null}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" size="sm" className="h-8 cursor-pointer rounded-lg">
+                  <Download className="mr-1.5 size-3.5" aria-hidden />
+                  Export
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="rounded-xl">
+                <DropdownMenuItem className="cursor-pointer" onClick={exportRoles}>
+                  <FileUp className="mr-2 size-3.5" />
+                  Export roles JSON
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 cursor-pointer rounded-lg"
+              onClick={() => setAuditOpen(true)}
+            >
+              <ClipboardList className="mr-1.5 size-3.5" aria-hidden />
+              Audit Logs
+            </Button>
+          </div>
+        }
+      />
+
+      {isError ? (
+        <QueryErrorBanner
+          title="Unable to load roles"
+          message={getApiErrorMessage(error)}
+          onRetry={() => void refetch()}
+        />
+      ) : null}
 
       <div className="shrink-0">
         <RbacKpiCards
@@ -348,6 +398,27 @@ export default function AdminRolesPage() {
         />
       </div>
 
+      {!actorIsDeptOnly ? (
+        <Tabs
+          value={familyTab}
+          onValueChange={(v) => setFamilyTab(v as "platform" | "department")}
+          className="shrink-0"
+        >
+          <TabsList className="h-9 rounded-lg bg-muted/60 p-0.5">
+            <TabsTrigger value="platform" className="h-8 cursor-pointer rounded-md px-3 text-xs">
+              Platform roles
+            </TabsTrigger>
+            <TabsTrigger value="department" className="h-8 cursor-pointer rounded-md px-3 text-xs">
+              Department template
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      ) : (
+        <p className="shrink-0 text-sm text-muted-foreground">
+          Permissions are managed by SDV Edutech. You can view each role&apos;s access below.
+        </p>
+      )}
+
       <div className="hidden min-h-0 flex-1 grid-cols-[minmax(260px,28%)_minmax(0,1fr)] gap-2 lg:grid">
         <RoleListPanel
           roles={roles}
@@ -355,7 +426,7 @@ export default function AdminRolesPage() {
           userCounts={userCounts}
           isLoading={isLoading}
           onSelect={selectRole}
-          canCreate={canManage}
+          canCreate={canManage && !actorIsDeptOnly && familyTab === "platform"}
           onCreateRole={() => {
             setName("")
             setDescription("")
@@ -382,7 +453,7 @@ export default function AdminRolesPage() {
           userCounts={userCounts}
           isLoading={isLoading}
           onSelect={selectRole}
-          canCreate={canManage}
+          canCreate={canManage && !actorIsDeptOnly && familyTab === "platform"}
           onCreateRole={() => {
             setName("")
             setDescription("")
@@ -538,6 +609,85 @@ export default function AdminRolesPage() {
           }
         }}
       />
+
+      <Dialog
+        open={deleteOpen}
+        onOpenChange={(open) => {
+          setDeleteOpen(open)
+          if (!open) setDeleteConfirm("")
+        }}
+      >
+        <DialogContent className="gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-md">
+          <DialogHeader className="space-y-1.5 border-b px-6 py-5 text-left">
+            <DialogTitle>Delete role</DialogTitle>
+            <DialogDescription>
+              {selected
+                ? `Permanently delete ${roleDisplayName(selected.name)}? Users must be reassigned first. Type DELETE to confirm.`
+                : "Permanently delete this role?"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 px-6 py-4">
+            <label htmlFor="delete-role-confirm" className="text-xs font-medium text-muted-foreground">
+              Confirmation
+            </label>
+            <Input
+              id="delete-role-confirm"
+              value={deleteConfirm}
+              onChange={(e) => setDeleteConfirm(e.target.value)}
+              placeholder="Type DELETE"
+              className="rounded-xl"
+              autoComplete="off"
+            />
+          </div>
+          <DialogFooter className="gap-2 border-t bg-muted/30 px-6 py-4 sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-xl"
+              onClick={() => {
+                setDeleteOpen(false)
+                setDeleteConfirm("")
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              className="rounded-xl"
+              disabled={deleteConfirm !== "DELETE" || deleteRole.isPending || !selected}
+              onClick={async () => {
+                if (!selected) return
+                try {
+                  await deleteRole.mutateAsync(selected.id)
+                  toast.success("Role deleted")
+                  setDeleteOpen(false)
+                  setDeleteConfirm("")
+                  setSelectedId(null)
+                } catch (err) {
+                  toast.error(getApiErrorMessage(err))
+                }
+              }}
+            >
+              {deleteRole.isPending ? "Deleting…" : "Delete role"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </motion.div>
+  )
+}
+
+export default function AdminRolesPageSuspense() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-64 items-center justify-center text-sm text-muted-foreground" aria-busy="true">
+          Loading roles…
+        </div>
+      }
+    >
+      <AdminRolesPage />
+    </Suspense>
   )
 }

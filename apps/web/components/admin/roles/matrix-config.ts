@@ -24,6 +24,17 @@ export const MATRIX_ACTIONS = [
 
 export type MatrixActionId = (typeof MATRIX_ACTIONS)[number]["id"]
 
+/** Primary columns shown first; remaining actions keep their relative order from MATRIX_ACTIONS. */
+const PRIMARY_ACTION_ORDER: MatrixActionId[] = ["view", "create", "edit", "delete", "manage"]
+
+export const MATRIX_DISPLAY_ACTIONS = [
+  ...PRIMARY_ACTION_ORDER.flatMap((id) => {
+    const action = MATRIX_ACTIONS.find((a) => a.id === id)
+    return action ? [action] : []
+  }),
+  ...MATRIX_ACTIONS.filter((a) => !PRIMARY_ACTION_ORDER.includes(a.id)),
+] as const
+
 export type MatrixModuleIcon =
   | "layout-dashboard"
   | "users"
@@ -250,4 +261,7 @@ export const ROLE_PERMISSION_HINTS: Record<string, string> = {
   FIELD_SUPERVISOR: "Survey oversight plus operational reports.",
   QC_SUPERVISOR: "Survey visibility with QC approve / reject.",
   ADMIN: "Full access across every module and action.",
+  DEPT_ADMIN: "Municipal admin — manage users and roles within the ULB client.",
+  DEPT_CLERK: "Municipal clerk — office review and reporting within the ULB.",
+  DEPT_OPERATOR: "Municipal operator — field survey capture within the ULB.",
 }

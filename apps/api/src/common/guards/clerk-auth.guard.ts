@@ -3,6 +3,7 @@ import { CanActivate, ExecutionContext, Injectable, Logger, UnauthorizedExceptio
 import { ConfigService } from "@nestjs/config"
 import { Reflector } from "@nestjs/core"
 import { PrismaService } from "../../prisma/prisma.service.js"
+import { isPendingClerkUserId, normalizeEmail } from "../../users/pending-clerk-id.util.js"
 import { IS_PUBLIC_KEY } from "../decorators/public.decorator.js"
 import type { AuthenticatedUser } from "../interfaces/authenticated-user.interface.js"
 import { RoleProvisioningService } from "../services/role-provisioning.service.js"
@@ -141,35 +142,64 @@ export class ClerkAuthGuard implements CanActivate {
     profileFetched: boolean
   }): Promise<AuthenticatedUser> {
     const now = new Date()
-    const existing = await this.prisma.db.user.findUnique({
+    let existing = await this.prisma.db.user.findUnique({
       where: { clerkUserId: input.clerkUserId },
     })
 
+    const normalizedEmail = input.profileFetched && input.email ? normalizeEmail(input.email) : (existing?.email ?? "")
+
+    // Email-first import: rebind pending:{email} row to the real Clerk sub on first sign-in.
+    if (!existing && normalizedEmail) {
+      const byEmail = await this.prisma.db.user.findUnique({ where: { email: normalizedEmail } })
+      if (byEmail && isPendingClerkUserId(byEmail.clerkUserId)) {
+        existing = await this.prisma.db.user.update({
+          where: { id: byEmail.id },
+          data: {
+            clerkUserId: input.clerkUserId,
+            ...(input.profileFetched
+              ? {
+                  email: normalizedEmail,
+                  fullName: input.fullName !== "User" ? input.fullName : (byEmail.fullName ?? input.fullName),
+                  phone: input.phone ?? byEmail.phone,
+                }
+              : {}),
+            lastLoginAt: now,
+          },
+        })
+        this.logger.log(`Rebound pending user ${byEmail.id} to clerkUserId=${input.clerkUserId}`)
+      }
+    }
+
     const email =
-      input.profileFetched && input.email ? input.email : (existing?.email ?? `${input.clerkUserId}@clerk.local`)
+      input.profileFetched && input.email
+        ? normalizeEmail(input.email)
+        : (existing?.email ?? `${input.clerkUserId}@clerk.local`)
     const fullName =
       input.profileFetched && input.fullName !== "User" ? input.fullName : (existing?.fullName ?? input.fullName)
 
-    const user = await this.prisma.db.user.upsert({
-      where: { clerkUserId: input.clerkUserId },
-      create: {
-        clerkUserId: input.clerkUserId,
-        email,
-        fullName,
-        phone: input.phone,
-        lastLoginAt: now,
-      },
-      update: {
-        ...(input.profileFetched
-          ? {
-              email,
-              fullName,
-              phone: input.phone ?? undefined,
-            }
-          : {}),
-        lastLoginAt: now,
-      },
-    })
+    const user = existing
+      ? await this.prisma.db.user.update({
+          where: { id: existing.id },
+          data: {
+            ...(input.profileFetched
+              ? {
+                  email,
+                  fullName,
+                  phone: input.phone ?? undefined,
+                }
+              : {}),
+            lastLoginAt: now,
+          },
+        })
+      : await this.prisma.db.user.create({
+          data: {
+            clerkUserId: input.clerkUserId,
+            email,
+            fullName,
+            phone: input.phone,
+            lastLoginAt: now,
+          },
+        })
 
     if (!user.isActive) {
       throw new UnauthorizedException("Your account has been disabled. Please contact the system administrator.")

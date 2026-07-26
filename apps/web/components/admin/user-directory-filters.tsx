@@ -1,13 +1,14 @@
 "use client"
 
-import { useDistricts, useStates, useUlbs, useWards } from "@/hooks/use-api"
-import { ASSIGNABLE_ROLES, roleDisplayName } from "@/lib/api/types"
+import { useDistricts, useRoles, useStates, useUlbs, useWards } from "@/hooks/use-api"
+import { roleDisplayName } from "@/lib/api/types"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
 import { cn } from "@workspace/ui/lib/utils"
 import { Filter, RotateCcw, Search } from "lucide-react"
+import { useMemo } from "react"
 
 export type UserDirectoryFilters = {
   search: string
@@ -40,10 +41,16 @@ export function UserDirectoryFiltersBar({
   onReset: () => void
   className?: string
 }) {
+  const { data: roles } = useRoles()
   const { data: states } = useStates({ limit: 100 })
   const { data: districts } = useDistricts(filters.stateId || undefined)
   const { data: ulbs } = useUlbs(filters.districtId || undefined)
   const { data: wards } = useWards(filters.ulbId || undefined)
+
+  const roleOptions = useMemo(() => {
+    const items = roles?.items ?? []
+    return [...items].sort((a, b) => roleDisplayName(a.name).localeCompare(roleDisplayName(b.name)))
+  }, [roles?.items])
 
   const patch = (partial: Partial<UserDirectoryFilters>) => onChange({ ...filters, ...partial })
   const activeCount = [
@@ -67,7 +74,7 @@ export function UserDirectoryFiltersBar({
             <Filter className="size-4" aria-hidden />
           </div>
           <div>
-            <p className="text-sm font-semibold tracking-tight">Advanced filters</p>
+            <p className="text-sm font-semibold tracking-tight">Filters</p>
             <p className="text-xs text-muted-foreground">
               {activeCount > 0
                 ? `${activeCount} active filter${activeCount === 1 ? "" : "s"}`
@@ -79,7 +86,7 @@ export function UserDirectoryFiltersBar({
           type="button"
           variant="ghost"
           size="sm"
-          className="gap-1.5 text-muted-foreground"
+          className="cursor-pointer gap-1.5 text-muted-foreground transition-colors duration-200"
           onClick={onReset}
           disabled={activeCount === 0}
         >
@@ -110,14 +117,14 @@ export function UserDirectoryFiltersBar({
             value={filters.roleName || "__all__"}
             onValueChange={(value) => patch({ roleName: value === "__all__" ? "" : value })}
           >
-            <SelectTrigger className="h-10 rounded-xl">
+            <SelectTrigger className="h-10 cursor-pointer rounded-xl">
               <SelectValue placeholder="All roles" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="__all__">All roles</SelectItem>
-              {ASSIGNABLE_ROLES.map((role) => (
-                <SelectItem key={role} value={role}>
-                  {roleDisplayName(role)}
+              {roleOptions.map((role) => (
+                <SelectItem key={role.id} value={role.name}>
+                  {roleDisplayName(role.name)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -130,7 +137,7 @@ export function UserDirectoryFiltersBar({
             value={filters.isActive || "__all__"}
             onValueChange={(value) => patch({ isActive: value === "__all__" ? "" : value })}
           >
-            <SelectTrigger className="h-10 rounded-xl">
+            <SelectTrigger className="h-10 cursor-pointer rounded-xl">
               <SelectValue placeholder="All statuses" />
             </SelectTrigger>
             <SelectContent>
@@ -154,7 +161,7 @@ export function UserDirectoryFiltersBar({
               })
             }
           >
-            <SelectTrigger className="h-10 rounded-xl">
+            <SelectTrigger className="h-10 cursor-pointer rounded-xl">
               <SelectValue placeholder="All states" />
             </SelectTrigger>
             <SelectContent>
@@ -181,7 +188,7 @@ export function UserDirectoryFiltersBar({
             }
             disabled={!filters.stateId}
           >
-            <SelectTrigger className="h-10 rounded-xl">
+            <SelectTrigger className="h-10 cursor-pointer rounded-xl">
               <SelectValue placeholder="All districts" />
             </SelectTrigger>
             <SelectContent>
@@ -207,7 +214,7 @@ export function UserDirectoryFiltersBar({
             }
             disabled={!filters.districtId}
           >
-            <SelectTrigger className="h-10 rounded-xl">
+            <SelectTrigger className="h-10 cursor-pointer rounded-xl">
               <SelectValue placeholder="All ULBs" />
             </SelectTrigger>
             <SelectContent>
@@ -228,7 +235,7 @@ export function UserDirectoryFiltersBar({
             onValueChange={(value) => patch({ wardId: value === "__all__" ? "" : value })}
             disabled={!filters.ulbId}
           >
-            <SelectTrigger className="h-10 rounded-xl">
+            <SelectTrigger className="h-10 cursor-pointer rounded-xl">
               <SelectValue placeholder="All wards" />
             </SelectTrigger>
             <SelectContent>

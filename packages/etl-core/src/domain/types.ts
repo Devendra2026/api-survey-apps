@@ -4,14 +4,7 @@ export type PhotoSlot = (typeof PHOTO_SLOTS)[number]
 
 export type MigrationStatus = "PENDING" | "IN_PROGRESS" | "COMPLETED" | "SKIPPED" | "FAILED"
 
-export type EtlStage =
-  | "EXTRACT"
-  | "TRANSFORM"
-  | "DOWNLOAD"
-  | "UPLOAD"
-  | "LOAD"
-  | "VALIDATE"
-  | "SKIP"
+export type EtlStage = "EXTRACT" | "TRANSFORM" | "DOWNLOAD" | "UPLOAD" | "LOAD" | "VALIDATE" | "SKIP"
 
 export type PhotoTypeEnum = "FRONT" | "SIDE" | "INSIDE" | "DOCUMENT"
 
@@ -230,15 +223,8 @@ export interface MappedSurvey {
 }
 
 export interface TransformContext {
-  resolveGeo: (input: {
-    districtCode: string
-    municipalityCode: string
-    wardNo: string
-  }) => GeoCatalogIds | null
-  resolveUserId: (input: {
-    clerkId?: string | null
-    email?: string | null
-  }) => string | null
+  resolveGeo: (input: { districtCode: string; municipalityCode: string; wardNo: string }) => GeoCatalogIds | null
+  resolveUserId: (input: { clerkId?: string | null; email?: string | null }) => string | null
   /** Fallback Nest user when surveyor cannot be resolved */
   systemUserId: string
 }
@@ -276,6 +262,7 @@ export interface EtlJobStats {
   executionTimeMs: number
   avgSurveyMs: number
   surveysPerMinute: number
+  [key: string]: number
 }
 
 export function emptyEtlJobStats(): EtlJobStats {

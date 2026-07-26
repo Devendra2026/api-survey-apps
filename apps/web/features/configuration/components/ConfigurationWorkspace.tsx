@@ -2,11 +2,12 @@
 
 import { cn } from "@workspace/ui/lib/utils"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
 import type { ReactNode } from "react"
+import { Suspense } from "react"
 import { CONFIG_NAV } from "../lib/types"
 
-export function ConfigurationWorkspace({
+function ConfigurationWorkspaceInner({
   title,
   description,
   actions,
@@ -18,6 +19,9 @@ export function ConfigurationWorkspace({
   children: ReactNode
 }) {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const search = searchParams.toString()
+  const isMasterHub = pathname.startsWith("/master-data") || pathname.startsWith("/configuration/geography")
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -25,7 +29,7 @@ export function ConfigurationWorkspace({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              {pathname.startsWith("/configuration/geography") ? "Master Data" : "Configuration Registry"}
+              {isMasterHub ? "Master Data" : "Configuration Registry"}
             </p>
             <h1 className="text-2xl font-semibold tracking-tight text-foreground">{title}</h1>
             {description ? <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{description}</p> : null}
@@ -34,7 +38,7 @@ export function ConfigurationWorkspace({
         </div>
         <nav className="flex flex-wrap gap-1" aria-label="Configuration modules">
           {CONFIG_NAV.map((item) => {
-            const active = item.match(pathname)
+            const active = item.match(pathname, search)
             return (
               <Link
                 key={item.href}
@@ -54,5 +58,18 @@ export function ConfigurationWorkspace({
       </div>
       <div className="min-h-0 flex-1">{children}</div>
     </div>
+  )
+}
+
+export function ConfigurationWorkspace(props: {
+  title: string
+  description?: string
+  actions?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <Suspense fallback={<div className="text-sm text-muted-foreground">Loading…</div>}>
+      <ConfigurationWorkspaceInner {...props} />
+    </Suspense>
   )
 }

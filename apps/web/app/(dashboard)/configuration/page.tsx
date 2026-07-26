@@ -1,11 +1,6 @@
 "use client"
 
 import { EmptyState } from "@/components/shared/page-elements"
-import { useAuthStore } from "@/stores/app-store"
-import { Button } from "@workspace/ui/components/button"
-import { Skeleton } from "@workspace/ui/components/skeleton"
-import { useMemo, useState } from "react"
-import { toast } from "sonner"
 import { AuditTimeline } from "@/features/configuration/components/AuditTimeline"
 import { ConfigurationStats } from "@/features/configuration/components/ConfigurationStats"
 import { ConfigurationWorkspace } from "@/features/configuration/components/ConfigurationWorkspace"
@@ -16,7 +11,12 @@ import {
   useReferenceCategories,
   useReferenceMutations,
 } from "@/features/configuration/hooks/use-configuration"
+import { useAuthStore } from "@/stores/app-store"
+import { Button } from "@workspace/ui/components/button"
+import { Skeleton } from "@workspace/ui/components/skeleton"
 import Link from "next/link"
+import { useMemo, useState } from "react"
+import { toast } from "sonner"
 
 export default function ConfigurationHomePage() {
   const hasPermission = useAuthStore((s) => s.hasPermission)
@@ -56,10 +56,10 @@ export default function ConfigurationHomePage() {
       actions={
         <>
           <Button asChild variant="outline" className="cursor-pointer">
-            <Link href="/configuration/geography">Geography</Link>
+            <Link href="/master-data?tab=tenants">Geography</Link>
           </Button>
           <Button asChild className="cursor-pointer">
-            <Link href="/configuration/tax-engine">Tax Engine</Link>
+            <Link href="/master-data?tab=tax-rates">Tax Engine</Link>
           </Button>
         </>
       }

@@ -4,7 +4,7 @@ import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@workspace/ui/components/card"
 import { formatDistanceToNow } from "date-fns"
-import { History, Plus, ArrowRight } from "lucide-react"
+import { ArrowRight, History, Plus } from "lucide-react"
 import Link from "next/link"
 import type { ReferenceCategory } from "../lib/types"
 import { categoryIcon } from "./ConfigurationStats"
@@ -47,7 +47,7 @@ export function ReferenceCategoryCard({
       </CardContent>
       <CardFooter className="flex flex-wrap gap-2 border-t border-border/60 pt-4">
         <Button asChild size="sm" className="cursor-pointer">
-          <Link href={`/configuration/reference/${category.code}`}>
+          <Link href={`/master-data?tab=reference&category=${encodeURIComponent(category.code)}`}>
             Open
             <ArrowRight className="size-3.5" />
           </Link>

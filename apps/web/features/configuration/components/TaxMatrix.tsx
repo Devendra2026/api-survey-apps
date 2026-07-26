@@ -3,8 +3,8 @@
 import { Input } from "@workspace/ui/components/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@workspace/ui/components/table"
 import { useMemo } from "react"
-import type { TaxConfig, TaxRateCell } from "../lib/types"
 import { num } from "../lib/formulas"
+import type { TaxConfig, TaxRateCell } from "../lib/types"
 
 export function TaxRateCellInput({
   value,
@@ -16,16 +16,24 @@ export function TaxRateCellInput({
   disabled?: boolean
 }) {
   return (
-    <Input
-      type="number"
-      min={0}
-      step="0.01"
-      value={Number.isFinite(value) ? value : 0}
-      disabled={disabled}
-      className="h-8 min-w-[5.5rem] font-mono tabular-nums"
-      onChange={(e) => onChange(Number(e.target.value))}
-      aria-label="Annual rate per sq ft"
-    />
+    <div className="relative min-w-[5.5rem]">
+      <span
+        className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-xs text-muted-foreground"
+        aria-hidden
+      >
+        ₹
+      </span>
+      <Input
+        type="number"
+        min={0}
+        step="0.01"
+        value={Number.isFinite(value) ? value : 0}
+        disabled={disabled}
+        className="h-8 pl-5 font-mono tabular-nums"
+        onChange={(e) => onChange(Number(e.target.value))}
+        aria-label="Annual rate per sq ft in rupees"
+      />
+    </div>
   )
 }
 
@@ -74,10 +82,15 @@ export function TaxMatrix({
     <div className="overflow-auto rounded-lg border border-border/70">
       <Table>
         <TableHeader>
-          <TableRow>
-            <TableHead className="sticky left-0 z-10 bg-background">Road Width</TableHead>
+          <TableRow className="border-b-0 hover:bg-transparent">
+            <TableHead className="sticky left-0 z-10 bg-slate-900 font-medium text-white dark:bg-slate-950">
+              Road Width
+            </TableHead>
             {constructions.map((c) => (
-              <TableHead key={c.id} className="min-w-[120px] whitespace-nowrap">
+              <TableHead
+                key={c.id}
+                className="min-w-[120px] bg-slate-900 font-medium whitespace-nowrap text-white dark:bg-slate-950"
+              >
                 {c.name}
               </TableHead>
             ))}

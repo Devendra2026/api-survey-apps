@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation"
+import { MasterDataHub } from "@/features/master-data/master-data-hub"
 
-export default function MasterDataRedirectPage() {
-  redirect("/configuration/geography")
+export default function MasterDataPage() {
+  return <MasterDataHub />
 }

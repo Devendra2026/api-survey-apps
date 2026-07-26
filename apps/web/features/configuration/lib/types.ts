@@ -109,7 +109,7 @@ export interface TaxPreviewResult {
     penalty: number
     demand: number
   }
-  rates: Record<string, number>
+  rates: Record<string, number> & { annualRate?: number }
   formulas: string[]
 }
 
@@ -123,31 +123,46 @@ export interface TaxConfigVersion {
   createdAt: string
 }
 
-export const CONFIG_NAV = [
-  { href: "/configuration", label: "Overview", match: (p: string) => p === "/configuration" },
+export type ConfigNavMatch = (pathname: string, search?: string) => boolean
+
+function masterTab(search: string | undefined, tab: string): boolean {
+  const params = new URLSearchParams(search ?? "")
+  const current = params.get("tab") ?? "reference"
+  return current === tab
+}
+
+export const CONFIG_NAV: ReadonlyArray<{
+  href: string
+  label: string
+  match: ConfigNavMatch
+}> = [
+  { href: "/configuration", label: "Overview", match: (p) => p === "/configuration" },
   {
-    href: "/configuration/reference",
+    href: "/master-data?tab=reference",
     label: "Reference Data",
-    match: (p: string) => p.startsWith("/configuration/reference"),
+    match: (p, s) =>
+      p.startsWith("/configuration/reference") || (p.startsWith("/master-data") && masterTab(s, "reference")),
   },
   {
-    href: "/configuration/geography",
+    href: "/master-data?tab=tenants",
     label: "Geographic Hierarchy",
-    match: (p: string) => p.startsWith("/configuration/geography") || p.startsWith("/master-data"),
+    match: (p, s) =>
+      p.startsWith("/configuration/geography") || (p.startsWith("/master-data") && masterTab(s, "tenants")),
   },
   {
-    href: "/configuration/tax-engine",
+    href: "/master-data?tab=tax-rates",
     label: "Tax Engine",
-    match: (p: string) => p.startsWith("/configuration/tax-engine"),
+    match: (p, s) =>
+      p.startsWith("/configuration/tax-engine") || (p.startsWith("/master-data") && masterTab(s, "tax-rates")),
   },
   {
     href: "/configuration/demand-rules",
     label: "Demand Rules",
-    match: (p: string) => p.startsWith("/configuration/demand-rules"),
+    match: (p) => p.startsWith("/configuration/demand-rules"),
   },
   {
     href: "/configuration/settings",
     label: "Settings",
-    match: (p: string) => p.startsWith("/configuration/settings"),
+    match: (p) => p.startsWith("/configuration/settings"),
   },
-] as const
+]

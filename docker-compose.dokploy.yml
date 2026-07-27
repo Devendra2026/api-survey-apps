@@ -1,9 +1,13 @@
-# Dokploy production stack — builds from repo Dockerfiles (no ECR required for first launch).
+# Dokploy production stack — builds from repo Dockerfiles (recommended for Swarm).
 # Services: postgres + minio + redis (Docker) + migrate + api + worker + web
 #
-# In Dokploy: point this compose file at the repo, inject .env.production as env,
-# map domains admin.sdvedutech.in → web:3001, backend.sdvedutech.in → api:4000.
-# Host ports: web 3001, api 4000, worker 4001 (open matching EC2 security-group rules).
+# Preferred deployment model: ONE Compose application in Dokploy (this file),
+# OR three separate app services using the Dockerfiles / Railpack configs under apps/*.
+#
+# Domains (example):
+#   admin.sdvedutech.in   → web:3000
+#   backend.sdvedutech.in → api:4000
+# Host publish: web 3001→3000, api 4000, worker 4001
 
 services:
   postgres:
@@ -23,6 +27,11 @@ services:
       start_period: 10s
     networks:
       - app
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 10
 
   redis:
     image: redis:7-alpine
@@ -38,6 +47,11 @@ services:
       start_period: 5s
     networks:
       - app
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 10
 
   minio:
     image: minio/minio:latest
@@ -48,20 +62,26 @@ services:
     volumes:
       - survey_minio_data_prod:/data
     command: ["server", "/data", "--console-address", ":9001"]
+    # minio/minio image does NOT include `mc` — use the built-in health endpoint.
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
       interval: 5s
       timeout: 5s
       retries: 12
       start_period: 10s
     networks:
       - app
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 10
 
   minio-init:
     image: minio/mc:latest
     depends_on:
       minio:
-        condition: service_healthy
+        condition: service_started
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
@@ -70,7 +90,16 @@ services:
       - /bin/sh
       - -c
       - |
-        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        set -e
+        i=0
+        until mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do
+          i=$$((i+1))
+          if [ "$$i" -gt 30 ]; then
+            echo "MinIO not ready after 30 attempts" >&2
+            exit 1
+          fi
+          sleep 2
+        done
         mc mb --ignore-existing "local/$$MINIO_BUCKET"
         mc anonymous set download "local/$$MINIO_BUCKET" || true
     restart: "no"
@@ -123,13 +152,21 @@ services:
     ports:
       - "4000:4000"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/live"]
       interval: 15s
       timeout: 5s
       retries: 12
       start_period: 60s
     networks:
       - app
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 10
+      update_config:
+        order: start-first
+        failure_action: rollback
 
   worker:
     build:
@@ -166,6 +203,14 @@ services:
       start_period: 90s
     networks:
       - app
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 10
+      update_config:
+        order: start-first
+        failure_action: rollback
 
   web:
     build:
@@ -184,18 +229,27 @@ services:
       - ${DOKPLOY_ENV_FILE:-.env.production}
     environment:
       NODE_ENV: production
-      PORT: "3001"
+      PORT: "3000"
       HOSTNAME: "0.0.0.0"
+      NEXT_TELEMETRY_DISABLED: "1"
     ports:
-      - "3001:3001"
+      - "3001:3000"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/healthz"]
       interval: 15s
       timeout: 5s
       retries: 12
       start_period: 40s
     networks:
       - app
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 10
+      update_config:
+        order: start-first
+        failure_action: rollback
 
 networks:
   app:

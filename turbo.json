@@ -1,8 +1,8 @@
 {
   "$schema": "./node_modules/turbo/schema.json",
   "ui": "tui",
-  "globalDependencies": [".env", ".env.development", ".env.production"],
-  "globalEnv": ["APP_URL"],
+  "globalDependencies": [".env", ".env.development", ".env.production", "pnpm-lock.yaml", "turbo.json"],
+  "globalEnv": ["APP_URL", "NODE_ENV"],
   "tasks": {
     "db:generate": {
       "cache": false,
@@ -18,9 +18,15 @@
         "NEXT_PUBLIC_API_URL",
         "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
         "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY",
-        "APP_URL"
+        "APP_URL",
+        "NEXT_TELEMETRY_DISABLED"
       ],
       "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+    },
+    "start": {
+      "dependsOn": ["build"],
+      "cache": false,
+      "persistent": true
     },
     "db:migrate": {
       "cache": false,

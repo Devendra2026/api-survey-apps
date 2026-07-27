@@ -18,6 +18,8 @@ Use root [`docker-compose.dokploy.yml`](../../docker-compose.dokploy.yml):
 - `redis` — BullMQ
 - `migrate` → `api` / `worker` / `web`
 
+Full production / Railpack / Docker checklist: [production-deployment.md](./production-deployment.md)
+
 Env matrix: [dokploy-env.md](./dokploy-env.md)
 
 Go-live: [go-live.md](./go-live.md)

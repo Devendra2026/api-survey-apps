@@ -9,6 +9,7 @@
     "format": "turbo format",
     "typecheck": "turbo typecheck",
     "test": "turbo test",
+    "start": "node ./scripts/deny-root-start.mjs",
     "db:generate": "turbo db:generate",
     "db:migrate": "pnpm --filter @workspace/database db:migrate",
     "db:deploy": "pnpm --filter @workspace/database db:deploy",

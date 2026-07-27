@@ -302,8 +302,13 @@ export function validateEnv(config: Record<string, unknown>) {
 
   if (validated.STORAGE_PROVIDER === StorageProvider.S3) {
     requireValues(validated, ["AWS_REGION", "AWS_S3_BUCKET"], crossFieldErrors, "STORAGE_PROVIDER=s3")
+    // Static keys are optional: production Dokploy EC2 should use the instance role
+    // (AWS SDK default credential provider). If one key is set, both must be set.
     if (Boolean(validated.AWS_ACCESS_KEY_ID) !== Boolean(validated.AWS_SECRET_ACCESS_KEY)) {
-      crossFieldErrors.push("AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be provided together")
+      crossFieldErrors.push(
+        "AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be provided together " +
+          "(or omit both to use the EC2/ECS instance role / default credential chain)"
+      )
     }
   }
 
@@ -311,7 +316,8 @@ export function validateEnv(config: Record<string, unknown>) {
     crossFieldErrors.push(
       "REDIS_URL is required because API queues and readiness checks depend on Redis. " +
         "For local development start Docker Compose and set REDIS_URL=redis://localhost:6379; " +
-        "inside Docker/Dokploy use REDIS_URL=redis://redis:6379."
+        "for AWS ElastiCache use REDIS_URL=rediss://:TOKEN@primary-endpoint:6379; " +
+        "local Compose Redis remains redis://redis:6379 inside Docker."
     )
   }
 

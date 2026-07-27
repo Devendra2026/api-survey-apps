@@ -114,7 +114,5 @@ jobs:
       - name: Build worker Docker image
         run: docker build -f apps/worker/Dockerfile -t api-survey-worker:ci .
 
-      - name: Validate compose files
-        run: |
-          docker compose -f docker-compose.dev.yml config
-          docker compose -f docker-compose.prod.yml config
+      - name: Validate Dokploy compose
+        run: docker compose -f docker-compose.dokploy.yml config

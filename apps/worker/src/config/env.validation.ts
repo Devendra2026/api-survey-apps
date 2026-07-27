@@ -150,7 +150,7 @@ export function validateWorkerEnv(config: Record<string, unknown>) {
     messages.push(
       "REDIS_URL is required because the worker consumes BullMQ jobs. " +
         "For local development start Docker Compose and set REDIS_URL=redis://localhost:6379; " +
-        "inside Docker/Dokploy use REDIS_URL=redis://redis:6379."
+        "for AWS ElastiCache use REDIS_URL=rediss://:TOKEN@primary-endpoint:6379."
     )
   }
 
@@ -165,6 +165,12 @@ export function validateWorkerEnv(config: Record<string, unknown>) {
 
   if (validated.STORAGE_PROVIDER === StorageProvider.S3) {
     requireValues(validated, ["AWS_REGION", "AWS_S3_BUCKET"], messages, "STORAGE_PROVIDER=s3")
+    if (Boolean(validated.AWS_ACCESS_KEY_ID) !== Boolean(validated.AWS_SECRET_ACCESS_KEY)) {
+      messages.push(
+        "AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be provided together " +
+          "(or omit both to use the EC2 instance role / default credential chain)"
+      )
+    }
   }
 
   if (messages.length > 0) {

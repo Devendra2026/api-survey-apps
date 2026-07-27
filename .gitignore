@@ -49,3 +49,15 @@ next-env.d.ts
 
 # pnpm
 .pnpm-store
+
+# terraform
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/crash.log
+**/override.tf
+**/*_override.tf
+infra/terraform/envs/**/terraform.tfvars
+!infra/terraform/envs/**/terraform.tfvars.example
+.terraform.lock.hcl
+

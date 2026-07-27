@@ -65,40 +65,33 @@ docker compose -f docker-compose.dev.yml up --build
 
 ## Scripts
 
-| Command            | Description                   |
-| ------------------ | ----------------------------- |
+| Command            | Description                            |
+| ------------------ | -------------------------------------- |
 | `pnpm dev`         | Start web + API + worker in watch mode |
-| `pnpm build`       | Build all packages and apps   |
-| `pnpm lint`        | Lint via Turbo                |
-| `pnpm typecheck`   | Typecheck via Turbo           |
-| `pnpm format`      | Format via Turbo              |
-| `pnpm db:generate` | Generate Prisma client        |
-| `pnpm db:migrate`  | Run Prisma migrate (dev)      |
-| `pnpm db:deploy`   | Deploy migrations (prod)      |
+| `pnpm build`       | Build all packages and apps            |
+| `pnpm lint`        | Lint via Turbo                         |
+| `pnpm typecheck`   | Typecheck via Turbo                    |
+| `pnpm format`      | Format via Turbo                       |
+| `pnpm db:generate` | Generate Prisma client                 |
+| `pnpm db:migrate`  | Run Prisma migrate (dev)               |
+| `pnpm db:deploy`   | Deploy migrations (prod)               |
 
-## Dokploy
+## Dokploy + AWS production
 
-1. Create a **Docker Compose** application in Dokploy.
-2. Point it at [`docker-compose.dokploy.yml`](docker-compose.dokploy.yml).
-3. Set environment variables / secrets:
-   - `DATABASE_URL` / `DIRECT_URL` (external PostgreSQL)
-   - `REDIS_URL` is provided internally as `redis://redis:6379` by the Dokploy compose stack
-   - `CORS_ORIGIN` (your web domain)
-   - `NEXT_PUBLIC_API_URL` (public API URL used by the browser)
-   - `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
-   - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` if not using an instance/profile credential provider
-   - `AWS_REGION` (default `ap-south-1`)
-   - `AWS_S3_BUCKET` (default `api-survey-app`)
-   - `AWS_S3_PUBLIC_URL` (optional CloudFront / CDN base URL)
-   - `AWS_S3_MAX_FILE_SIZE_BYTES` (optional; default `5242880`)
-4. Map domains:
-   - Web → service `web`, port `3000`
-   - API → service `api`, port `4000`
-5. Deploy. Run migrations as a one-shot release step before rolling API/web/worker.
+Production: **Dokploy** runs web/api/worker + Docker Postgres, MinIO, and Redis.
 
-## AWS S3 (survey photos)
+Go-live steps: [`docs/ops/go-live.md`](docs/ops/go-live.md)
 
-Photo uploads go to S3 bucket `api-survey-app` in `ap-south-1`. Full setup (CloudFormation or console, IAM, env vars): [`docs/aws-s3-setup.md`](docs/aws-s3-setup.md).
+1. Fill `.env.production` (strong `POSTGRES_PASSWORD` + `MINIO_ROOT_PASSWORD`).
+2. Deploy [`docker-compose.dokploy.yml`](docker-compose.dokploy.yml) in Dokploy (builds from Dockerfiles).
+3. Map domains: `admin.sdvedutech.in` → web `:3001`, `backend.sdvedutech.in` → api `:4000` (worker `:4001`).
+4. Open EC2 SG inbound TCP `3001`, `4000`, `4001` (and `80`/`443` for TLS proxy).
+
+Local development remains Compose infra + `pnpm dev` (unchanged).
+
+### Object storage (survey photos)
+
+Use `STORAGE_PROVIDER=minio` in production and local. Objects stay on the MinIO Docker volume; the API issues presigned URLs. The optional `STORAGE_PROVIDER=s3` code path remains for CI/stubs only.
 
 ## Adding UI components
 

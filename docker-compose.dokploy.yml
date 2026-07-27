@@ -1,0 +1,207 @@
+# Dokploy production stack — builds from repo Dockerfiles (no ECR required for first launch).
+# Services: postgres + minio + redis (Docker) + migrate + api + worker + web
+#
+# In Dokploy: point this compose file at the repo, inject .env.production as env,
+# map domains admin.sdvedutech.in → web:3001, backend.sdvedutech.in → api:4000.
+# Host ports: web 3001, api 4000, worker 4001 (open matching EC2 security-group rules).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-survey}
+    volumes:
+      - survey_pg_data_prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-survey}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks:
+      - app
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--bind", "0.0.0.0"]
+    volumes:
+      - survey_redis_data_prod:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - app
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - survey_minio_data_prod:/data
+    command: ["server", "/data", "--console-address", ":9001"]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks:
+      - app
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-api-survey-app}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        mc mb --ignore-existing "local/$$MINIO_BUCKET"
+        mc anonymous set download "local/$$MINIO_BUCKET" || true
+    restart: "no"
+    networks:
+      - app
+
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: ${APP_IMAGE_API:-api-survey-api:prod}
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - ${DOKPLOY_ENV_FILE:-.env.production}
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DIRECT_URL:-${DATABASE_URL}}
+    entrypoint: ["sh", "/app/apps/api/docker-entrypoint.migrate.sh"]
+    networks:
+      - app
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: ${APP_IMAGE_API:-api-survey-api:prod}
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    env_file:
+      - ${DOKPLOY_ENV_FILE:-.env.production}
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      STORAGE_PROVIDER: minio
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: http://minio:9000
+    ports:
+      - "4000:4000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    networks:
+      - app
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    image: ${APP_IMAGE_WORKER:-api-survey-worker:prod}
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    env_file:
+      - ${DOKPLOY_ENV_FILE:-.env.production}
+    environment:
+      NODE_ENV: production
+      WORKER_PORT: "4001"
+      STORAGE_PROVIDER: minio
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: http://minio:9000
+    ports:
+      - "4001:4001"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4001/live"]
+      interval: 20s
+      timeout: 5s
+      retries: 12
+      start_period: 90s
+    networks:
+      - app
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://backend.sdvedutech.in}
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+        NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: ${NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:-}
+    image: ${APP_IMAGE_WEB:-api-survey-web:prod}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    env_file:
+      - ${DOKPLOY_ENV_FILE:-.env.production}
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      HOSTNAME: "0.0.0.0"
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    networks:
+      - app
+
+networks:
+  app:
+    driver: bridge
+
+volumes:
+  survey_pg_data_prod:
+  survey_redis_data_prod:
+  survey_minio_data_prod:

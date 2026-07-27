@@ -146,11 +146,20 @@ services:
     environment:
       NODE_ENV: production
       PORT: "4000"
+      HOSTNAME: "0.0.0.0"
       STORAGE_PROVIDER: minio
       REDIS_URL: redis://redis:6379
       MINIO_ENDPOINT: http://minio:9000
     ports:
       - "4000:4000"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.survey-api.rule=Host(`${API_HOST:-backend.sdvedutech.in}`)
+      - traefik.http.routers.survey-api.entrypoints=websecure
+      - traefik.http.routers.survey-api.tls=true
+      - traefik.http.routers.survey-api.tls.certresolver=letsencrypt
+      - traefik.http.services.survey-api.loadbalancer.server.port=4000
+      - traefik.http.services.survey-api.loadbalancer.healthcheck.path=/live
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/live"]
       interval: 15s
@@ -190,6 +199,7 @@ services:
     environment:
       NODE_ENV: production
       WORKER_PORT: "4001"
+      HOSTNAME: "0.0.0.0"
       STORAGE_PROVIDER: minio
       REDIS_URL: redis://redis:6379
       MINIO_ENDPOINT: http://minio:9000
@@ -234,6 +244,14 @@ services:
       NEXT_TELEMETRY_DISABLED: "1"
     ports:
       - "3001:3000"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.survey-web.rule=Host(`${WEB_HOST:-admin.sdvedutech.in}`)
+      - traefik.http.routers.survey-web.entrypoints=websecure
+      - traefik.http.routers.survey-web.tls=true
+      - traefik.http.routers.survey-web.tls.certresolver=letsencrypt
+      - traefik.http.services.survey-web.loadbalancer.server.port=3000
+      - traefik.http.services.survey-web.loadbalancer.healthcheck.path=/healthz
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/healthz"]
       interval: 15s

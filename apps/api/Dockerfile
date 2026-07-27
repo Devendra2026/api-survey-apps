@@ -57,11 +57,11 @@ RUN chmod +x /app/apps/api/docker-entrypoint.sh /app/apps/api/docker-entrypoint.
   && chown -R nestjs:nodejs /app
 
 EXPOSE 4000
-WORKDIR /app/apps/api
 USER nestjs
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=5 \
   CMD wget -qO- http://127.0.0.1:4000/live || exit 1
 
 ENTRYPOINT ["sh", "/app/apps/api/docker-entrypoint.sh"]
-CMD ["node", "dist/main.js"]
+# Equivalent to: pnpm --filter api start → node dist/main.js
+CMD ["pnpm", "--filter", "api", "start"]

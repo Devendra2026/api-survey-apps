@@ -37,6 +37,8 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
   --mount=type=cache,id=next-cache,target=/app/apps/web/.next/cache \
   pnpm turbo build --filter=web...
 
+# Standalone runner — small image; binds 0.0.0.0 via HOSTNAME/PORT.
+# (pnpm --filter web start ≡ next start; standalone is the Docker-optimized equivalent.)
 FROM node:${NODE_VERSION}-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production

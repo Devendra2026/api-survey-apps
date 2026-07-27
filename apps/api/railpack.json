@@ -13,7 +13,8 @@
     "startCommand": "pnpm --filter api start",
     "variables": {
       "NODE_ENV": "production",
-      "PORT": "4000"
+      "PORT": "4000",
+      "HOSTNAME": "0.0.0.0"
     },
     "aptPackages": ["curl", "wget"]
   }

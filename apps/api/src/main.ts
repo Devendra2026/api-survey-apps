@@ -73,7 +73,9 @@ async function bootstrap() {
 
   // Keep bootstrap generic: environment validation owns fail-fast configuration checks.
   const port = configService.get<number>("PORT") ?? configService.get<number>("APP_PORT") ?? 4000
-  await app.listen(port)
+  // Bind all interfaces so Docker / Swarm / Traefik can reach the container.
+  const host = configService.get<string>("HOSTNAME") ?? "0.0.0.0"
+  await app.listen(port, host)
 }
 
 void bootstrap()

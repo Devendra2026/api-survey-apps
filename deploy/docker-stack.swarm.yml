@@ -1,0 +1,192 @@
+# Docker Swarm stack with Traefik labels (Dokploy-compatible).
+# Prerequisites: Swarm initialized, Traefik on network `traefik-public`, overlay network created:
+#   docker network create --driver=overlay --attachable traefik-public
+#   docker network create --driver=overlay --attachable survey-internal
+#
+# Deploy:
+#   docker stack deploy -c deploy/docker-stack.swarm.yml survey
+#
+# Domains (override via env):
+#   WEB_HOST=admin.sdvedutech.in
+#   API_HOST=backend.sdvedutech.in
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-survey}
+    volumes:
+      - survey_pg_data:/var/lib/postgresql/data
+    networks:
+      - survey-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-survey}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+      placement:
+        constraints:
+          - node.role == manager
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--bind", "0.0.0.0"]
+    volumes:
+      - survey_redis_data:/data
+    networks:
+      - survey-internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  minio:
+    image: minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+    volumes:
+      - survey_minio_data:/data
+    networks:
+      - survey-internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  api:
+    image: ${APP_IMAGE_API:-api-survey-api:prod}
+    env_file:
+      - ${API_ENV_FILE:-deploy/env/api.env}
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      HOSTNAME: "0.0.0.0"
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: http://minio:9000
+      STORAGE_PROVIDER: minio
+    networks:
+      - survey-internal
+      - traefik-public
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 10
+      update_config:
+        order: start-first
+        failure_action: rollback
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=traefik-public
+        - traefik.http.routers.survey-api.rule=Host(`${API_HOST:-backend.sdvedutech.in}`)
+        - traefik.http.routers.survey-api.entrypoints=websecure
+        - traefik.http.routers.survey-api.tls=true
+        - traefik.http.routers.survey-api.tls.certresolver=letsencrypt
+        - traefik.http.services.survey-api.loadbalancer.server.port=4000
+        - traefik.http.services.survey-api.loadbalancer.healthcheck.path=/live
+        - traefik.http.services.survey-api.loadbalancer.healthcheck.interval=15s
+
+  worker:
+    image: ${APP_IMAGE_WORKER:-api-survey-worker:prod}
+    env_file:
+      - ${WORKER_ENV_FILE:-deploy/env/worker.env}
+    environment:
+      NODE_ENV: production
+      WORKER_PORT: "4001"
+      HOSTNAME: "0.0.0.0"
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: http://minio:9000
+      STORAGE_PROVIDER: minio
+    networks:
+      - survey-internal
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4001/live"]
+      interval: 20s
+      timeout: 5s
+      retries: 12
+      start_period: 90s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 10
+      # Not exposed via Traefik — internal BullMQ consumer only
+
+  web:
+    image: ${APP_IMAGE_WEB:-api-survey-web:prod}
+    env_file:
+      - ${WEB_ENV_FILE:-deploy/env/web.env}
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      NEXT_TELEMETRY_DISABLED: "1"
+    networks:
+      - survey-internal
+      - traefik-public
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 10
+      update_config:
+        order: start-first
+        failure_action: rollback
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=traefik-public
+        - traefik.http.routers.survey-web.rule=Host(`${WEB_HOST:-admin.sdvedutech.in}`)
+        - traefik.http.routers.survey-web.entrypoints=websecure
+        - traefik.http.routers.survey-web.tls=true
+        - traefik.http.routers.survey-web.tls.certresolver=letsencrypt
+        - traefik.http.services.survey-web.loadbalancer.server.port=3000
+        - traefik.http.services.survey-web.loadbalancer.healthcheck.path=/healthz
+        - traefik.http.services.survey-web.loadbalancer.healthcheck.interval=15s
+
+networks:
+  survey-internal:
+    driver: overlay
+    attachable: true
+  traefik-public:
+    external: true
+
+volumes:
+  survey_pg_data:
+  survey_redis_data:
+  survey_minio_data:

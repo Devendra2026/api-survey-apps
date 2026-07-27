@@ -38,7 +38,8 @@
     "startCommand": "pnpm --filter worker start",
     "variables": {
       "NODE_ENV": "production",
-      "WORKER_PORT": "4001"
+      "WORKER_PORT": "4001",
+      "HOSTNAME": "0.0.0.0"
     },
     "aptPackages": [
       "curl",

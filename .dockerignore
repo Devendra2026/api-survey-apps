@@ -27,3 +27,6 @@ docker-compose.yml
 docs
 README.md
 AGENTS.md
+deploy/env/*.env
+!deploy/env/*.env.example
+

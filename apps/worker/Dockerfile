@@ -64,10 +64,10 @@ COPY --from=builder --chown=worker:nodejs /root/.cache/ms-playwright /home/worke
 RUN chown -R worker:nodejs /app /home/worker/.cache
 
 EXPOSE 4001
-WORKDIR /app/apps/worker
 USER worker
 
 HEALTHCHECK --interval=20s --timeout=5s --start-period=90s --retries=5 \
   CMD wget -qO- http://127.0.0.1:4001/live || exit 1
 
-CMD ["node", "dist/main.js"]
+# Equivalent to: pnpm --filter worker start → node dist/main.js
+CMD ["pnpm", "--filter", "worker", "start"]

@@ -1,170 +1,165 @@
-# Production deployment — Dokploy + Railpack / Docker
+# Production deployment — Dokploy + Docker Swarm + Traefik
 
-## Inventory
+## Why Traefik returned 502
 
-| Path          | Type            | Role                                  | Port | Long-running |
-| ------------- | --------------- | ------------------------------------- | ---- | ------------ |
-| `apps/api`    | NestJS          | HTTP API + ETL cron registration      | 4000 | Yes          |
-| `apps/web`    | Next.js 16      | Admin UI                              | 3000 | Yes          |
-| `apps/worker` | NestJS + BullMQ | Background jobs / PDF / ETL consumers | 4001 | Yes          |
-| `packages/*`  | Libraries       | Shared code (not deployed alone)      | —    | No           |
+Dokploy / Railpack was starting the **monorepo root**. Root is workspace-only and has **no** `start` script. Previously a refuse-to-start script exited immediately → Swarm showed `0/1` replicas → Traefik had no healthy backend → **502**.
 
-ETL cron is registered **inside the API** process (`ETL_ENABLED` / `ETL_CRON`). There is no separate cron container.
+**Fix:** deploy **three** application images (web / api / worker) via Dockerfiles. Never use the repo root as a runnable service.
 
 ---
 
-## Recommendation: how to deploy
+## Services
 
-**Preferred for Dokploy + Docker Swarm:** deploy the whole stack with
-[`docker-compose.dokploy.yml`](../../docker-compose.dokploy.yml) as **one** Dokploy Compose application.
+| Service | Dockerfile               | Start                                                                    | Port     | Health         | Traefik       |
+| ------- | ------------------------ | ------------------------------------------------------------------------ | -------- | -------------- | ------------- |
+| web     | `apps/web/Dockerfile`    | `node apps/web/server.js` (standalone; equiv. `pnpm --filter web start`) | **3000** | `GET /healthz` | Yes           |
+| api     | `apps/api/Dockerfile`    | `pnpm --filter api start` → `node dist/main.js`                          | **4000** | `GET /live`    | Yes           |
+| worker  | `apps/worker/Dockerfile` | `pnpm --filter worker start` → `node dist/main.js`                       | **4001** | `GET /live`    | No (internal) |
 
-**Alternative:** three separate Dokploy Application services (api / web / worker), each building from its Dockerfile, plus managed or compose-backed Postgres/Redis/MinIO.
-
-Do **not** deploy the monorepo root as a single Railpack app. Root `pnpm start` exits with code **1** on purpose.
-
----
-
-## Railpack configuration
-
-Railpack reads `railpack.json` in the build root.
-
-| Service        | Config file                                                    | When building from repo root                          |
-| -------------- | -------------------------------------------------------------- | ----------------------------------------------------- |
-| API            | [`apps/api/railpack.json`](../../apps/api/railpack.json)       | Set env `RAILPACK_CONFIG_FILE=apps/api/railpack.json` |
-| Web            | [`apps/web/railpack.json`](../../apps/web/railpack.json)       | `RAILPACK_CONFIG_FILE=apps/web/railpack.json`         |
-| Worker         | [`apps/worker/railpack.json`](../../apps/worker/railpack.json) | `RAILPACK_CONFIG_FILE=apps/worker/railpack.json`      |
-| Root (blocked) | [`railpack.json`](../../railpack.json)                         | Refuses to start                                      |
-
-### Per-service Railpack / Dokploy settings
-
-#### API
-
-| Setting                     | Value                                                    |
-| --------------------------- | -------------------------------------------------------- |
-| Builder                     | Dockerfile **or** Railpack                               |
-| Dockerfile                  | `apps/api/Dockerfile`                                    |
-| Context / Working Directory | Repository root `/`                                      |
-| Build Command               | `pnpm turbo build --filter=api...` (after `db:generate`) |
-| Start Command               | `pnpm --filter api start` → `node dist/main.js`          |
-| Port                        | `4000`                                                   |
-| Health Check                | `GET /live` → `http://127.0.0.1:4000/live`               |
-| Restart Policy              | `unless-stopped` / Swarm `on-failure`                    |
-
-Railpack env overrides (if not using config file):
-
-```text
-RAILPACK_NODE_VERSION=22
-RAILPACK_BUILD_CMD=pnpm --filter @workspace/database db:generate && pnpm turbo build --filter=api...
-RAILPACK_START_CMD=pnpm --filter api start
-```
-
-#### Web
-
-| Setting                     | Value                                                                                         |
-| --------------------------- | --------------------------------------------------------------------------------------------- |
-| Builder                     | Dockerfile **or** Railpack                                                                    |
-| Dockerfile                  | `apps/web/Dockerfile`                                                                         |
-| Context / Working Directory | Repository root `/`                                                                           |
-| Build Command               | `pnpm turbo build --filter=web...`                                                            |
-| Build args                  | `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` |
-| Start Command               | `pnpm --filter web start` → `next start`                                                      |
-| Port                        | `3000` (publish host `3001:3000` if desired)                                                  |
-| Health Check                | `GET /healthz` → `http://127.0.0.1:3000/healthz`                                              |
-| Restart Policy              | `unless-stopped` / Swarm `on-failure`                                                         |
-
-```text
-RAILPACK_NODE_VERSION=22
-RAILPACK_BUILD_CMD=pnpm turbo build --filter=web...
-RAILPACK_START_CMD=pnpm --filter web start
-```
-
-#### Worker
-
-| Setting                     | Value                                                         |
-| --------------------------- | ------------------------------------------------------------- |
-| Builder                     | Dockerfile **or** Railpack                                    |
-| Dockerfile                  | `apps/worker/Dockerfile`                                      |
-| Context / Working Directory | Repository root `/`                                           |
-| Build Command               | `pnpm turbo build --filter=worker...` (+ Playwright Chromium) |
-| Start Command               | `pnpm --filter worker start` → `node dist/main.js`            |
-| Port                        | `4001`                                                        |
-| Health Check                | `GET /live` → `http://127.0.0.1:4001/live`                    |
-| Restart Policy              | `unless-stopped` / Swarm `on-failure`                         |
-
-```text
-RAILPACK_NODE_VERSION=22
-RAILPACK_BUILD_CMD=pnpm --filter @workspace/database db:generate && pnpm turbo build --filter=worker... && pnpm --filter worker exec playwright install chromium
-RAILPACK_START_CMD=pnpm --filter worker start
-```
+All bind `HOSTNAME=0.0.0.0`.
 
 ---
 
-## Docker configuration
+## Preferred: Dokploy Compose application
 
-- Multi-stage builds with **pnpm 11.16.0** (matches `packageManager`)
-- BuildKit cache mount for the pnpm store
-- Non-root users (`nestjs` / `nextjs` / `worker`)
-- `HEALTHCHECK` on api, web, worker images
-- Runtime CMD keeps the process in the foreground (`node dist/main.js` / `node apps/web/server.js`)
-- Migrate is a **one-shot** job (`restart: "no"`) — expected to exit 0 after `prisma migrate deploy`
+1. Create one Dokploy **Compose** application.
+2. Compose file: `docker-compose.dokploy.yml`
+3. Inject secrets (see [dokploy-env.md](./dokploy-env.md) or `deploy/env/*.env.example`).
+4. Domains via Dokploy domains **or** Traefik labels already on `web` / `api`:
+   - `admin.sdvedutech.in` → web container port **3000**
+   - `backend.sdvedutech.in` → api container port **4000**
+5. Deploy. Wait for `migrate` → `api` / `worker` / `web` healthy.
+
+### Critical Dokploy settings
+
+| Setting    | Value                                               |
+| ---------- | --------------------------------------------------- |
+| Builder    | **Dockerfile** (not Nixpacks/Railpack on repo root) |
+| Context    | Repository root                                     |
+| Do not set | Root Start Command / `pnpm start`                   |
+
+---
+
+## Alternative: three Dokploy Applications
+
+Create separate apps; each uses its Dockerfile with **build context = repo root**.
+
+### Web
+
+| Field      | Value                                                                                         |
+| ---------- | --------------------------------------------------------------------------------------------- |
+| Dockerfile | `apps/web/Dockerfile`                                                                         |
+| Port       | `3000`                                                                                        |
+| Health     | `/healthz`                                                                                    |
+| Build args | `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` |
+| Env file   | `deploy/env/web.env.example` → secrets                                                        |
+
+### API
+
+| Field      | Value                        |
+| ---------- | ---------------------------- |
+| Dockerfile | `apps/api/Dockerfile`        |
+| Port       | `4000`                       |
+| Health     | `/live`                      |
+| Env file   | `deploy/env/api.env.example` |
+
+### Worker
+
+| Field      | Value                           |
+| ---------- | ------------------------------- |
+| Dockerfile | `apps/worker/Dockerfile`        |
+| Port       | `4001` (no public domain)       |
+| Health     | `/live`                         |
+| Env file   | `deploy/env/worker.env.example` |
+
+Run migrations once before/with API:
 
 ```bash
-# From repo root
-docker build -f apps/api/Dockerfile -t api-survey-api:local .
-docker build -f apps/web/Dockerfile -t api-survey-web:local .
-docker build -f apps/worker/Dockerfile -t api-survey-worker:local .
-
-# Containers must stay running (need real env for api/worker)
-docker run --rm -p 3000:3000 api-survey-web:local
+docker run --rm --env-file api.env \
+  --entrypoint sh api-survey-api:prod \
+  /app/apps/api/docker-entrypoint.migrate.sh
 ```
 
 ---
 
-## Local production script validation
+## Railpack (only if not using Dockerfiles)
+
+Do **not** build the monorepo root. Per service set:
+
+```text
+# Root directory = repository root
+RAILPACK_CONFIG_FILE=apps/api/railpack.json   # or apps/web / apps/worker
+```
+
+Start commands in those files:
+
+- `pnpm --filter api start`
+- `pnpm --filter web start`
+- `pnpm --filter worker start`
+
+---
+
+## Docker Swarm + Traefik
+
+```bash
+docker network create --driver=overlay --attachable traefik-public
+docker build -f apps/api/Dockerfile -t api-survey-api:prod .
+docker build -f apps/web/Dockerfile -t api-survey-web:prod \
+  --build-arg NEXT_PUBLIC_API_URL=https://backend.sdvedutech.in \
+  --build-arg NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_live_... .
+docker build -f apps/worker/Dockerfile -t api-survey-worker:prod .
+
+cp deploy/env/api.env.example deploy/env/api.env   # fill secrets
+cp deploy/env/web.env.example deploy/env/web.env
+cp deploy/env/worker.env.example deploy/env/worker.env
+
+docker stack deploy -c deploy/docker-stack.swarm.yml survey
+```
+
+Traefik must share `traefik-public`. Labels route:
+
+- Host(`admin…`) → `web:3000` health `/healthz`
+- Host(`backend…`) → `api:4000` health `/live`
+
+---
+
+## Local production commands
 
 ```bash
 pnpm install
 pnpm build
 
-# Each app (requires env — see dokploy-env.md)
-pnpm --filter api start
-pnpm --filter web start
-pnpm --filter worker start
-
-# Must fail (exit 1) — never start production from root
-pnpm start
+pnpm --filter api start      # :4000
+pnpm --filter web start      # :3000
+pnpm --filter worker start   # :4001
 ```
 
----
-
-## Exit-code / “container died immediately” checklist
-
-| Risk                                                      | Status                                   |
-| --------------------------------------------------------- | ---------------------------------------- |
-| Root `pnpm start` as production CMD                       | Fixed — exits **1** with message         |
-| API `start` was `nest start` (needs CLI / wrong for prod) | Fixed — `node dist/main.js`              |
-| Worker missing `start` script                             | Fixed — `node dist/main.js`              |
-| MinIO healthcheck used `mc` inside `minio/minio`          | Fixed — `/minio/health/live`             |
-| Web healthcheck hit `/` (auth/UI)                         | Fixed — `/healthz`                       |
-| Web PORT 3001 inside container mismatch                   | Fixed — listen **3000**, map `3001:3000` |
-| `process.exit(0)` on SIGTERM                              | Intentional graceful shutdown only       |
-| `migrate` exits 0                                         | Intentional one-shot job                 |
+Root has **no** `start` script — only workspace/build tooling.
 
 ---
 
-## Production checklist (Dokploy)
+## Health endpoints
 
-1. [ ] Provision host with Docker Swarm / Dokploy
-2. [ ] Create Compose application pointing at this repo + `docker-compose.dokploy.yml`
-3. [ ] Inject all secrets from [dokploy-env.md](./dokploy-env.md) (no `REPLACE_ME` placeholders)
-4. [ ] Confirm `DATABASE_URL` / `DIRECT_URL` point at compose service `postgres`
-5. [ ] Confirm `REDIS_URL=redis://redis:6379`
-6. [ ] Confirm `STORAGE_PROVIDER=minio` and MinIO credentials
-7. [ ] Set Clerk + `CORS_ORIGIN` / `APP_URL` / `NEXT_PUBLIC_*` to production domains
-8. [ ] Build & deploy; wait for `migrate` success then `api` / `worker` / `web` healthy
-9. [ ] Probe: `api/live`, `worker/live`, `web/healthz`
-10. [ ] Map domains to published ports; verify TLS at the proxy
-11. [ ] Confirm worker does not exit (BullMQ consumers + HTTP `/live`)
-12. [ ] Optional: ECR + [release.yml](../../.github/workflows/release.yml) for image promotion
+| Service | Liveness           | Readiness                   |
+| ------- | ------------------ | --------------------------- |
+| api     | `/live`, `/health` | `/ready` (DB/Redis/storage) |
+| worker  | `/live`            | `/ready` (Redis)            |
+| web     | `/healthz`         | same (no upstream deps)     |
 
-Env matrix: [dokploy-env.md](./dokploy-env.md) · Runbook: [dokploy-runbook.md](./dokploy-runbook.md)
+---
+
+## Image size / optimization
+
+- Multi-stage builds, Node 22, pnpm 11.16, BuildKit cache mounts
+- Web: Next.js `output: "standalone"`
+- Non-root users + `HEALTHCHECK` in every app image
+- Worker: Debian slim + Playwright Chromium (larger by design)
+
+---
+
+## Env templates
+
+- [`deploy/env/api.env.example`](../../deploy/env/api.env.example)
+- [`deploy/env/web.env.example`](../../deploy/env/web.env.example)
+- [`deploy/env/worker.env.example`](../../deploy/env/worker.env.example)
+- Matrix: [dokploy-env.md](./dokploy-env.md)

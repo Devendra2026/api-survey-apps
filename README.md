@@ -1,102 +1,103 @@
 # API Survey Apps
 
-Turborepo monorepo with a Next.js web app, NestJS API, shared packages, Docker, and Dokploy-ready Compose.
+Turborepo monorepo: Next.js web, NestJS API, BullMQ worker, shared packages — production-ready for **Dokploy**, **Docker Swarm**, and **Traefik**.
 
 ## Stack
 
-- **Apps:** `apps/web` (Next.js), `apps/api` (NestJS)
-- **Packages:** `@workspace/ui`, `@workspace/database`, `@workspace/validation`, shared ESLint/TypeScript configs
-- **Tooling:** pnpm workspaces, Turborepo, ESLint, Prettier, Husky, GitHub Actions
+| Path          | Role                                        |
+| ------------- | ------------------------------------------- |
+| `apps/web`    | Next.js 16 admin UI (port **3000**)         |
+| `apps/api`    | NestJS HTTP API (port **4000**)             |
+| `apps/worker` | BullMQ / PDF / ETL consumer (port **4001**) |
+| `packages/*`  | Shared libraries (not deployed alone)       |
+
+The **repository root** only manages the workspace (`pnpm install`, `pnpm build`, DB scripts). It does **not** start application processes.
 
 ## Prerequisites
 
 - Node.js 22.12+
-- pnpm 10.33.4 (`corepack enable`)
-- Docker Desktop (for Postgres / full Compose)
+- pnpm 11.16 (`corepack enable`)
+- Docker (for Postgres / Redis / MinIO and production images)
 
 ## Quick start (local)
 
 ```bash
-# 1. Install
 pnpm install
-
-# 2. Env
-cp .env.development.example .env.development
-# keep real Clerk keys or local overrides in `.env.local`
-
-# 3. Start local infrastructure (PostgreSQL, Redis, MinIO, Mailpit)
-docker compose up -d
-
-# 4. Migrate
+cp .env.development.example .env.development   # if present; or create root .env
+docker compose up -d                           # Postgres, Redis, MinIO, Mailpit
 pnpm db:migrate
-
-# 5. Run API + Web + Worker
-pnpm dev
+pnpm dev                                       # api + web + worker
 ```
 
 - Web: http://localhost:3000
-- API health: http://localhost:4000/health
-- API ready (DB/Redis/Storage): http://localhost:4000/ready
+- API live: http://localhost:4000/live
+- Worker live: http://localhost:4001/live
 
-## Environment
+## Production deployment (Dokploy)
 
-One file at the repo root drives everything:
+**Do not** deploy the monorepo root as a single Nixpacks/Railpack app. That caused Swarm `0/1` replicas and Traefik **502**.
 
-| Consumer       | How it loads                                               |
-| -------------- | ---------------------------------------------------------- |
-| Nest API       | `ConfigModule` → `/.env.local`, `/.env.<NODE_ENV>`, `.env` |
-| Worker         | `ConfigModule` → `/.env.local`, `/.env.<NODE_ENV>`, `.env` |
-| Next.js        | `loadEnvConfig(monorepoRoot)` in `apps/web/next.config.ts` |
-| Prisma         | `packages/database/load-root-env.ts`                       |
-| Docker Compose | auto-reads root `/.env`                                    |
+### Recommended: one Compose application
 
-```bash
-cp .env.development.example .env.development
-```
+1. Dokploy → new Compose application
+2. File: [`docker-compose.dokploy.yml`](docker-compose.dokploy.yml)
+3. Env: see [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md) and [`deploy/env/*.env.example`](deploy/env/)
+4. Domains (Traefik labels included):
+   - `admin.sdvedutech.in` → **web:3000**
+   - `backend.sdvedutech.in` → **api:4000**
+5. Builder must use each service’s **Dockerfile** (compose `build.dockerfile` paths)
 
-Optional local overrides: `.env.local` (gitignored; wins over `.env`). Do not put secrets in `apps/*/.env*` anymore.
+Full guide: [`docs/ops/production-deployment.md`](docs/ops/production-deployment.md)
 
-## Full Docker stack
+### Per-service Dockerfiles
 
 ```bash
-cp .env.example .env
-docker compose -f docker-compose.dev.yml up --build
+docker build -f apps/api/Dockerfile -t api-survey-api:prod .
+docker build -f apps/worker/Dockerfile -t api-survey-worker:prod .
+docker build -f apps/web/Dockerfile -t api-survey-web:prod \
+  --build-arg NEXT_PUBLIC_API_URL=https://backend.sdvedutech.in \
+  --build-arg NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_live_... .
 ```
+
+| Service | Start inside image                     | Health     |
+| ------- | -------------------------------------- | ---------- |
+| api     | `pnpm --filter api start`              | `/live`    |
+| worker  | `pnpm --filter worker start`           | `/live`    |
+| web     | `node apps/web/server.js` (standalone) | `/healthz` |
+
+All listen on `0.0.0.0`.
+
+### Docker Swarm + Traefik
+
+```bash
+docker network create --driver=overlay --attachable traefik-public
+docker stack deploy -c deploy/docker-stack.swarm.yml survey
+```
+
+See [`deploy/docker-stack.swarm.yml`](deploy/docker-stack.swarm.yml).
 
 ## Scripts
 
-| Command            | Description                            |
-| ------------------ | -------------------------------------- |
-| `pnpm dev`         | Start web + API + worker in watch mode |
-| `pnpm build`       | Build all packages and apps            |
-| `pnpm lint`        | Lint via Turbo                         |
-| `pnpm typecheck`   | Typecheck via Turbo                    |
-| `pnpm format`      | Format via Turbo                       |
-| `pnpm db:generate` | Generate Prisma client                 |
-| `pnpm db:migrate`  | Run Prisma migrate (dev)               |
-| `pnpm db:deploy`   | Deploy migrations (prod)               |
+| Command                      | Description                    |
+| ---------------------------- | ------------------------------ |
+| `pnpm dev`                   | Watch mode: web + api + worker |
+| `pnpm build`                 | Turbo build all packages/apps  |
+| `pnpm --filter api start`    | Production API                 |
+| `pnpm --filter web start`    | Production Next.js             |
+| `pnpm --filter worker start` | Production worker              |
+| `pnpm db:deploy`             | Prisma migrate deploy          |
 
-## Dokploy + AWS production
+## Environment
 
-Production: **Dokploy** runs web/api/worker + Docker Postgres, MinIO, and Redis.
+Root env files drive Nest, Prisma, and Compose. Per-service production templates:
 
-Go-live steps: [`docs/ops/go-live.md`](docs/ops/go-live.md)
+- `deploy/env/api.env.example`
+- `deploy/env/web.env.example`
+- `deploy/env/worker.env.example`
 
-1. Fill `.env.production` (strong `POSTGRES_PASSWORD` + `MINIO_ROOT_PASSWORD`).
-2. Deploy [`docker-compose.dokploy.yml`](docker-compose.dokploy.yml) in Dokploy (builds from Dockerfiles).
-3. Map domains: `admin.sdvedutech.in` → web `:3001`, `backend.sdvedutech.in` → api `:4000` (worker `:4001`).
-4. Open EC2 SG inbound TCP `3001`, `4000`, `4001` (and `80`/`443` for TLS proxy).
+## Ops docs
 
-Local development remains Compose infra + `pnpm dev` (unchanged).
-
-### Object storage (survey photos)
-
-Use `STORAGE_PROVIDER=minio` in production and local. Objects stay on the MinIO Docker volume; the API issues presigned URLs. The optional `STORAGE_PROVIDER=s3` code path remains for CI/stubs only.
-
-## Adding UI components
-
-```bash
-pnpm dlx shadcn@latest add button -c apps/web
-```
-
-Import from `@workspace/ui/components/...`.
+- [Production / Dokploy / Traefik](docs/ops/production-deployment.md)
+- [Dokploy runbook](docs/ops/dokploy-runbook.md)
+- [Env matrix](docs/ops/dokploy-env.md)
+- [Go-live](docs/ops/go-live.md)

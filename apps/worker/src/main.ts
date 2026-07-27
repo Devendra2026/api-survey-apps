@@ -28,8 +28,9 @@ async function bootstrap() {
     void shutdown("SIGINT")
   })
 
-  await app.listen(port)
-  logger.log(`Worker listening on ${port}`)
+  const host = configService.get<string>("HOSTNAME") ?? "0.0.0.0"
+  await app.listen(port, host)
+  logger.log(`Worker listening on ${host}:${port}`)
 }
 
 void bootstrap()

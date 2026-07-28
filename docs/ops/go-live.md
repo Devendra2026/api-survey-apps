@@ -15,27 +15,12 @@
    Runtime: Clerk, `NEXT_PUBLIC_*`, `CORS_ORIGIN` / `APP_URL` (host `postgres` in DB URLs).
 
 2. **DNS + TLS in Dokploy**
-   - `admin.sdvedutech.in` → service `web` container port **3000** (host map is `3001→3000`)
+   - `admin.sdvedutech.in` → service `web` container port **3000**
    - `backend.sdvedutech.in` → service `api` container port **4000**
-   - Worker listens on `4001` (internal; open SG if you need direct access)
+   - Worker listens on `4001` and remains internal
    - Clerk allowed origins / redirect URLs include `https://admin.sdvedutech.in`
 
-3. **EC2 security group** — allow inbound TCP `3001`, `4000`, `4001` (plus `80`/`443` for the proxy):
-
-```powershell
-# Configure AWS credentials first, then:
-.\scripts\ops\open-dokploy-ports.ps1
-```
-
-Or manually:
-
-```bash
-aws ec2 authorize-security-group-ingress --group-id sg-XXXXXXXX --protocol tcp --port 3001 --cidr 0.0.0.0/0 --region ap-south-1
-aws ec2 authorize-security-group-ingress --group-id sg-XXXXXXXX --protocol tcp --port 4000 --cidr 0.0.0.0/0 --region ap-south-1
-aws ec2 authorize-security-group-ingress --group-id sg-XXXXXXXX --protocol tcp --port 4001 --cidr 0.0.0.0/0 --region ap-south-1
-```
-
-(Previous Dokploy host SG was `sg-02d37ca2cd71ed334` on `13.127.204.141`.)
+3. **EC2 security group** — expose only TCP `80`/`443` for Traefik. Do not allow public inbound access to application ports `3001`, `4000`, or `4001`.
 
 ## Dokploy deploy steps
 

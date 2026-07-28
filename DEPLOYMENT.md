@@ -75,7 +75,7 @@ There is **intentionally no root `Dockerfile`**. Do not create a single multi-pr
 | Compose file  | `docker-compose.dokploy.yml`                                                                          |
 | Build context | repository root (`.`)                                                                                 |
 | Dockerfiles   | Per service only: `apps/web/Dockerfile`, `apps/api/Dockerfile`, `apps/worker/Dockerfile`              |
-| Ports         | web `3001→3000`, api `4000`, worker `4001`                                                            |
+| Ports         | Traefik-only: web `3000`, api `4000`; worker `4001` remains internal                                  |
 | Health        | web `/healthz`, api/worker `/live`                                                                    |
 | Metrics       | api/worker `/metrics` (optional scrape; see [`docs/ops/observability.md`](docs/ops/observability.md)) |
 | Infra images  | Postgres **17**, Redis **8**, MinIO (pinned RELEASE)                                                  |
@@ -88,7 +88,7 @@ There is **intentionally no root `Dockerfile`**. Do not create a single multi-pr
    **Interpolation-required (no defaults):** `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `DATABASE_URL`.
    Also set Clerk keys and `NEXT_PUBLIC_*` — see [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md).
 6. Domains: `admin.sdvedutech.in` → web:**3000**; `backend.sdvedutech.in` → api:**4000** (Traefik container ports).
-7. Host ports (direct access / SG): web `3001→3000`, api `4000`, worker `4001`.
+7. Traefik is the only ingress. Compose publishes no application ports on the host; worker `4001` stays internal.
 8. Health: web `/healthz`, api/worker `/live`.
 9. Deploy: migrate → api / worker / web healthy.
 

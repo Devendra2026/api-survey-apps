@@ -94,7 +94,7 @@ NODE_ENV=production
 
 Compose attaches `web`/`api` to external `dokploy-network` so Traefik can reach them. Prefer Domains in the Dokploy UI (redeploy after adding). Do not set Environment `PORT=3001` for web.
 
-Use container ports for Traefik/Dokploy domains (not host publish `3001`).
+Traefik is the only ingress. Compose does not publish `web`, `api`, or `worker` ports on the host. Use the container ports above for Traefik/Dokploy domains; keep the worker internal.
 
 ## 4. What Compose builds
 

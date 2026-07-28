@@ -20,7 +20,7 @@ Use root [`docker-compose.dokploy.yml`](../../docker-compose.dokploy.yml):
 
 Primary guide: [`DEPLOYMENT.md`](../../DEPLOYMENT.md). Ops checklist: [production-deployment.md](./production-deployment.md).
 
-**Important:** Never deploy the monorepo root as a runnable Dokploy/Nixpacks service. Prefer `docker-compose.dokploy.yml` + Dockerfiles under `apps/*/`. Alternative: three Applications with `NIXPACKS_CONFIG_FILE=apps/<api|web|worker>/nixpacks.toml`. Root has no application `start` script; root `nixpacks.toml` fails fast.
+**Important:** Never deploy the monorepo root as a runnable Dokploy/Nixpacks service. Prefer `docker-compose.dokploy.yml` + Dockerfiles under `apps/*/`. Inject secrets via Dokploy Environment UI (`.env.production` optional). Alternative: three Applications with `NIXPACKS_CONFIG_FILE=apps/<api|web|worker>/nixpacks.toml`. Root has no application `start` script; root `nixpacks.toml` fails fast.
 
 Env matrix: [dokploy-env.md](./dokploy-env.md)
 

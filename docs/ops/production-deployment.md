@@ -24,7 +24,7 @@ All bind `HOSTNAME=0.0.0.0`.
 
 1. Create one Dokploy **Compose** application.
 2. Compose file: `docker-compose.dokploy.yml`
-3. Inject secrets (see [dokploy-env.md](./dokploy-env.md) or `deploy/env/*.env.example`).
+3. Inject secrets via Dokploy **Environment** UI (see [dokploy-env.md](./dokploy-env.md) or `deploy/env/*.env.example`). On-disk `.env.production` is optional.
 4. Domains via Dokploy domains **or** Traefik labels already on `web` / `api`:
    - `admin.sdvedutech.in` → web container port **3000**
    - `backend.sdvedutech.in` → api container port **4000**

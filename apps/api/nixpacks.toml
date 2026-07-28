@@ -1,5 +1,9 @@
 # Nixpacks config for apps/api — use with build context = repository root:
 #   NIXPACKS_CONFIG_FILE=apps/api/nixpacks.toml
+#
+# Migrations are NOT run here. Before/with first deploy:
+#   pnpm --filter @workspace/database db:deploy
+# or the Compose migrate service / api image migrate entrypoint.
 
 providers = ["node"]
 
@@ -18,7 +22,8 @@ DIRECT_URL = "postgresql://postgres:postgres@localhost:5432/survey?schema=public
 aptPkgs = ["...", "curl", "wget"]
 
 [phases.install]
-cmds = ["pnpm install --frozen-lockfile"]
+# --prod=false: keep turbo, typescript, @nestjs/cli available for build.
+cmds = ["pnpm install --frozen-lockfile --prod=false"]
 
 [phases.build]
 # Explicit override (no "...") so Nixpacks does not also run a root-wide turbo build.

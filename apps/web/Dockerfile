@@ -19,6 +19,7 @@ RUN turbo prune web --docker
 
 FROM base AS deps
 ENV CI=true
+ENV HUSKY=0
 # out/json includes package.json files, pnpm-lock.yaml, pnpm-workspace.yaml
 COPY --from=prepare /app/out/json/ .
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
@@ -29,6 +30,7 @@ ARG NEXT_PUBLIC_API_URL=http://localhost:4000
 ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
 ARG NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=
 ENV CI=true
+ENV HUSKY=0
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV DATABASE_URL=postgresql://postgres:postgres@localhost:5432/survey?schema=public

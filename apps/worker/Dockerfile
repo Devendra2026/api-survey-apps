@@ -21,6 +21,7 @@ RUN turbo prune worker --docker
 
 FROM base AS deps
 ENV CI=true
+ENV HUSKY=0
 # out/json includes package.json files, pnpm-lock.yaml, pnpm-workspace.yaml
 COPY --from=prepare /app/out/json/ .
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
@@ -28,6 +29,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
 
 FROM deps AS builder
 ENV CI=true
+ENV HUSKY=0
 ENV NODE_ENV=production
 ENV DATABASE_URL=postgresql://postgres:postgres@localhost:5432/survey?schema=public
 ENV DIRECT_URL=postgresql://postgres:postgres@localhost:5432/survey?schema=public

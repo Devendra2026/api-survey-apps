@@ -23,7 +23,7 @@ The **repository root** only manages the workspace (`pnpm install`, `pnpm build`
 
 ```bash
 pnpm install
-cp .env.development.example .env.development   # if present; or create root .env
+cp .env.example .env.development
 docker compose up -d                           # Postgres, Redis, MinIO, Mailpit
 pnpm db:migrate
 pnpm dev                                       # api + web + worker
@@ -35,7 +35,7 @@ pnpm dev                                       # api + web + worker
 
 ## Production deployment (Dokploy)
 
-**Full guide:** [`DEPLOYMENT.md`](DEPLOYMENT.md)
+**Full guide:** [`DEPLOYMENT.md`](DEPLOYMENT.md) — start with **Dokploy in 60 seconds**.
 
 **Do not** deploy the monorepo root as a single Nixpacks app. That caused Swarm `0/1` replicas and Traefik **502**. Root `nixpacks.toml` fails fast; use Compose or `NIXPACKS_CONFIG_FILE=apps/<app>/nixpacks.toml`.
 
@@ -43,7 +43,7 @@ pnpm dev                                       # api + web + worker
 
 1. Dokploy → new Compose application
 2. File: [`docker-compose.dokploy.yml`](docker-compose.dokploy.yml)
-3. Env: see [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md) and [`deploy/env/*.env.example`](deploy/env/)
+3. Env: paste into Dokploy **Environment** UI (see [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md) and [`deploy/env/*.env.example`](deploy/env/)). No on-disk `.env.production` required.
 4. Domains (Traefik labels included):
    - `admin.sdvedutech.in` → **web:3000**
    - `backend.sdvedutech.in` → **api:4000**
@@ -51,7 +51,7 @@ pnpm dev                                       # api + web + worker
 
 ### Path 2: three Nixpacks applications
 
-Build context = repo root; set `NIXPACKS_CONFIG_FILE=apps/web|api|worker/nixpacks.toml` per app.
+Build context = repo root; set `NIXPACKS_CONFIG_FILE=apps/web|api|worker/nixpacks.toml` per app. Run migrations separately (`pnpm --filter @workspace/database db:deploy`).
 
 Ops detail: [`docs/ops/production-deployment.md`](docs/ops/production-deployment.md)
 
@@ -95,8 +95,7 @@ See [`deploy/docker-stack.swarm.yml`](deploy/docker-stack.swarm.yml).
 
 ## Environment
 
-Root env files drive Nest, Prisma, and Compose. Per-service production templates:
-
+- [`.env.example`](.env.example) — copy to `.env.development` for local work
 - `deploy/env/api.env.example`
 - `deploy/env/web.env.example`
 - `deploy/env/worker.env.example`

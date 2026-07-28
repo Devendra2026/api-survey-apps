@@ -2,6 +2,18 @@
 
 Turborepo + pnpm monorepo for **API Survey Apps**. The repository root manages the workspace only — it is **not** a deployable application process.
 
+## Dokploy in 60 seconds
+
+| If you want…                                 | Do this                                                                                                                                                                                                                                                |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Full stack (Postgres + Redis + MinIO + apps) | Dokploy **Compose** app → file [`docker-compose.dokploy.yml`](docker-compose.dokploy.yml). Paste secrets in Dokploy **Environment** (no `.env.production` file required).                                                                              |
+| Three separate app services                  | Create **three** Applications. Build context = **repo root**. Set `NIXPACKS_CONFIG_FILE=apps/web/nixpacks.toml` (or `api` / `worker`). Provide Postgres/Redis/MinIO separately. Run migrations once (see [Nixpacks migrations](#nixpacks-migrations)). |
+| “One Nixpacks app on the repo root”          | **Do not.** Root [`nixpacks.toml`](nixpacks.toml) exits on purpose. That mistake previously left Swarm at `0/1` and Traefik **502**.                                                                                                                   |
+
+Node **22** (engines `>=22.12`), pnpm **10.33.4** (`packageManager`), turbo **2.10.5**.
+
+---
+
 ## Project structure
 
 | Path                         | Role                                                                                                 |
@@ -15,6 +27,8 @@ Turborepo + pnpm monorepo for **API Survey Apps**. The repository root manages t
 | `apps/*/Dockerfile`          | Multi-stage production images (`turbo prune --docker`)                                               |
 | `apps/*/nixpacks.toml`       | Per-app Nixpacks configs                                                                             |
 | `nixpacks.toml` (root)       | **Fail-fast** — do not deploy root with Nixpacks                                                     |
+| `.env.example`               | Local / Compose reference template (committed)                                                       |
+| `deploy/env/*.env.example`   | Per-service production templates                                                                     |
 
 ### Workspace scripts (apps)
 
@@ -28,6 +42,8 @@ Every deployable app has:
 
 Root: `pnpm build` → `turbo build`, `pnpm dev` → filtered turbo. **No** root `start`.
 
+**Web runtime note:** Docker uses Next.js **standalone** (`node apps/web/server.js`). Nixpacks uses `pnpm --filter web start` (`next start`) after a full workspace install. Both are supported.
+
 ---
 
 ## Local development
@@ -35,6 +51,7 @@ Root: `pnpm build` → `turbo build`, `pnpm dev` → filtered turbo. **No** root
 ```bash
 # Prerequisites: Node.js 22.12+, pnpm 10.33.4 (corepack enable), Docker
 pnpm install
+cp .env.example .env.development
 docker compose up -d          # Postgres, Redis, MinIO, Mailpit
 pnpm db:migrate
 pnpm dev                      # api + web + worker
@@ -47,12 +64,8 @@ pnpm dev                      # api + web + worker
 Verify a fresh clone:
 
 ```bash
-pnpm install
-pnpm turbo build
-# or filtered:
-pnpm turbo build --filter=web...
-pnpm turbo build --filter=api...
-pnpm turbo build --filter=worker...
+pnpm install --frozen-lockfile
+pnpm turbo build --filter=web... --filter=api... --filter=worker...
 ```
 
 ---
@@ -74,7 +87,7 @@ Detailed ops: [`docs/ops/production-deployment.md`](docs/ops/production-deployme
 
 1. Create a **Compose** application in Dokploy.
 2. Compose file: [`docker-compose.dokploy.yml`](docker-compose.dokploy.yml).
-3. Inject secrets (see [Required environment variables](#required-environment-variables) and [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md)).
+3. Inject secrets in Dokploy **Environment** UI (primary). An on-disk `.env.production` / `DOKPLOY_ENV_FILE` is **optional** (`env_file.required: false`).
 4. Domains (Traefik labels included):
    - `admin.sdvedutech.in` → **web:3000**
    - `backend.sdvedutech.in` → **api:4000**
@@ -86,7 +99,7 @@ Detailed ops: [`docs/ops/production-deployment.md`](docs/ops/production-deployme
 | ------------------ | ------------------------ | -------------------------------- |
 | postgres           | `postgres:16-alpine`     | Volume `survey_pg_data_prod`     |
 | redis              | `redis:7-alpine`         | BullMQ                           |
-| minio + minio-init | MinIO                    | Object storage bucket            |
+| minio + minio-init | MinIO (pinned RELEASE)   | Object storage bucket            |
 | migrate            | `apps/api/Dockerfile`    | One-shot `prisma migrate deploy` |
 | api                | `apps/api/Dockerfile`    | Port 4000                        |
 | worker             | `apps/worker/Dockerfile` | Port 4001 (internal)             |
@@ -115,20 +128,27 @@ Create **three** Applications. For each:
 
 ### What each Nixpacks build runs
 
-- **Install:** `pnpm install --frozen-lockfile` (Node 22, pnpm from `packageManager`)
+- **Install:** `pnpm install --frozen-lockfile --prod=false` (keeps turbo / TypeScript / Nest CLI under `NODE_ENV=production`)
 - **web build:** `pnpm turbo build --filter=web...`
 - **api build:** `pnpm --filter @workspace/database db:generate` then `pnpm turbo build --filter=api...`
-- **worker build:** generate + `pnpm turbo build --filter=worker...` + Playwright Chromium
+- **worker build:** generate + `pnpm turbo build --filter=worker...` + `playwright install --with-deps chromium`
 
 For **web**, set `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, and optional `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` as Dokploy **build-time** env vars (they are inlined into the client bundle).
 
-Provide Postgres, Redis, and object storage separately when not using Compose (or point env at managed services). Run migrations before/with API:
+Provide Postgres, Redis, and object storage separately when not using Compose (or point env at managed services).
+
+### Nixpacks migrations
+
+Compose runs migrations via the `migrate` service. Nixpacks does **not**. Before or with the first API deploy:
 
 ```bash
+# From a machine with DATABASE_URL / DIRECT_URL pointing at production Postgres:
 pnpm --filter @workspace/database db:deploy
-# or via api image:
-# docker run --rm --env-file api.env --entrypoint sh api-survey-api:prod \
-#   /app/apps/api/docker-entrypoint.migrate.sh
+
+# Or via the api production image:
+docker run --rm --env-file deploy/env/api.env \
+  --entrypoint sh api-survey-api:prod \
+  /app/apps/api/docker-entrypoint.migrate.sh
 ```
 
 ---
@@ -159,16 +179,17 @@ See [`deploy/docker-stack.swarm.yml`](deploy/docker-stack.swarm.yml).
 ### Image design
 
 - Multi-stage: `prepare` (turbo prune) → `deps` (pnpm install) → `builder` → slim `runner`
-- Node **22**, pnpm **10.33.4** via corepack
+- Node **22**, pnpm **10.33.4** via corepack; `HUSKY=0` in deps/builder
 - Web: Next.js `output: "standalone"`
 - api/worker: production `dist` + workspace packages; non-root users; `HEALTHCHECK`
 - Worker: Debian slim + Playwright Chromium deps
+- `prisma` CLI is a **runtime dependency** of `@workspace/database` so migrate works even with prod installs
 
 ---
 
 ## Required environment variables
 
-Full matrix: [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md). Templates: [`deploy/env/`](deploy/env/).
+Full matrix: [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md). Templates: [`.env.example`](.env.example), [`deploy/env/`](deploy/env/).
 
 ### Always required (production)
 
@@ -203,6 +224,7 @@ Full matrix: [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md). Templates: [`
 | Build fails: `Do not deploy the monorepo root with Nixpacks` | Dokploy using root Nixpacks               | Switch to Compose **or** set `NIXPACKS_CONFIG_FILE=apps/<app>/nixpacks.toml` |
 | Traefik **502**, Swarm `0/1`                                 | Root / wrong start; no healthy process    | Deploy per-app images; check `/live` or `/healthz`                           |
 | Prisma generate fails at build                               | Missing/invalid `DATABASE_URL`            | Dummy URL is set in Docker/Nixpacks; ensure config file is used              |
+| `prisma: not found` on migrate                               | Old image without prisma in dependencies  | Rebuild api image after `@workspace/database` lists `prisma` in dependencies |
 | Web missing Clerk/API URL in browser                         | `NEXT_PUBLIC_*` not set at **build** time | Rebuild web with build args / Nixpacks env                                   |
 | Worker PDF/Chromium fails                                    | Playwright browsers missing               | Worker Dockerfile/Nixpacks installs Chromium; check image rebuild            |
 | Workspace package not found                                  | Install not from repo root                | Always build with context = monorepo root                                    |
@@ -214,14 +236,16 @@ Full matrix: [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md). Templates: [`
 
 - [x] Root has no app `start` (workspace tooling only)
 - [x] Root Nixpacks fails fast without override (`nixpacks.toml` build/`start` exit 1)
-- [x] `pnpm install` succeeds
+- [x] Compose `env_file` is optional (`required: false`) for Dokploy UI secrets
+- [x] Nixpacks install uses `--prod=false`; worker uses `playwright install --with-deps`
+- [x] `prisma` is a dependency of `@workspace/database` (migrate-safe)
+- [x] `pnpm install --frozen-lockfile` succeeds
 - [x] `pnpm turbo build --filter=web... --filter=api... --filter=worker...` succeeds
 - [x] Workspace packages resolve (`@workspace/*` via turbo graph)
 - [x] `docker compose -f docker-compose.dokploy.yml config` validates
-- [x] `turbo prune <app> --docker` produces `out/json` + `out/full` (incl. api entrypoints)
-- [ ] `docker build -f apps/web/Dockerfile .` (requires Docker daemon)
-- [ ] `docker build -f apps/api/Dockerfile .` (requires Docker daemon)
-- [ ] `docker build -f apps/worker/Dockerfile .` (requires Docker daemon)
+- [x] `docker build -f apps/web/Dockerfile .` → `api-survey-web:prod`
+- [x] `docker build -f apps/api/Dockerfile .` → `api-survey-api:prod`
+- [x] `docker build -f apps/worker/Dockerfile .` → `api-survey-worker:prod`
 - [ ] Dokploy Compose deploys healthy migrate → api/worker/web
 - [ ] Dokploy Nixpacks per app with `NIXPACKS_CONFIG_FILE` works
 

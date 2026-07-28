@@ -40,14 +40,15 @@ aptPkgs = [
 ]
 
 [phases.install]
-cmds = ["pnpm install --frozen-lockfile"]
+# --prod=false: keep turbo, typescript, @nestjs/cli available for build.
+cmds = ["pnpm install --frozen-lockfile --prod=false"]
 
 [phases.build]
 # Explicit override (no "...") so Nixpacks does not also run a root-wide turbo build.
 cmds = [
   "pnpm --filter @workspace/database db:generate",
   "pnpm turbo build --filter=worker...",
-  "pnpm --filter worker exec playwright install chromium",
+  "pnpm --filter worker exec playwright install --with-deps chromium",
 ]
 
 [start]

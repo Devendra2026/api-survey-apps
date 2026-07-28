@@ -2,6 +2,7 @@
 #   NIXPACKS_CONFIG_FILE=apps/web/nixpacks.toml
 #
 # Set NEXT_PUBLIC_* in Dokploy env at BUILD time (baked into the Next.js client bundle).
+# Runtime uses `next start` (full install). Docker path uses Next standalone instead.
 
 providers = ["node"]
 
@@ -18,7 +19,8 @@ NEXT_TELEMETRY_DISABLED = "1"
 aptPkgs = ["...", "curl", "wget"]
 
 [phases.install]
-cmds = ["pnpm install --frozen-lockfile"]
+# --prod=false: pnpm would otherwise skip turbo/typescript under NODE_ENV=production.
+cmds = ["pnpm install --frozen-lockfile --prod=false"]
 
 [phases.build]
 # Explicit override (no "...") so Nixpacks does not also run a root-wide turbo build.

@@ -1,6 +1,6 @@
 # API Survey Apps
 
-Turborepo monorepo: Next.js web, NestJS API, BullMQ worker, shared packages — production-ready for **Dokploy**, **Docker Swarm**, and **Traefik**.
+Turborepo monorepo: Next.js web, NestJS API, BullMQ worker, shared packages — production-ready for **Dokploy** (Docker Compose), **Docker Swarm**, and **Traefik**.
 
 ## Stack
 
@@ -15,8 +15,8 @@ The **repository root** only manages the workspace (`pnpm install`, `pnpm build`
 
 ## Prerequisites
 
-- Node.js 22.12+
-- pnpm 10.33.4 (`corepack enable`)
+- Node.js 24+
+- pnpm 11.17.0 (`corepack enable`)
 - Docker (for Postgres / Redis / MinIO and production images)
 
 ## Quick start (local)
@@ -35,23 +35,20 @@ pnpm dev                                       # api + web + worker
 
 ## Production deployment (Dokploy)
 
-**Full guide:** [`DEPLOYMENT.md`](DEPLOYMENT.md) — start with **Dokploy in 60 seconds**.
+**Full guide:** [`DEPLOYMENT.md`](DEPLOYMENT.md).
 
-**Do not** deploy the monorepo root as a single Nixpacks app. That caused Swarm `0/1` replicas and Traefik **502**. Root `nixpacks.toml` fails fast; use Compose or `NIXPACKS_CONFIG_FILE=apps/<app>/nixpacks.toml`.
+**Docker Compose only** ([`docker-compose.dokploy.yml`](docker-compose.dokploy.yml)). Nixpacks is not used.
 
-### Path 1: one Compose application
+### One Compose application
 
 1. Dokploy → new Compose application
 2. File: [`docker-compose.dokploy.yml`](docker-compose.dokploy.yml)
-3. Env: paste into Dokploy **Environment** UI (see [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md) and [`deploy/env/*.env.example`](deploy/env/)). No on-disk `.env.production` required.
-4. Domains (Traefik labels included):
+3. Build context = repository root
+4. Env: paste into Dokploy **Environment** UI (see [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md) and [`deploy/env/*.env.example`](deploy/env/)). No on-disk `.env.production` required.
+5. Domains (Traefik labels included):
    - `admin.sdvedutech.in` → **web:3000**
    - `backend.sdvedutech.in` → **api:4000**
-5. Builder must use each service’s **Dockerfile** (compose `build.dockerfile` paths; images use `turbo prune`)
-
-### Path 2: three Nixpacks applications
-
-Build context = repo root; set `NIXPACKS_CONFIG_FILE=apps/web|api|worker/nixpacks.toml` per app. Run migrations separately (`pnpm --filter @workspace/database db:deploy`).
+6. Each service builds from its **Dockerfile** (`turbo prune --docker`)
 
 Ops detail: [`docs/ops/production-deployment.md`](docs/ops/production-deployment.md)
 
@@ -67,8 +64,8 @@ docker build -f apps/web/Dockerfile -t api-survey-web:prod \
 
 | Service | Start inside image                     | Health     |
 | ------- | -------------------------------------- | ---------- |
-| api     | `pnpm --filter api start`              | `/live`    |
-| worker  | `pnpm --filter worker start`           | `/live`    |
+| api     | `node apps/api/dist/main.js`           | `/live`    |
+| worker  | `node apps/worker/dist/main.js`        | `/live`    |
 | web     | `node apps/web/server.js` (standalone) | `/healthz` |
 
 All listen on `0.0.0.0`.
@@ -102,7 +99,7 @@ See [`deploy/docker-stack.swarm.yml`](deploy/docker-stack.swarm.yml).
 
 ## Ops docs
 
-- [**DEPLOYMENT.md**](DEPLOYMENT.md) — structure, local, Dokploy, Nixpacks, Docker, env, troubleshooting
+- [**DEPLOYMENT.md**](DEPLOYMENT.md) — structure, local, Dokploy Compose, Docker, env, troubleshooting
 - [Production / Dokploy / Traefik](docs/ops/production-deployment.md)
 - [Dokploy runbook](docs/ops/dokploy-runbook.md)
 - [Env matrix](docs/ops/dokploy-env.md)

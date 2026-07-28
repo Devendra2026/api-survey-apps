@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
-ARG NODE_VERSION=22
-ARG PNPM_VERSION=10.33.4
+ARG NODE_VERSION=24
+ARG PNPM_VERSION=11.17.0
 ARG TURBO_VERSION=2.10.5
 
 FROM node:${NODE_VERSION}-alpine AS base
@@ -43,7 +43,6 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
   pnpm turbo build --filter=web...
 
 # Standalone runner — small image; binds 0.0.0.0 via HOSTNAME/PORT.
-# (pnpm --filter web start ≡ next start; standalone is the Docker-optimized equivalent.)
 FROM node:${NODE_VERSION}-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production

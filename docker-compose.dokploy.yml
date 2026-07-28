@@ -1,11 +1,10 @@
 # Dokploy production stack — builds from repo Dockerfiles (turbo prune --docker).
 # Services: postgres + minio + redis (Docker) + migrate + api + worker + web
 #
-# Equally supported: ONE Compose application in Dokploy (this file),
-# OR three separate Nixpacks apps with NIXPACKS_CONFIG_FILE=apps/<web|api|worker>/nixpacks.toml.
+# Deploy as ONE Compose application in Dokploy (this file). Docker only — no Nixpacks.
 # Secrets: inject via Dokploy Environment UI (primary). Optional DOKPLOY_ENV_FILE / .env.production
 # is loaded only when the file exists (env_file.required=false).
-# See DEPLOYMENT.md. Never deploy monorepo root as a Nixpacks service.
+# See DEPLOYMENT.md.
 #
 # Domains (example):
 #   admin.sdvedutech.in   → web:3000

@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
-ARG NODE_VERSION=22
-ARG PNPM_VERSION=10.33.4
+ARG NODE_VERSION=24
+ARG PNPM_VERSION=11.17.0
 ARG TURBO_VERSION=2.10.5
 
 FROM node:${NODE_VERSION}-alpine AS base
@@ -38,28 +38,24 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
   && pnpm turbo build --filter=api...
 
 FROM node:${NODE_VERSION}-alpine AS runner
-ARG PNPM_VERSION=10.33.4
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=4000
 ENV HOSTNAME=0.0.0.0
 
 RUN apk add --no-cache curl wget \
-  && corepack enable \
-  && corepack prepare pnpm@${PNPM_VERSION} --activate \
   && addgroup --system --gid 1001 nodejs \
   && adduser --system --uid 1001 nestjs
 
-COPY --from=builder /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
-COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder --chown=nestjs:nodejs /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
+COPY --from=builder --chown=nestjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/package.json ./apps/api/
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/dist ./apps/api/dist
 COPY --from=builder --chown=nestjs:nodejs /app/packages ./packages
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/docker-entrypoint.sh /app/apps/api/docker-entrypoint.sh
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/docker-entrypoint.migrate.sh /app/apps/api/docker-entrypoint.migrate.sh
-RUN chmod +x /app/apps/api/docker-entrypoint.sh /app/apps/api/docker-entrypoint.migrate.sh \
-  && chown -R nestjs:nodejs /app
+RUN chmod +x /app/apps/api/docker-entrypoint.sh /app/apps/api/docker-entrypoint.migrate.sh
 
 EXPOSE 4000
 USER nestjs
@@ -68,5 +64,4 @@ HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=5 \
   CMD wget -qO- http://127.0.0.1:4000/live || exit 1
 
 ENTRYPOINT ["sh", "/app/apps/api/docker-entrypoint.sh"]
-# Equivalent to: pnpm --filter api start → node dist/main.js
-CMD ["pnpm", "--filter", "api", "start"]
+CMD ["node", "apps/api/dist/main.js"]

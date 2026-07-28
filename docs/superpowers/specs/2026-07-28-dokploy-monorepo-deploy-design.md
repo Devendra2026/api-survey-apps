@@ -1,11 +1,13 @@
 # Dokploy Turborepo Deployment Hardening — Design
 
 **Date:** 2026-07-28  
-**Status:** Approved for implementation
+**Status:** Superseded by [`2026-07-28-docker-dokploy-nixpacks-removal-design.md`](./2026-07-28-docker-dokploy-nixpacks-removal-design.md)
+
+> **Superseded:** Nixpacks was removed. Production is Docker + Dokploy Compose only. Keep this file for historical context; do not follow Nixpacks instructions below.
 
 ## Problem
 
-Dokploy / Nixpacks builds the monorepo root. Root [`nixpacks.toml`](../../../nixpacks.toml) intentionally fails with:
+Dokploy / Nixpacks builds the monorepo root. Root `nixpacks.toml` intentionally fails with:
 
 > ERROR: Do not deploy the monorepo root with Nixpacks.
 

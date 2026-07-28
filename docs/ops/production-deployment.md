@@ -1,20 +1,20 @@
 # Production deployment — Dokploy + Docker Swarm + Traefik
 
-## Why Traefik returned 502
+## Why Traefik returned 502 (historical)
 
-Dokploy / Nixpacks (or Railpack) was starting the **monorepo root**. Root is workspace-only and has **no** app `start` script. Nixpacks detects Turborepo and runs `turbo run start`, which leaves no healthy process → Swarm `0/1` replicas → Traefik **502**.
+Starting the **monorepo root** as a single application fails: root is workspace-only and has **no** app `start` script, so no healthy process remains → Swarm `0/1` replicas → Traefik **502**.
 
-**Fix:** deploy **three** application images (web / api / worker) via Dockerfiles (preferred) or per-app Nixpacks configs. Never use the repo root as a runnable service. Root [`nixpacks.toml`](../../nixpacks.toml) fails fast if misconfigured.
+**Fix:** deploy via **Docker Compose** ([`docker-compose.dokploy.yml`](../../docker-compose.dokploy.yml)) or three application images (web / api / worker) built from Dockerfiles. Never run the monorepo root as one undifferentiated process. See [`DEPLOYMENT.md`](../../DEPLOYMENT.md).
 
 ---
 
 ## Services
 
-| Service | Dockerfile               | Start                                                                    | Port     | Health         | Traefik       |
-| ------- | ------------------------ | ------------------------------------------------------------------------ | -------- | -------------- | ------------- |
-| web     | `apps/web/Dockerfile`    | `node apps/web/server.js` (standalone; equiv. `pnpm --filter web start`) | **3000** | `GET /healthz` | Yes           |
-| api     | `apps/api/Dockerfile`    | `pnpm --filter api start` → `node dist/main.js`                          | **4000** | `GET /live`    | Yes           |
-| worker  | `apps/worker/Dockerfile` | `pnpm --filter worker start` → `node dist/main.js`                       | **4001** | `GET /live`    | No (internal) |
+| Service | Dockerfile               | Start                           | Port     | Health         | Traefik       |
+| ------- | ------------------------ | ------------------------------- | -------- | -------------- | ------------- |
+| web     | `apps/web/Dockerfile`    | `node apps/web/server.js`       | **3000** | `GET /healthz` | Yes           |
+| api     | `apps/api/Dockerfile`    | `node apps/api/dist/main.js`    | **4000** | `GET /live`    | Yes           |
+| worker  | `apps/worker/Dockerfile` | `node apps/worker/dist/main.js` | **4001** | `GET /live`    | No (internal) |
 
 All bind `HOSTNAME=0.0.0.0`.
 
@@ -32,11 +32,11 @@ All bind `HOSTNAME=0.0.0.0`.
 
 ### Critical Dokploy settings
 
-| Setting    | Value                                      |
-| ---------- | ------------------------------------------ |
-| Builder    | **Dockerfile** (not Nixpacks on repo root) |
-| Context    | Repository root                            |
-| Do not set | Root Start Command / `pnpm start`          |
+| Setting    | Value                             |
+| ---------- | --------------------------------- |
+| Builder    | **Dockerfile** (Compose services) |
+| Context    | Repository root                   |
+| Do not set | Root Start Command / `pnpm start` |
 
 ---
 
@@ -79,26 +79,6 @@ docker run --rm --env-file api.env \
   --entrypoint sh api-survey-api:prod \
   /app/apps/api/docker-entrypoint.migrate.sh
 ```
-
----
-
-## Nixpacks (alternative when not using Dockerfiles)
-
-Preferred path remains Compose + Dockerfiles above. For three separate Dokploy **Applications** with Nixpacks builder:
-
-Do **not** build the monorepo root without a config file. Per service set build context = **repository root** and:
-
-```text
-NIXPACKS_CONFIG_FILE=apps/api/nixpacks.toml   # or apps/web / apps/worker
-```
-
-| App    | Config                      | Start                        | Port |
-| ------ | --------------------------- | ---------------------------- | ---- |
-| api    | `apps/api/nixpacks.toml`    | `pnpm --filter api start`    | 4000 |
-| web    | `apps/web/nixpacks.toml`    | `pnpm --filter web start`    | 3000 |
-| worker | `apps/worker/nixpacks.toml` | `pnpm --filter worker start` | 4001 |
-
-Root [`nixpacks.toml`](../../nixpacks.toml) exits with an error if someone deploys the repo without `NIXPACKS_CONFIG_FILE`.
 
 ---
 
@@ -153,8 +133,9 @@ Root has **no** `start` script — only workspace/build tooling.
 
 ## Image size / optimization
 
-- Multi-stage builds with `turbo prune <app> --docker`, Node 22, pnpm 10.33.4, BuildKit cache mounts
+- Multi-stage builds with `turbo prune <app> --docker`, Node 24, pnpm 11.17.0, BuildKit cache mounts
 - Web: Next.js `output: "standalone"`
+- API/worker runners: `node …/dist/main.js` (no pnpm in final image)
 - Non-root users + `HEALTHCHECK` in every app image
 - Worker: Debian slim + Playwright Chromium (larger by design)
 - See also root [`DEPLOYMENT.md`](../../DEPLOYMENT.md)

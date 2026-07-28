@@ -20,7 +20,7 @@ Use root [`docker-compose.dokploy.yml`](../../docker-compose.dokploy.yml) as a *
 - Build context: repository root
 - Per-service Dockerfiles: `apps/{web,api,worker}/Dockerfile` (`turbo prune --docker`)
 - Services: `postgres`, `redis`, `minio`, `minio-init`, `migrate`, `api`, `worker`, `web`
-- Startup: `minio-init` waits for MinIO **healthy** (no `connection refused` spam); `migrate` is a one-shot with healthcheck disabled (`No pending migrations to apply.` is success)
+- Startup: `minio-init` waits for MinIO **healthy** (no `connection refused` spam); `migrate` is a one-shot with healthcheck disabled (`No pending migrations to apply.` is success; also runs **catalog seed** unless `SKIP_DB_SEED=true`)
 - Domains (Traefik labels): `admin.sdvedutech.in` → web:**3000**; `backend.sdvedutech.in` → api:**4000**
 
 If Dokploy errors with `open Dockerfile: no such file or directory`, the app is the wrong type — see [dokploy-compose-setup.md](./dokploy-compose-setup.md) § “If you see this error”.

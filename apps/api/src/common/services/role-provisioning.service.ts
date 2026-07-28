@@ -4,7 +4,8 @@ import { PrismaService } from "../../prisma/prisma.service.js"
 
 /**
  * Bootstraps the first real ADMIN when a Clerk user has no tenant roles
- * and their clerkUserId is listed in BOOTSTRAP_ADMIN_CLERK_USER_IDS.
+ * (or only PENDING_APPROVAL) and their clerkUserId is listed in
+ * BOOTSTRAP_ADMIN_CLERK_USER_IDS.
  * Otherwise assigns PENDING_APPROVAL so new signups wait for Admin approval.
  */
 @Injectable()
@@ -22,14 +23,6 @@ export class RoleProvisioningService {
       return false
     }
 
-    const existing = await this.prisma.db.userTenantRole.findFirst({
-      where: { userId, isActive: true },
-      select: { id: true },
-    })
-    if (existing) {
-      return false
-    }
-
     const adminRole = await this.prisma.db.role.findUnique({
       where: { name: "ADMIN" },
       select: { id: true },
@@ -37,6 +30,27 @@ export class RoleProvisioningService {
     if (!adminRole) {
       this.logger.error("ADMIN role not found — run db seed before using bootstrap")
       return false
+    }
+
+    const existing = await this.prisma.db.userTenantRole.findMany({
+      where: { userId, isActive: true },
+      select: {
+        id: true,
+        role: { select: { name: true } },
+      },
+    })
+
+    if (existing.some((row) => row.role.name === "ADMIN")) {
+      return true
+    }
+
+    // Promote out of PENDING_APPROVAL (or any non-admin) so Refresh profile works
+    // after BOOTSTRAP_ADMIN_CLERK_USER_IDS is set post-signup.
+    for (const row of existing) {
+      await this.prisma.db.userTenantRole.update({
+        where: { id: row.id },
+        data: { isActive: false },
+      })
     }
 
     await this.prisma.db.userTenantRole.create({
@@ -97,11 +111,15 @@ export class RoleProvisioningService {
 
   private parseBootstrapIds(): Set<string> {
     const raw = this.configService.get<string>("BOOTSTRAP_ADMIN_CLERK_USER_IDS") ?? ""
-    return new Set(
+    const ids = new Set(
       raw
         .split(",")
         .map((id) => id.trim())
         .filter(Boolean)
     )
+    if (ids.size === 0 && raw.length > 0) {
+      this.logger.warn("BOOTSTRAP_ADMIN_CLERK_USER_IDS is set but parsed to empty — check for whitespace-only values")
+    }
+    return ids
   }
 }

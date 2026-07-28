@@ -42,9 +42,19 @@ aws ec2 authorize-security-group-ingress --group-id sg-XXXXXXXX --protocol tcp -
 0. **App type must be Docker Compose** — if you see `open Dockerfile: no such file`, follow [`dokploy-compose-setup.md`](./dokploy-compose-setup.md). Do **not** add a root Dockerfile.
 1. Paste [`deploy/env/dokploy.compose.env.example`](../../deploy/env/dokploy.compose.env.example) into Dokploy **Environment** (replace all `REPLACE_ME_*`). Missing `MINIO_ROOT_USER` / `POSTGRES_PASSWORD` / etc. fails compose interpolation before start.
 2. Confirm `DATABASE_URL` host is `postgres` (not localhost). Deploy Compose file `docker-compose.dokploy.yml`, context = repo root.
-3. Wait for `postgres` / `minio` / `redis` healthy, `migrate` success, then `api` `/health` + `/ready`, then `web`.
-4. Open `https://admin.sdvedutech.in` and sign in with Clerk.
-5. Optional: set `BOOTSTRAP_ADMIN_CLERK_USER_IDS` to your Clerk user id, redeploy once.
+3. Wait for `postgres` / `minio` / `redis` healthy, `migrate` success (migrate also runs **catalog seed**: roles, permissions, reference catalogs, sample Etah geo), then `api` `/health` + `/ready`, then `web`.
+4. Set `BOOTSTRAP_ADMIN_CLERK_USER_IDS` to your Clerk user id (`user_…` from Clerk Dashboard → Users) **before or right after** first sign-in, then redeploy/restart **api**.
+5. Open `https://admin.sdvedutech.in`, sign in, and click **Refresh profile** if you still see Pending User.
+
+### First admin stuck on “Pending User”
+
+Chicken-and-egg: without bootstrap, the first signup gets `PENDING_APPROVAL` (0 permissions). Fix:
+
+1. Copy your Clerk user id into Dokploy env: `BOOTSTRAP_ADMIN_CLERK_USER_IDS=user_xxxxx`
+2. Redeploy so **api** picks up the env (and **migrate** re-runs catalog seed if the image includes the seed entrypoint).
+3. Click **Refresh profile** on the Pending User screen — bootstrap now promotes `PENDING_APPROVAL` → `ADMIN`.
+
+Optional: `SKIP_DB_SEED=true` skips catalog seed on migrate; `SEED_DEMO=true` also seeds demo users/surveys (not for production).
 
 ## Smoke test
 

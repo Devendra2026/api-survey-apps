@@ -74,6 +74,16 @@ async function bootstrap() {
   }
 
   // Keep bootstrap generic: environment validation owns fail-fast configuration checks.
+  const bootstrapAdmins = (configService.get<string>("BOOTSTRAP_ADMIN_CLERK_USER_IDS") ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean)
+  if (bootstrapAdmins.length > 0) {
+    console.log(`BOOTSTRAP_ADMIN_CLERK_USER_IDS configured (${bootstrapAdmins.length} id(s))`)
+  } else {
+    console.warn("BOOTSTRAP_ADMIN_CLERK_USER_IDS is empty — first Clerk signup will stay Pending User")
+  }
+
   const port = configService.get<number>("PORT") ?? configService.get<number>("APP_PORT") ?? 4000
   // Bind all interfaces so Docker / Swarm / Traefik can reach the container.
   const host = configService.get<string>("HOSTNAME") ?? "0.0.0.0"

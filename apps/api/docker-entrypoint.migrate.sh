@@ -51,6 +51,53 @@ find_prisma() {
   return 1
 }
 
+find_tsx() {
+  for candidate in \
+    /app/node_modules/.bin/tsx \
+    /app/node_modules/tsx/dist/cli.mjs \
+    /app/packages/database/node_modules/.bin/tsx \
+    /app/packages/database/node_modules/tsx/dist/cli.mjs
+  do
+    if [ -x "$candidate" ] || [ -f "$candidate" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+
+  found="$(find /app/node_modules -path '*/tsx/dist/cli.mjs' -type f 2>/dev/null | head -n 1)"
+  if [ -n "$found" ]; then
+    echo "$found"
+    return 0
+  fi
+
+  return 1
+}
+
+run_prisma() {
+  PRISMA_BIN="$1"
+  shift
+  case "$PRISMA_BIN" in
+    *.js)
+      node "$PRISMA_BIN" "$@"
+      ;;
+    *)
+      "$PRISMA_BIN" "$@"
+      ;;
+  esac
+}
+
+run_seed() {
+  TSX_BIN="$1"
+  case "$TSX_BIN" in
+    *.mjs)
+      node "$TSX_BIN" prisma/seed.ts
+      ;;
+    *)
+      "$TSX_BIN" prisma/seed.ts
+      ;;
+  esac
+}
+
 PRISMA_BIN="$(find_prisma)" || {
   echo "Prisma CLI not found under node_modules" >&2
   exit 1
@@ -59,12 +106,22 @@ PRISMA_BIN="$(find_prisma)" || {
 # Idempotent: applies pending migrations or exits 0 with "No pending migrations to apply."
 # This one-shot job is the only production migrate path (api/worker do not run migrate).
 echo "Running prisma migrate deploy (idempotent)..."
+run_prisma "$PRISMA_BIN" migrate deploy
 
-case "$PRISMA_BIN" in
-  *.js)
-    exec node "$PRISMA_BIN" migrate deploy
-    ;;
-  *)
-    exec "$PRISMA_BIN" migrate deploy
-    ;;
-esac
+# Catalog seed (roles, permissions, reference catalogs, sample geo) — idempotent upserts.
+# Demo users/surveys stay off in production unless SEED_DEMO=true.
+if [ "${SKIP_DB_SEED:-false}" = "true" ]; then
+  echo "Skipping catalog seed (SKIP_DB_SEED=true)"
+  exit 0
+fi
+
+export SEED_DEMO="${SEED_DEMO:-false}"
+echo "Running catalog seed (idempotent; SEED_DEMO=$SEED_DEMO)..."
+
+TSX_BIN="$(find_tsx)" || {
+  echo "tsx not found under node_modules — cannot run catalog seed. Rebuild the api image or set SKIP_DB_SEED=true temporarily." >&2
+  exit 1
+}
+
+run_seed "$TSX_BIN"
+echo "Catalog seed complete."

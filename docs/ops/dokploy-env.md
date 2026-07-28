@@ -99,11 +99,13 @@ Use a URL-safe `REDIS_PASSWORD` (avoid `@`, `:`, `/`).
 
 ## Optional (recommended)
 
-| Variable                          | Notes                       |
-| --------------------------------- | --------------------------- |
-| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | Web build arg; maps UI      |
-| `WEB_HOST` / `API_HOST`           | Override Traefik Host rules |
-| `BOOTSTRAP_ADMIN_CLERK_USER_IDS`  | One-shot admin bootstrap    |
+| Variable                          | Notes                                                                                |
+| --------------------------------- | ------------------------------------------------------------------------------------ |
+| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | Web build arg; maps UI                                                               |
+| `WEB_HOST` / `API_HOST`           | Override Traefik Host rules                                                          |
+| `BOOTSTRAP_ADMIN_CLERK_USER_IDS`  | Clerk `user_…` ids (comma-separated). Promotes first admin (incl. from Pending User) |
+| `SKIP_DB_SEED`                    | `true` to skip catalog seed on migrate (default runs seed)                           |
+| `SEED_DEMO`                       | `true` seeds demo users/surveys — keep `false` in production                         |
 
 ## Optional compose image vars (ECR)
 

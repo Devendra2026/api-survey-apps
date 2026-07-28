@@ -16,6 +16,7 @@
     "db:migrate": "pnpm --filter @workspace/database db:migrate",
     "db:deploy": "pnpm --filter @workspace/database db:deploy",
     "db:seed": "pnpm --filter @workspace/database db:seed",
+    "admin:promote": "pnpm --filter api promote-admin",
     "verify:dev": "node scripts/verify-dev.mjs",
     "verify:google-maps-key": "node ./scripts/verify-google-maps-key.mjs",
     "etl:run": "node ./scripts/etl-run.mjs",

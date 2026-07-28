@@ -87,10 +87,12 @@ NODE_ENV=production
 
 ## 3. Domains
 
-| Host                    | Service | Container port |
-| ----------------------- | ------- | -------------- |
-| `admin.sdvedutech.in`   | `web`   | **3000**       |
-| `backend.sdvedutech.in` | `api`   | **4000**       |
+| Host                    | Service | Container port | Dokploy Domains tip                          |
+| ----------------------- | ------- | -------------- | -------------------------------------------- |
+| `admin.sdvedutech.in`   | `web`   | **3000**       | Service `web`, port **3000** (not host 3001) |
+| `backend.sdvedutech.in` | `api`   | **4000**       | Service `api`, port **4000**                 |
+
+Compose attaches `web`/`api` to external `dokploy-network` so Traefik can reach them. Prefer Domains in the Dokploy UI (redeploy after adding). Do not set Environment `PORT=3001` for web.
 
 Use container ports for Traefik/Dokploy domains (not host publish `3001`).
 

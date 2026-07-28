@@ -185,6 +185,7 @@ services:
       - "4000:4000"
     labels:
       - traefik.enable=true
+      - traefik.docker.network=dokploy-network
       - traefik.http.routers.survey-api.rule=Host(`${API_HOST:-backend.sdvedutech.in}`)
       - traefik.http.routers.survey-api.entrypoints=websecure
       - traefik.http.routers.survey-api.tls=true
@@ -199,6 +200,7 @@ services:
       start_period: 60s
     networks:
       - app
+      - dokploy-network
     deploy:
       restart_policy:
         condition: on-failure
@@ -282,13 +284,17 @@ services:
         required: false
     environment:
       NODE_ENV: production
+      # Next must listen on 3000 inside the container (Traefik + healthcheck).
+      # Never set PORT=3001 here — that yields Traefik "no available server".
       PORT: "3000"
       HOSTNAME: "0.0.0.0"
       NEXT_TELEMETRY_DISABLED: "1"
+    # Avoid host :3000 (Dokploy UI often binds it). Traefik uses container port 3000.
     ports:
-      - "3000:3000"
+      - "3001:3000"
     labels:
       - traefik.enable=true
+      - traefik.docker.network=dokploy-network
       - traefik.http.routers.survey-web.rule=Host(`${WEB_HOST:-admin.sdvedutech.in}`)
       - traefik.http.routers.survey-web.entrypoints=websecure
       - traefik.http.routers.survey-web.tls=true
@@ -303,6 +309,7 @@ services:
       start_period: 40s
     networks:
       - app
+      - dokploy-network
     deploy:
       restart_policy:
         condition: on-failure
@@ -315,6 +322,9 @@ services:
 networks:
   app:
     driver: bridge
+  # Dokploy Traefik reaches services only on this external network.
+  dokploy-network:
+    external: true
 
 volumes:
   survey_pg_data_prod:

@@ -29,6 +29,15 @@ STORAGE_PROVIDER=minio   # or s3
 
 6. Admin role has `etl:manage` permission (seeded)
 
+## UI (production)
+
+With `etl:manage` and Convex env configured on api + worker:
+
+1. **Master Data → Tenants & Wards** — **Sync from Convex** runs `POST /etl/incremental-sync` (safe default). Status badge polls while a job is active. Link **ETL console** opens the full page.
+2. **Administration → ETL Sync** (`/admin/etl`) — Incremental, Full (confirm), Retry failed, Validate, job history, and report drill-down.
+
+CLI below remains available for ops/scripts.
+
 ## Local run command
 
 With Docker (Postgres/Redis/MinIO) up and `pnpm dev` (api + worker):

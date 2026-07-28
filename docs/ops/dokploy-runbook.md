@@ -18,9 +18,9 @@ Use root [`docker-compose.dokploy.yml`](../../docker-compose.dokploy.yml):
 - `redis` — BullMQ
 - `migrate` → `api` / `worker` / `web`
 
-Full production / Railpack / Docker / Traefik checklist: [production-deployment.md](./production-deployment.md)
+Full production / Nixpacks / Docker / Traefik checklist: [production-deployment.md](./production-deployment.md)
 
-**Important:** Never deploy the monorepo root as a runnable Dokploy/Railpack service. Use `docker-compose.dokploy.yml` or the three Dockerfiles under `apps/*/`. Root has no application `start` script.
+**Important:** Never deploy the monorepo root as a runnable Dokploy/Nixpacks service. Prefer `docker-compose.dokploy.yml` + Dockerfiles under `apps/*/`. Alternative: three Applications with `NIXPACKS_CONFIG_FILE=apps/<api|web|worker>/nixpacks.toml`. Root has no application `start` script; root `nixpacks.toml` fails fast.
 
 Env matrix: [dokploy-env.md](./dokploy-env.md)
 

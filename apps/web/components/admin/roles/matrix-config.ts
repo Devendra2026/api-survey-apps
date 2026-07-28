@@ -201,6 +201,15 @@ export const MATRIX_MODULES: MatrixModuleDef[] = [
     },
   },
   {
+    id: "etl",
+    label: "ETL Sync",
+    description: "Convex → Postgres / MinIO migration control plane",
+    icon: "upload",
+    cells: {
+      manage: "etl:manage",
+    },
+  },
+  {
     id: "master",
     label: "Configuration",
     description: "Reference catalogs, geography, and tax engine",

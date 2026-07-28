@@ -56,3 +56,14 @@ curl -fsSI https://admin.sdvedutech.in/
 - Rotate Clerk / Maps keys that were shared earlier.
 - Optional: switch images to ECR via release workflow.
 - Schedule volume backups ([backup-restore.md](./backup-restore.md)).
+
+## ETL (Convex → Postgres / MinIO) checklist
+
+Only if live Convex survey sync is still required:
+
+1. On self-hosted Convex: set `ETL_SECRET` (shared secret).
+2. On Dokploy **api** and **worker** env: set `CONVEX_SITE_URL`, `ETL_CONVEX_SECRET` (= Convex `ETL_SECRET`), and on api `ETL_ENABLED=true` (optional cron).
+3. Confirm worker is running (BullMQ consumers).
+4. Seed geo catalog (Master Data → Tenants & Wards) before first sync.
+5. Sign in as ADMIN (`etl:manage`) → Master Data → **Sync from Convex**, or open **Administration → ETL Sync**.
+6. Confirm surveys in Postgres and photos under MinIO `etah-images/…` (see [ETL RUNBOOK](../etl/RUNBOOK.md)).

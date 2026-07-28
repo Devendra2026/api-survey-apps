@@ -4,13 +4,16 @@ import { DistrictDrawer, StateDrawer, ULBDrawer, WardDrawer } from "@/features/c
 import { GeographyAccordion } from "@/features/configuration/components/GeographyAccordion"
 import { useGeographyTree } from "@/features/configuration/hooks/use-configuration"
 import type { GeographyTreeNode } from "@/features/configuration/lib/types"
+import { useEtlStatus, useStartEtlIncremental } from "@/features/etl/hooks/use-etl-status"
+import { isEtlJobActive } from "@/features/etl/lib/types"
 import { computeGeoStats } from "@/features/master-data/lib/geo-stats"
-import { apiPatch, apiPost } from "@/lib/api/client"
+import { apiPatch, apiPost, getApiErrorMessage } from "@/lib/api/client"
 import { useAuthStore } from "@/stores/app-store"
 import { useQueryClient } from "@tanstack/react-query"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
-import { MapPin, Plus } from "lucide-react"
+import { MapPin, Plus, RefreshCw } from "lucide-react"
+import Link from "next/link"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
 
@@ -19,7 +22,10 @@ type DrawerKind = "state" | "district" | "ulb" | "ward" | null
 export function TenantsWardsPanel() {
   const hasPermission = useAuthStore((s) => s.hasPermission)
   const canManage = hasPermission("settings:manage") || hasPermission("role:assign")
+  const canEtl = hasPermission("etl:manage")
   const { data: tree = [], isLoading, refetch } = useGeographyTree()
+  const { data: etlStatus } = useEtlStatus(canEtl)
+  const startIncremental = useStartEtlIncremental()
   const [selected, setSelected] = useState<GeographyTreeNode | null>(null)
   const [parent, setParent] = useState<GeographyTreeNode | null>(null)
   const [drawer, setDrawer] = useState<DrawerKind>(null)
@@ -28,6 +34,7 @@ export function TenantsWardsPanel() {
   const qc = useQueryClient()
 
   const stats = useMemo(() => computeGeoStats(tree), [tree])
+  const etlBusy = isEtlJobActive(etlStatus?.activeJob?.status) || startIncremental.isPending
 
   const invalidate = async () => {
     await qc.invalidateQueries({ queryKey: ["configuration", "geography-tree"] })
@@ -87,7 +94,40 @@ export function TenantsWardsPanel() {
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {canEtl ? (
+            <>
+              <Button
+                type="button"
+                variant="secondary"
+                className="cursor-pointer"
+                disabled={etlBusy}
+                onClick={async () => {
+                  try {
+                    const result = await startIncremental.mutateAsync(undefined)
+                    toast.success(`Convex sync queued (${result.jobId.slice(0, 8)}…)`)
+                  } catch (error) {
+                    toast.error(getApiErrorMessage(error))
+                  }
+                }}
+              >
+                <RefreshCw className={`size-4 ${etlBusy ? "animate-spin" : ""}`} aria-hidden />
+                Sync from Convex
+              </Button>
+              <Button type="button" variant="ghost" size="sm" className="cursor-pointer" asChild>
+                <Link href="/admin/etl">ETL console</Link>
+              </Button>
+              {etlStatus?.activeJob ? (
+                <Badge variant="outline" className="font-normal">
+                  {etlStatus.activeJob.type} · {etlStatus.activeJob.status}
+                </Badge>
+              ) : etlStatus ? (
+                <Badge variant="secondary" className="font-normal">
+                  Synced {etlStatus.migrationState.completed} · failed {etlStatus.migrationState.failed}
+                </Badge>
+              ) : null}
+            </>
+          ) : null}
           <Button
             type="button"
             variant="outline"

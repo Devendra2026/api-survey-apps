@@ -1,0 +1,23 @@
+# Fail-fast guard: do not deploy the monorepo root as a Nixpacks service.
+# Nixpacks would detect Turborepo and run `turbo run start`, which leaves no
+# healthy process → Swarm 0/1 → Traefik 502.
+#
+# Prefer Dokploy Compose + apps/*/Dockerfile (docker-compose.dokploy.yml).
+# For three Nixpacks apps, set:
+#   NIXPACKS_CONFIG_FILE=apps/api/nixpacks.toml   # or apps/web / apps/worker
+# with build context = repository root.
+
+providers = ["node"]
+
+[variables]
+NIXPACKS_NODE_VERSION = "22"
+
+[phases.build]
+cmds = [
+  "echo 'ERROR: Do not deploy the monorepo root with Nixpacks.'",
+  "echo 'Use docker-compose.dokploy.yml (preferred) or set NIXPACKS_CONFIG_FILE=apps/<api|web|worker>/nixpacks.toml'",
+  "exit 1",
+]
+
+[start]
+cmd = "echo 'ERROR: Do not deploy the monorepo root with Nixpacks. Set NIXPACKS_CONFIG_FILE=apps/<api|web|worker>/nixpacks.toml' && exit 1"

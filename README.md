@@ -35,7 +35,7 @@ pnpm dev                                       # api + web + worker
 
 ## Production deployment (Dokploy)
 
-**Do not** deploy the monorepo root as a single Nixpacks/Railpack app. That caused Swarm `0/1` replicas and Traefik **502**.
+**Do not** deploy the monorepo root as a single Nixpacks app. That caused Swarm `0/1` replicas and Traefik **502**. Root `nixpacks.toml` fails fast; use Compose or `NIXPACKS_CONFIG_FILE=apps/<app>/nixpacks.toml`.
 
 ### Recommended: one Compose application
 

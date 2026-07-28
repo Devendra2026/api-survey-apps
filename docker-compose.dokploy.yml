@@ -2,7 +2,7 @@
 # Services: postgres + minio + redis (Docker) + migrate + api + worker + web
 #
 # Preferred deployment model: ONE Compose application in Dokploy (this file),
-# OR three separate app services using the Dockerfiles / Railpack configs under apps/*.
+# OR three separate apps using Dockerfiles / apps/*/nixpacks.toml under apps/*.
 #
 # Domains (example):
 #   admin.sdvedutech.in   → web:3000

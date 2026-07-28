@@ -2,9 +2,9 @@
 
 ## Why Traefik returned 502
 
-Dokploy / Railpack was starting the **monorepo root**. Root is workspace-only and has **no** `start` script. Previously a refuse-to-start script exited immediately → Swarm showed `0/1` replicas → Traefik had no healthy backend → **502**.
+Dokploy / Nixpacks (or Railpack) was starting the **monorepo root**. Root is workspace-only and has **no** app `start` script. Nixpacks detects Turborepo and runs `turbo run start`, which leaves no healthy process → Swarm `0/1` replicas → Traefik **502**.
 
-**Fix:** deploy **three** application images (web / api / worker) via Dockerfiles. Never use the repo root as a runnable service.
+**Fix:** deploy **three** application images (web / api / worker) via Dockerfiles (preferred) or per-app Nixpacks configs. Never use the repo root as a runnable service. Root [`nixpacks.toml`](../../nixpacks.toml) fails fast if misconfigured.
 
 ---
 
@@ -32,11 +32,11 @@ All bind `HOSTNAME=0.0.0.0`.
 
 ### Critical Dokploy settings
 
-| Setting    | Value                                               |
-| ---------- | --------------------------------------------------- |
-| Builder    | **Dockerfile** (not Nixpacks/Railpack on repo root) |
-| Context    | Repository root                                     |
-| Do not set | Root Start Command / `pnpm start`                   |
+| Setting    | Value                                      |
+| ---------- | ------------------------------------------ |
+| Builder    | **Dockerfile** (not Nixpacks on repo root) |
+| Context    | Repository root                            |
+| Do not set | Root Start Command / `pnpm start`          |
 
 ---
 
@@ -82,20 +82,23 @@ docker run --rm --env-file api.env \
 
 ---
 
-## Railpack (only if not using Dockerfiles)
+## Nixpacks (alternative when not using Dockerfiles)
 
-Do **not** build the monorepo root. Per service set:
+Preferred path remains Compose + Dockerfiles above. For three separate Dokploy **Applications** with Nixpacks builder:
+
+Do **not** build the monorepo root without a config file. Per service set build context = **repository root** and:
 
 ```text
-# Root directory = repository root
-RAILPACK_CONFIG_FILE=apps/api/railpack.json   # or apps/web / apps/worker
+NIXPACKS_CONFIG_FILE=apps/api/nixpacks.toml   # or apps/web / apps/worker
 ```
 
-Start commands in those files:
+| App    | Config                      | Start                        | Port |
+| ------ | --------------------------- | ---------------------------- | ---- |
+| api    | `apps/api/nixpacks.toml`    | `pnpm --filter api start`    | 4000 |
+| web    | `apps/web/nixpacks.toml`    | `pnpm --filter web start`    | 3000 |
+| worker | `apps/worker/nixpacks.toml` | `pnpm --filter worker start` | 4001 |
 
-- `pnpm --filter api start`
-- `pnpm --filter web start`
-- `pnpm --filter worker start`
+Root [`nixpacks.toml`](../../nixpacks.toml) exits with an error if someone deploys the repo without `NIXPACKS_CONFIG_FILE`.
 
 ---
 

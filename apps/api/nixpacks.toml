@@ -1,0 +1,23 @@
+providers = ["node"]
+
+[variables]
+NIXPACKS_NODE_VERSION = "22"
+NODE_ENV = "production"
+PORT = "4000"
+HOSTNAME = "0.0.0.0"
+# Prisma generate needs a syntactically valid URL at build time; runtime uses real secrets.
+DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/survey?schema=public"
+DIRECT_URL = "postgresql://postgres:postgres@localhost:5432/survey?schema=public"
+
+[phases.setup]
+aptPkgs = ["...", "curl", "wget"]
+
+[phases.build]
+cmds = [
+  "...",
+  "pnpm --filter @workspace/database db:generate",
+  "pnpm turbo build --filter=api...",
+]
+
+[start]
+cmd = "pnpm --filter api start"

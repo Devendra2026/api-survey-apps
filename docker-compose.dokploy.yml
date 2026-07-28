@@ -286,7 +286,7 @@ services:
       HOSTNAME: "0.0.0.0"
       NEXT_TELEMETRY_DISABLED: "1"
     ports:
-      - "3001:3000"
+      - "3000:3000"
     labels:
       - traefik.enable=true
       - traefik.http.routers.survey-web.rule=Host(`${WEB_HOST:-admin.sdvedutech.in}`)

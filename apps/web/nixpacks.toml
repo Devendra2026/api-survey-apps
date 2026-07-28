@@ -1,7 +1,13 @@
+# Nixpacks config for apps/web — use with build context = repository root:
+#   NIXPACKS_CONFIG_FILE=apps/web/nixpacks.toml
+#
+# Set NEXT_PUBLIC_* in Dokploy env at BUILD time (baked into the Next.js client bundle).
+
 providers = ["node"]
 
 [variables]
 NIXPACKS_NODE_VERSION = "22"
+CI = "true"
 NODE_ENV = "production"
 PORT = "3000"
 HOSTNAME = "0.0.0.0"
@@ -10,8 +16,12 @@ NEXT_TELEMETRY_DISABLED = "1"
 [phases.setup]
 aptPkgs = ["...", "curl", "wget"]
 
+[phases.install]
+cmds = ["pnpm install --frozen-lockfile"]
+
 [phases.build]
-cmds = ["...", "pnpm turbo build --filter=web..."]
+# Explicit override (no "...") so Nixpacks does not also run a root-wide turbo build.
+cmds = ["pnpm turbo build --filter=web..."]
 
 [start]
 cmd = "pnpm --filter web start"

@@ -1,7 +1,11 @@
+# Nixpacks config for apps/api — use with build context = repository root:
+#   NIXPACKS_CONFIG_FILE=apps/api/nixpacks.toml
+
 providers = ["node"]
 
 [variables]
 NIXPACKS_NODE_VERSION = "22"
+CI = "true"
 NODE_ENV = "production"
 PORT = "4000"
 HOSTNAME = "0.0.0.0"
@@ -12,9 +16,12 @@ DIRECT_URL = "postgresql://postgres:postgres@localhost:5432/survey?schema=public
 [phases.setup]
 aptPkgs = ["...", "curl", "wget"]
 
+[phases.install]
+cmds = ["pnpm install --frozen-lockfile"]
+
 [phases.build]
+# Explicit override (no "...") so Nixpacks does not also run a root-wide turbo build.
 cmds = [
-  "...",
   "pnpm --filter @workspace/database db:generate",
   "pnpm turbo build --filter=api...",
 ]

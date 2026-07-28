@@ -1,8 +1,9 @@
-# Dokploy production stack — builds from repo Dockerfiles (recommended for Swarm).
+# Dokploy production stack — builds from repo Dockerfiles (turbo prune --docker).
 # Services: postgres + minio + redis (Docker) + migrate + api + worker + web
 #
-# Preferred deployment model: ONE Compose application in Dokploy (this file),
-# OR three separate apps using Dockerfiles / apps/*/nixpacks.toml under apps/*.
+# Equally supported: ONE Compose application in Dokploy (this file),
+# OR three separate Nixpacks apps with NIXPACKS_CONFIG_FILE=apps/<web|api|worker>/nixpacks.toml.
+# See DEPLOYMENT.md. Never deploy monorepo root as a Nixpacks service.
 #
 # Domains (example):
 #   admin.sdvedutech.in   → web:3000

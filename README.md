@@ -35,9 +35,11 @@ pnpm dev                                       # api + web + worker
 
 ## Production deployment (Dokploy)
 
+**Full guide:** [`DEPLOYMENT.md`](DEPLOYMENT.md)
+
 **Do not** deploy the monorepo root as a single Nixpacks app. That caused Swarm `0/1` replicas and Traefik **502**. Root `nixpacks.toml` fails fast; use Compose or `NIXPACKS_CONFIG_FILE=apps/<app>/nixpacks.toml`.
 
-### Recommended: one Compose application
+### Path 1: one Compose application
 
 1. Dokploy → new Compose application
 2. File: [`docker-compose.dokploy.yml`](docker-compose.dokploy.yml)
@@ -45,9 +47,13 @@ pnpm dev                                       # api + web + worker
 4. Domains (Traefik labels included):
    - `admin.sdvedutech.in` → **web:3000**
    - `backend.sdvedutech.in` → **api:4000**
-5. Builder must use each service’s **Dockerfile** (compose `build.dockerfile` paths)
+5. Builder must use each service’s **Dockerfile** (compose `build.dockerfile` paths; images use `turbo prune`)
 
-Full guide: [`docs/ops/production-deployment.md`](docs/ops/production-deployment.md)
+### Path 2: three Nixpacks applications
+
+Build context = repo root; set `NIXPACKS_CONFIG_FILE=apps/web|api|worker/nixpacks.toml` per app.
+
+Ops detail: [`docs/ops/production-deployment.md`](docs/ops/production-deployment.md)
 
 ### Per-service Dockerfiles
 
@@ -97,6 +103,7 @@ Root env files drive Nest, Prisma, and Compose. Per-service production templates
 
 ## Ops docs
 
+- [**DEPLOYMENT.md**](DEPLOYMENT.md) — structure, local, Dokploy, Nixpacks, Docker, env, troubleshooting
 - [Production / Dokploy / Traefik](docs/ops/production-deployment.md)
 - [Dokploy runbook](docs/ops/dokploy-runbook.md)
 - [Env matrix](docs/ops/dokploy-env.md)

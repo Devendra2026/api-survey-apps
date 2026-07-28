@@ -24,6 +24,7 @@ dist
 
 # turbo
 .turbo
+.turbo-prune-*
 
 # misc
 .DS_Store

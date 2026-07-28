@@ -1,7 +1,11 @@
+# Nixpacks config for apps/worker — use with build context = repository root:
+#   NIXPACKS_CONFIG_FILE=apps/worker/nixpacks.toml
+
 providers = ["node"]
 
 [variables]
 NIXPACKS_NODE_VERSION = "22"
+CI = "true"
 NODE_ENV = "production"
 WORKER_PORT = "4001"
 HOSTNAME = "0.0.0.0"
@@ -34,9 +38,12 @@ aptPkgs = [
   "libcairo2",
 ]
 
+[phases.install]
+cmds = ["pnpm install --frozen-lockfile"]
+
 [phases.build]
+# Explicit override (no "...") so Nixpacks does not also run a root-wide turbo build.
 cmds = [
-  "...",
   "pnpm --filter @workspace/database db:generate",
   "pnpm turbo build --filter=worker...",
   "pnpm --filter worker exec playwright install chromium",

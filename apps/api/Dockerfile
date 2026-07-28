@@ -2,6 +2,7 @@
 
 ARG NODE_VERSION=22
 ARG PNPM_VERSION=11.16.0
+ARG TURBO_VERSION=2.10.5
 
 FROM node:${NODE_VERSION}-alpine AS base
 RUN apk add --no-cache libc6-compat \
@@ -9,14 +10,17 @@ RUN apk add --no-cache libc6-compat \
   && corepack prepare pnpm@${PNPM_VERSION} --activate
 WORKDIR /app
 
+# Prune the monorepo to api + its workspace dependencies only.
+FROM base AS prepare
+ARG TURBO_VERSION
+RUN npm install -g turbo@${TURBO_VERSION}
+COPY . .
+RUN turbo prune api --docker
+
 FROM base AS deps
 ENV CI=true
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
-COPY .npmrc* ./
-COPY apps/api/package.json ./apps/api/
-COPY apps/worker/package.json ./apps/worker/
-COPY apps/web/package.json ./apps/web/
-COPY packages ./packages
+# out/json includes package.json files, pnpm-lock.yaml, pnpm-workspace.yaml
+COPY --from=prepare /app/out/json/ .
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
   pnpm install --frozen-lockfile
 
@@ -26,8 +30,7 @@ ENV NODE_ENV=production
 # Prisma generate needs a syntactically valid URL; runtime uses real secrets.
 ENV DATABASE_URL=postgresql://postgres:postgres@localhost:5432/survey?schema=public
 ENV DIRECT_URL=postgresql://postgres:postgres@localhost:5432/survey?schema=public
-COPY apps/api ./apps/api
-COPY packages ./packages
+COPY --from=prepare /app/out/full/ .
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
   pnpm --filter @workspace/database db:generate \
   && pnpm turbo build --filter=api...
@@ -51,8 +54,8 @@ COPY --from=builder --chown=nestjs:nodejs /app/apps/api/package.json ./apps/api/
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/dist ./apps/api/dist
 COPY --from=builder --chown=nestjs:nodejs /app/packages ./packages
-COPY --chown=nestjs:nodejs apps/api/docker-entrypoint.sh /app/apps/api/docker-entrypoint.sh
-COPY --chown=nestjs:nodejs apps/api/docker-entrypoint.migrate.sh /app/apps/api/docker-entrypoint.migrate.sh
+COPY --from=builder --chown=nestjs:nodejs /app/apps/api/docker-entrypoint.sh /app/apps/api/docker-entrypoint.sh
+COPY --from=builder --chown=nestjs:nodejs /app/apps/api/docker-entrypoint.migrate.sh /app/apps/api/docker-entrypoint.migrate.sh
 RUN chmod +x /app/apps/api/docker-entrypoint.sh /app/apps/api/docker-entrypoint.migrate.sh \
   && chown -R nestjs:nodejs /app
 

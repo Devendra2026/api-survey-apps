@@ -2,6 +2,7 @@
 
 ARG NODE_VERSION=22
 ARG PNPM_VERSION=11.16.0
+ARG TURBO_VERSION=2.10.5
 
 FROM node:${NODE_VERSION}-alpine AS base
 RUN apk add --no-cache libc6-compat \
@@ -9,14 +10,17 @@ RUN apk add --no-cache libc6-compat \
   && corepack prepare pnpm@${PNPM_VERSION} --activate
 WORKDIR /app
 
+# Prune the monorepo to web + its workspace dependencies only.
+FROM base AS prepare
+ARG TURBO_VERSION
+RUN npm install -g turbo@${TURBO_VERSION}
+COPY . .
+RUN turbo prune web --docker
+
 FROM base AS deps
 ENV CI=true
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
-COPY .npmrc* ./
-COPY apps/api/package.json ./apps/api/
-COPY apps/worker/package.json ./apps/worker/
-COPY apps/web/package.json ./apps/web/
-COPY packages ./packages
+# out/json includes package.json files, pnpm-lock.yaml, pnpm-workspace.yaml
+COPY --from=prepare /app/out/json/ .
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
   pnpm install --frozen-lockfile
 
@@ -31,8 +35,7 @@ ENV DATABASE_URL=postgresql://postgres:postgres@localhost:5432/survey?schema=pub
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 ENV NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
-COPY apps/web ./apps/web
-COPY packages ./packages
+COPY --from=prepare /app/out/full/ .
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
   --mount=type=cache,id=next-cache,target=/app/apps/web/.next/cache \
   pnpm turbo build --filter=web...

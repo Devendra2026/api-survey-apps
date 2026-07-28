@@ -6,6 +6,8 @@
 # For three Nixpacks apps, set:
 #   NIXPACKS_CONFIG_FILE=apps/api/nixpacks.toml   # or apps/web / apps/worker
 # with build context = repository root.
+#
+# See DEPLOYMENT.md for full instructions.
 
 providers = ["node"]
 

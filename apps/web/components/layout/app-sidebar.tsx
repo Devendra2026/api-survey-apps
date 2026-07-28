@@ -2,10 +2,10 @@
 
 import { appNav, type NavItem } from "@/lib/navigation"
 import { useAuthStore } from "@/stores/app-store"
-import { Button } from "@workspace/ui/components/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@workspace/ui/components/tooltip"
 import { cn } from "@workspace/ui/lib/utils"
-import { Building2, ChevronDown } from "lucide-react"
+import { ChevronDown } from "lucide-react"
+import Image from "next/image"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useMemo, useState } from "react"
@@ -177,27 +177,27 @@ export function AppSidebar({ collapsed, variant = "desktop" }: { collapsed: bool
     >
       <div
         className={cn(
-          "flex h-16 shrink-0 items-center gap-2.5 border-b border-slate-100 px-4 dark:border-slate-800",
-          collapsed && "justify-center px-2"
+          "flex h-16 shrink-0 items-center justify-center border-b border-slate-100 dark:border-slate-800",
+          collapsed ? "px-2" : "px-3"
         )}
       >
-        {!collapsed ? (
-          <>
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white shadow-sm dark:bg-indigo-500">
-              <Building2 className="size-4" />
-            </span>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-50">
-                SDV EDUTECH
-              </p>
-              <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">Survey Operations</p>
-            </div>
-          </>
-        ) : (
-          <span className="flex size-8 items-center justify-center rounded-lg bg-indigo-600 text-white dark:bg-indigo-500">
-            <Building2 className="size-4" />
-          </span>
-        )}
+        <Link
+          href="/dashboard"
+          className={cn(
+            "relative flex items-center justify-center outline-none",
+            collapsed ? "size-10" : "h-12 w-full"
+          )}
+          aria-label="SDV EDUTECH — Survey Operations"
+        >
+          <Image
+            src="/sdv-edutech-logo.png"
+            alt="SDV EDUTECH"
+            width={collapsed ? 40 : 220}
+            height={collapsed ? 40 : 64}
+            priority
+            className={cn("object-contain object-center", collapsed ? "size-10" : "h-12 w-auto max-w-full")}
+          />
+        </Link>
       </div>
 
       <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-2.5">
@@ -205,20 +205,6 @@ export function AppSidebar({ collapsed, variant = "desktop" }: { collapsed: bool
           <NavItemRow key={item.title} item={item} collapsed={collapsed} />
         ))}
       </nav>
-
-      <div className="shrink-0 border-t border-slate-100 p-2.5 dark:border-slate-800">
-        <Button
-          variant="ghost"
-          size="sm"
-          className={cn(
-            "w-full text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-50",
-            collapsed ? "justify-center px-0" : "justify-start"
-          )}
-          asChild
-        >
-          <Link href="/admin/settings">{collapsed ? "?" : "Help & settings"}</Link>
-        </Button>
-      </div>
     </aside>
   )
 }

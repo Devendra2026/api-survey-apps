@@ -2,7 +2,7 @@
 
 ARG NODE_VERSION=24
 ARG PNPM_VERSION=11.17.0
-ARG TURBO_VERSION=2.10.5
+ARG TURBO_VERSION=2.10.7
 
 FROM node:${NODE_VERSION}-alpine AS base
 # ARG before FROM is not in stage scope — redeclare for corepack.

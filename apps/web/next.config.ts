@@ -26,6 +26,9 @@ const nextConfig: NextConfig = {
   output: "standalone",
   outputFileTracingRoot: monorepoRoot,
   transpilePackages: ["@workspace/ui", "@workspace/validation"],
+  experimental: {
+    authInterrupts: true,
+  },
   poweredByHeader: false,
   compress: true,
   // Dev uses `next dev --webpack` (see package.json) to avoid Turbopack panics in this monorepo.

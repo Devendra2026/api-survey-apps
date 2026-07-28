@@ -153,7 +153,7 @@ Root has **no** `start` script — only workspace/build tooling.
 
 ## Image size / optimization
 
-- Multi-stage builds with `turbo prune <app> --docker`, Node 22, pnpm 11.16, BuildKit cache mounts
+- Multi-stage builds with `turbo prune <app> --docker`, Node 22, pnpm 10.33.4, BuildKit cache mounts
 - Web: Next.js `output: "standalone"`
 - Non-root users + `HEALTHCHECK` in every app image
 - Worker: Debian slim + Playwright Chromium (larger by design)

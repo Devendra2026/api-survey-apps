@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 ARG NODE_VERSION=22
-ARG PNPM_VERSION=11.16.0
+ARG PNPM_VERSION=10.33.4
 ARG TURBO_VERSION=2.10.5
 
 FROM node:${NODE_VERSION}-bookworm-slim AS base
@@ -38,7 +38,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
   && pnpm --filter worker exec playwright install --with-deps chromium
 
 FROM node:${NODE_VERSION}-bookworm-slim AS runner
-ARG PNPM_VERSION=11.16.0
+ARG PNPM_VERSION=10.33.4
 WORKDIR /app
 ENV NODE_ENV=production
 ENV WORKER_PORT=4001

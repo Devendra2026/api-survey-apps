@@ -16,7 +16,7 @@ The **repository root** only manages the workspace (`pnpm install`, `pnpm build`
 ## Prerequisites
 
 - Node.js 22.12+
-- pnpm 11.16 (`corepack enable`)
+- pnpm 10.33.4 (`corepack enable`)
 - Docker (for Postgres / Redis / MinIO and production images)
 
 ## Quick start (local)

@@ -8,6 +8,7 @@ providers = ["node"]
 [variables]
 NIXPACKS_NODE_VERSION = "22"
 CI = "true"
+HUSKY = "0"
 NODE_ENV = "production"
 PORT = "3000"
 HOSTNAME = "0.0.0.0"

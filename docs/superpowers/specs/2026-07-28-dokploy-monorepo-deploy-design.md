@@ -57,7 +57,7 @@ For each app, Dokploy Application with:
 ## Nixpacks design
 
 - Node 22 via `NIXPACKS_NODE_VERSION`
-- pnpm from root `packageManager` (`pnpm@11.16.0`)
+- pnpm from root `packageManager` (`pnpm@10.33.4`)
 - Explicit `[phases.build].cmds` **without** `"..."` so the Node provider does not also run a root-wide `turbo build`
 - Start via package scripts: `pnpm --filter <app> start`
 - api/worker: Prisma `db:generate` before turbo build; dummy `DATABASE_URL`/`DIRECT_URL` at build time
@@ -68,7 +68,7 @@ For each app, Dokploy Application with:
 
 Each Dockerfile:
 
-1. **base** — Node 22 + corepack pnpm 11.16.0
+1. **base** — Node 22 + corepack pnpm 10.33.4
 2. **prepare** — copy repo, `turbo prune <app> --docker`
 3. **deps** — install from `out/json/` + pruned lockfile
 4. **builder** — copy `out/full/`, generate Prisma (api/worker), `pnpm turbo build --filter=<app>...`

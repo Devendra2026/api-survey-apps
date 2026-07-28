@@ -33,7 +33,7 @@ Root: `pnpm build` → `turbo build`, `pnpm dev` → filtered turbo. **No** root
 ## Local development
 
 ```bash
-# Prerequisites: Node.js 22.12+, pnpm 11.16 (corepack enable), Docker
+# Prerequisites: Node.js 22.12+, pnpm 10.33.4 (corepack enable), Docker
 pnpm install
 docker compose up -d          # Postgres, Redis, MinIO, Mailpit
 pnpm db:migrate
@@ -159,7 +159,7 @@ See [`deploy/docker-stack.swarm.yml`](deploy/docker-stack.swarm.yml).
 ### Image design
 
 - Multi-stage: `prepare` (turbo prune) → `deps` (pnpm install) → `builder` → slim `runner`
-- Node **22**, pnpm **11.16.0** via corepack
+- Node **22**, pnpm **10.33.4** via corepack
 - Web: Next.js `output: "standalone"`
 - api/worker: production `dist` + workspace packages; non-root users; `HEALTHCHECK`
 - Worker: Debian slim + Playwright Chromium deps
@@ -206,7 +206,7 @@ Full matrix: [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md). Templates: [`
 | Web missing Clerk/API URL in browser                         | `NEXT_PUBLIC_*` not set at **build** time | Rebuild web with build args / Nixpacks env                                   |
 | Worker PDF/Chromium fails                                    | Playwright browsers missing               | Worker Dockerfile/Nixpacks installs Chromium; check image rebuild            |
 | Workspace package not found                                  | Install not from repo root                | Always build with context = monorepo root                                    |
-| `pnpm install` twice / lockfile drift                        | Mismatched pnpm                           | Use `packageManager` pnpm 11.16 via corepack                                 |
+| `pnpm install` twice / lockfile drift                        | Mismatched pnpm                           | Use `packageManager` pnpm 10.33.4 via corepack                               |
 
 ---
 

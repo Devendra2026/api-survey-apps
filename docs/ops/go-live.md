@@ -38,7 +38,8 @@ aws ec2 authorize-security-group-ingress --group-id sg-XXXXXXXX --protocol tcp -
 
 ## Dokploy deploy steps
 
-1. Paste the env matrix from [dokploy-env.md](./dokploy-env.md) (or `deploy/env/*.env.example`) into Dokploy **Environment** (after setting strong passwords). Dokploy writes `.env`; compose loads it.
+0. **App type must be Docker Compose** — if you see `open Dockerfile: no such file`, follow [`dokploy-compose-setup.md`](./dokploy-compose-setup.md) (recreate `sdv-dashboard-jpnilc` as Compose). Do **not** add a root Dockerfile.
+1. Paste the env matrix from [dokploy-env.md](./dokploy-env.md) (or `deploy/env/*.env.example`) into Dokploy **Environment** (after setting strong passwords). `DATABASE_URL` host = `postgres`. Dokploy writes `.env`; compose loads it.
 2. Deploy as Build type **Docker Compose**, file `docker-compose.dokploy.yml`, context = repo root.
 3. Wait for `postgres` / `minio` / `redis` healthy, `migrate` success, then `api` `/health` + `/ready`, then `web`.
 4. Open `https://admin.sdvedutech.in` and sign in with Clerk.

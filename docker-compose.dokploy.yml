@@ -4,13 +4,16 @@
 # Deploy as ONE Compose application in Dokploy (this file). Docker only — no Nixpacks.
 # There is intentionally NO root Dockerfile (do not run web+api+worker in one image).
 #
+# If Dokploy errors with "open Dockerfile: no such file or directory", the app type is
+# wrong: recreate as Docker Compose using THIS file. See docs/ops/dokploy-compose-setup.md.
+#
 # Secrets: paste into Dokploy Environment UI. Dokploy writes them to `.env` next to this
 # compose file (interpolation + container injection via env_file below). Optional
 # `.env.production` / DOKPLOY_ENV_FILE is a local/offline fallback (required=false).
 # See DEPLOYMENT.md and docs/ops/dokploy-env.md.
 #
 # Required secrets (no insecure defaults): POSTGRES_PASSWORD, REDIS_PASSWORD,
-# MINIO_ROOT_USER, MINIO_ROOT_PASSWORD.
+# MINIO_ROOT_USER, MINIO_ROOT_PASSWORD. DATABASE_URL host must be `postgres`.
 #
 # Domains (example):
 #   admin.sdvedutech.in   → web:3000

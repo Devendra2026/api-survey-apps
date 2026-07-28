@@ -11,6 +11,8 @@ OpenSearch is **not** deployed (application uses Prisma indexes only).
 
 ## Stack
 
+**Operator setup (exact UI steps):** [`dokploy-compose-setup.md`](./dokploy-compose-setup.md)
+
 Use root [`docker-compose.dokploy.yml`](../../docker-compose.dokploy.yml) as a **single Compose application**:
 
 - Build type: **Docker Compose** (not a root Dockerfile / Nixpacks)
@@ -19,6 +21,8 @@ Use root [`docker-compose.dokploy.yml`](../../docker-compose.dokploy.yml) as a *
 - Per-service Dockerfiles: `apps/{web,api,worker}/Dockerfile` (`turbo prune --docker`)
 - Services: `postgres`, `redis`, `minio`, `minio-init`, `migrate`, `api`, `worker`, `web`
 - Domains (Traefik labels): `admin.sdvedutech.in` → web:**3000**; `backend.sdvedutech.in` → api:**4000**
+
+If Dokploy errors with `open Dockerfile: no such file or directory`, the app is the wrong type — see [dokploy-compose-setup.md](./dokploy-compose-setup.md) § “If you see this error”.
 
 Primary guide: [`DEPLOYMENT.md`](../../DEPLOYMENT.md). Ops checklist: [production-deployment.md](./production-deployment.md).
 

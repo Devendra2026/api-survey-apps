@@ -39,6 +39,8 @@ pnpm dev                                       # api + web + worker
 
 **Docker Compose only** ([`docker-compose.dokploy.yml`](docker-compose.dokploy.yml)). No root Dockerfile; Nixpacks is not used.
 
+**Dokploy UI steps:** [`docs/ops/dokploy-compose-setup.md`](docs/ops/dokploy-compose-setup.md) — if you see `open Dockerfile: no such file or directory`, the app type is wrong (use Compose, do not add a root Dockerfile).
+
 ### One Compose application
 
 1. Dokploy → new **Compose** application (build type = Docker Compose)

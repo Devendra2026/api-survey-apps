@@ -16,6 +16,10 @@ case "$DATABASE_URL" in
     echo "DATABASE_URL still contains REPLACE_ME_* — set the real Postgres password in Dokploy env before deploy." >&2
     exit 1
     ;;
+  *@localhost*|*@127.0.0.1*)
+    echo "DATABASE_URL must use Compose hostname 'postgres', not localhost/127.0.0.1 (example: postgresql://postgres:PASS@postgres:5432/survey?schema=public)." >&2
+    exit 1
+    ;;
 esac
 
 cd /app/packages/database

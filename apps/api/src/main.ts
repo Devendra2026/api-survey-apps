@@ -2,6 +2,7 @@ import { ValidationPipe } from "@nestjs/common"
 import { ConfigService } from "@nestjs/config"
 import { NestFactory } from "@nestjs/core"
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger"
+import compression from "compression"
 import helmet from "helmet"
 import { randomUUID } from "node:crypto"
 import { pinoHttp } from "pino-http"
@@ -30,6 +31,7 @@ async function bootstrap() {
   })
 
   app.use(helmet())
+  app.use(compression())
   app.use(
     pinoHttp({
       genReqId: (req, res) => {

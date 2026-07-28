@@ -1,6 +1,12 @@
 # Dokploy environment variables (production)
 
-Data plane runs **inside** the compose stack (Postgres, MinIO, Redis). Prefer Dokploy secrets for passwords — do not commit real values.
+Data plane runs **inside** the compose stack (Postgres 17, MinIO, Redis 8). Prefer Dokploy secrets for passwords — do not commit real values.
+
+Compose **requires** (no insecure defaults): `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`.
+
+`REDIS_URL` for api/worker is set by compose to `redis://:${REDIS_PASSWORD}@redis:6379`. You may still set `REDIS_URL` in Dokploy env for non-compose deploys; compose `environment` overrides win for that key.
+
+Use URL-safe Redis passwords (avoid `@`, `:`, `/` in the password) so the composed `REDIS_URL` remains valid.
 
 ## Required
 
@@ -8,14 +14,15 @@ Data plane runs **inside** the compose stack (Postgres, MinIO, Redis). Prefer Do
 | ----------------------------------- | --------------------------------------------------------------- |
 | `NODE_ENV`                          | `production`                                                    |
 | `POSTGRES_USER`                     | `postgres`                                                      |
-| `POSTGRES_PASSWORD`                 | Strong password (must match URLs below)                         |
+| `POSTGRES_PASSWORD`                 | Strong password (must match URLs below) — **required**          |
 | `POSTGRES_DB`                       | `survey`                                                        |
 | `DATABASE_URL`                      | `postgresql://postgres:PASS@postgres:5432/survey?schema=public` |
 | `DIRECT_URL`                        | Same as `DATABASE_URL` for migrate                              |
-| `REDIS_URL`                         | `redis://redis:6379`                                            |
+| `REDIS_PASSWORD`                    | Strong URL-safe password — **required**                         |
+| `REDIS_URL`                         | Compose sets `redis://:${REDIS_PASSWORD}@redis:6379`            |
 | `STORAGE_PROVIDER`                  | `minio`                                                         |
-| `MINIO_ROOT_USER`                   | `minioadmin` (or custom)                                        |
-| `MINIO_ROOT_PASSWORD`               | Strong password                                                 |
+| `MINIO_ROOT_USER`                   | Strong unique user — **required**                               |
+| `MINIO_ROOT_PASSWORD`               | Strong password — **required**                                  |
 | `MINIO_ENDPOINT`                    | `http://minio:9000` (compose overrides this for api/worker)     |
 | `MINIO_BUCKET`                      | `api-survey-app`                                                |
 | `STORAGE_BUCKET`                    | Same as `MINIO_BUCKET`                                          |
@@ -64,4 +71,8 @@ Also ensure: worker replicas ≥ 1, MinIO bucket writable, geo catalog (ULBs/war
 
 ## Local development (unchanged)
 
-Keep using root `docker-compose.yml` for Postgres/Redis/MinIO/Mailpit and `pnpm dev` for apps. Set `STORAGE_PROVIDER=minio` locally.
+Keep using root `docker-compose.yml` for Postgres/Redis/MinIO/Mailpit and `pnpm dev` for apps. Local Redis stays passwordless (`REDIS_URL=redis://localhost:6379`). Set `STORAGE_PROVIDER=minio` locally.
+
+## Observability
+
+See [`observability.md`](./observability.md) for `/metrics`, optional Prometheus/Grafana/Loki overlay, and volume backup notes.

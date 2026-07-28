@@ -26,6 +26,8 @@ const nextConfig: NextConfig = {
   output: "standalone",
   outputFileTracingRoot: monorepoRoot,
   transpilePackages: ["@workspace/ui", "@workspace/validation"],
+  poweredByHeader: false,
+  compress: true,
   // Dev uses `next dev --webpack` (see package.json) to avoid Turbopack panics in this monorepo.
   // Production `next build` keeps the Next 16 default bundler.
   ...(mapsApiKey
@@ -35,6 +37,22 @@ const nextConfig: NextConfig = {
         },
       }
     : {}),
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          {
+            key: "Permissions-Policy",
+            value: "camera=(), microphone=(), geolocation=(self)",
+          },
+        ],
+      },
+    ]
+  },
 }
 
 export default nextConfig

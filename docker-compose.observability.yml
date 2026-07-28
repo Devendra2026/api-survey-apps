@@ -1,0 +1,63 @@
+# Optional observability overlay — NOT part of the default Dokploy stack.
+# Use on a larger host or second VM to avoid competing with apps on t3.xlarge.
+#
+# Usage (from repo root, with the main stack already on network `api-survey-apps_app`
+# or rename `external` network to match `docker network ls`):
+#
+#   docker compose -f docker-compose.observability.yml up -d
+#
+# Scrape targets assume api:4000 and worker:4001 are reachable on the shared Docker network.
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    restart: unless-stopped
+    volumes:
+      - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - survey_prometheus_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    ports:
+      - "9090:9090"
+    networks:
+      - app
+
+  loki:
+    image: grafana/loki:3.4.2
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - survey_loki_data:/loki
+    ports:
+      - "3100:3100"
+    networks:
+      - app
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - survey_grafana_data:/var/lib/grafana
+    ports:
+      - "3002:3000"
+    depends_on:
+      - prometheus
+      - loki
+    networks:
+      - app
+
+networks:
+  app:
+    external: true
+    name: ${OBSERVABILITY_NETWORK:-api-survey-apps_app}
+
+volumes:
+  survey_prometheus_data:
+  survey_loki_data:
+  survey_grafana_data:

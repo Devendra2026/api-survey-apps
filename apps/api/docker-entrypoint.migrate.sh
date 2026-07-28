@@ -19,12 +19,33 @@ case "$DATABASE_URL" in
 esac
 
 cd /app/packages/database
-# Runner image has no pnpm; call the Prisma CLI binary directly.
-if [ -x /app/node_modules/.bin/prisma ]; then
-  exec /app/node_modules/.bin/prisma migrate deploy
-elif [ -x ./node_modules/.bin/prisma ]; then
-  exec ./node_modules/.bin/prisma migrate deploy
-else
-  echo "Prisma CLI not found under node_modules/.bin" >&2
+
+# Runner image has no pnpm; locate the Prisma CLI binary from the deploy tree.
+find_prisma() {
+  for candidate in \
+    /app/node_modules/.bin/prisma \
+    /app/node_modules/prisma/build/index.js \
+    /app/node_modules/@prisma/cli/build/index.js \
+    ./node_modules/.bin/prisma
+  do
+    if [ -x "$candidate" ] || [ -f "$candidate" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+PRISMA_BIN="$(find_prisma)" || {
+  echo "Prisma CLI not found under node_modules" >&2
   exit 1
-fi
+}
+
+case "$PRISMA_BIN" in
+  *.js)
+    exec node "$PRISMA_BIN" migrate deploy
+    ;;
+  *)
+    exec "$PRISMA_BIN" migrate deploy
+    ;;
+esac

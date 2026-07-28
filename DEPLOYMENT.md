@@ -63,17 +63,31 @@ pnpm turbo build --filter=web... --filter=api... --filter=worker...
 
 ## Dokploy — Compose (only supported path)
 
+| Setting       | Value                                                                                                 |
+| ------------- | ----------------------------------------------------------------------------------------------------- |
+| Build type    | Docker Compose                                                                                        |
+| Compose file  | `docker-compose.dokploy.yml`                                                                          |
+| Build context | repository root (`.`)                                                                                 |
+| Dockerfiles   | `apps/web/Dockerfile`, `apps/api/Dockerfile`, `apps/worker/Dockerfile`                                |
+| Ports         | web `3001→3000`, api `4000`, worker `4001`                                                            |
+| Health        | web `/healthz`, api/worker `/live`                                                                    |
+| Metrics       | api/worker `/metrics` (optional scrape; see [`docs/ops/observability.md`](docs/ops/observability.md)) |
+| Infra images  | Postgres **17**, Redis **8**, MinIO (pinned RELEASE)                                                  |
+
 1. Create a **Compose** application in Dokploy.
 2. Compose file: [`docker-compose.dokploy.yml`](docker-compose.dokploy.yml).
 3. Build context = **repository root** (each service `build.context: .`).
 4. Dockerfile paths (via compose): `apps/web/Dockerfile`, `apps/api/Dockerfile`, `apps/worker/Dockerfile`.
 5. Secrets in Dokploy **Environment** UI (`.env.production` optional via `env_file.required: false`).
+   **Required with no defaults:** `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`.
 6. Domains: `admin.sdvedutech.in` → web:3000; `backend.sdvedutech.in` → api:4000.
 7. Host ports: web `3001→3000`, api `4000`, worker `4001`.
 8. Health: web `/healthz`, api/worker `/live`.
 9. Deploy: migrate → api / worker / web healthy.
 
 Web **build args** (Compose already wires these): `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`.
+
+**Postgres 16 → 17:** existing data volumes are not binary-compatible. Dump/restore or recreate the volume before first PG17 start.
 
 ---
 
@@ -89,8 +103,9 @@ docker compose -f docker-compose.dokploy.yml config
 ```
 
 - Node **24**, pnpm **11.17.0** (via Corepack in build stages), `HUSKY=0`
-- Web standalone; api/worker run `node …/dist/main.js` as non-root
+- Web standalone; api/worker use `pnpm deploy --prod` runners + `node …/dist/main.js` as non-root
 - `prisma` is a dependency of `@workspace/database`
+- Optional observability overlay: [`docker-compose.observability.yml`](docker-compose.observability.yml)
 
 ---
 
@@ -131,5 +146,6 @@ See [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md), [`.env.example`](.env.
 - [`docs/ops/production-deployment.md`](docs/ops/production-deployment.md)
 - [`docs/ops/dokploy-runbook.md`](docs/ops/dokploy-runbook.md)
 - [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md)
+- [`docs/ops/observability.md`](docs/ops/observability.md)
 - [`docs/ops/go-live.md`](docs/ops/go-live.md)
 - [`docs/superpowers/specs/2026-07-28-docker-dokploy-nixpacks-removal-design.md`](docs/superpowers/specs/2026-07-28-docker-dokploy-nixpacks-removal-design.md)

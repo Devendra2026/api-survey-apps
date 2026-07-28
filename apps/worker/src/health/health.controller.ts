@@ -1,5 +1,9 @@
-import { Controller, Get, ServiceUnavailableException } from "@nestjs/common"
+import { Controller, Get, Header, ServiceUnavailableException } from "@nestjs/common"
+import { collectDefaultMetrics, Registry } from "prom-client"
 import { RedisHealthService } from "../redis/redis-health.service.js"
+
+const metricsRegistry = new Registry()
+collectDefaultMetrics({ register: metricsRegistry, prefix: "worker_" })
 
 @Controller()
 export class HealthController {
@@ -8,6 +12,12 @@ export class HealthController {
   @Get("live")
   live() {
     return { status: "ok" }
+  }
+
+  @Get("metrics")
+  @Header("Content-Type", metricsRegistry.contentType)
+  async metrics(): Promise<string> {
+    return metricsRegistry.metrics()
   }
 
   @Get("ready")

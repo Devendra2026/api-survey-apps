@@ -6,18 +6,24 @@
 # is loaded only when the file exists (env_file.required=false).
 # See DEPLOYMENT.md.
 #
+# Required secrets (no insecure defaults): POSTGRES_PASSWORD, REDIS_PASSWORD,
+# MINIO_ROOT_USER, MINIO_ROOT_PASSWORD.
+#
 # Domains (example):
 #   admin.sdvedutech.in   → web:3000
 #   backend.sdvedutech.in → api:4000
 # Host publish: web 3001→3000, api 4000, worker 4001
+#
+# Postgres 17 note: volumes created with Postgres 16 are not binary-compatible.
+# Dump/restore or recreate the volume before first PG17 start.
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in Dokploy Environment}
       POSTGRES_DB: ${POSTGRES_DB:-survey}
     volumes:
       - survey_pg_data_prod:/var/lib/postgresql/data
@@ -36,13 +42,15 @@ services:
         max_attempts: 10
 
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--bind", "0.0.0.0"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in Dokploy Environment}
+    command: ["redis-server", "--appendonly", "yes", "--bind", "0.0.0.0", "--requirepass", "${REDIS_PASSWORD}"]
     volumes:
       - survey_redis_data_prod:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG']
       interval: 5s
       timeout: 3s
       retries: 10
@@ -60,8 +68,8 @@ services:
     image: minio/minio:RELEASE.2025-04-22T22-12-26Z
     restart: unless-stopped
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in Dokploy Environment}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in Dokploy Environment}
     volumes:
       - survey_minio_data_prod:/data
     command: ["server", "/data", "--console-address", ":9001"]
@@ -86,8 +94,8 @@ services:
       minio:
         condition: service_started
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in Dokploy Environment}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in Dokploy Environment}
       MINIO_BUCKET: ${MINIO_BUCKET:-api-survey-app}
     entrypoint:
       - /bin/sh
@@ -104,7 +112,7 @@ services:
           sleep 2
         done
         mc mb --ignore-existing "local/$$MINIO_BUCKET"
-        mc anonymous set download "local/$$MINIO_BUCKET" || true
+        # Private bucket — apps use presigned URLs (no anonymous download).
     restart: "no"
     networks:
       - app
@@ -154,7 +162,7 @@ services:
       PORT: "4000"
       HOSTNAME: "0.0.0.0"
       STORAGE_PROVIDER: minio
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       MINIO_ENDPOINT: http://minio:9000
     ports:
       - "4000:4000"
@@ -208,7 +216,7 @@ services:
       WORKER_PORT: "4001"
       HOSTNAME: "0.0.0.0"
       STORAGE_PROVIDER: minio
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       MINIO_ENDPOINT: http://minio:9000
     ports:
       - "4001:4001"

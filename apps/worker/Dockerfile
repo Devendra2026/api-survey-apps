@@ -39,6 +39,14 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
   && pnpm turbo build --filter=worker... \
   && pnpm --filter worker exec playwright install --with-deps chromium
 
+# Portable production tree (prod deps + injected workspace packages).
+FROM builder AS deploy
+ENV HUSKY=0
+RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
+  pnpm --filter worker deploy --prod --legacy /deploy \
+  && mkdir -p /deploy/apps/worker \
+  && cp -r /app/apps/worker/dist /deploy/apps/worker/dist
+
 FROM node:${NODE_VERSION}-bookworm-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
@@ -56,12 +64,7 @@ RUN apt-get update \
   && addgroup --system --gid 1001 nodejs \
   && adduser --system --uid 1001 worker
 
-COPY --from=builder --chown=worker:nodejs /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
-COPY --from=builder --chown=worker:nodejs /app/node_modules ./node_modules
-COPY --from=builder --chown=worker:nodejs /app/apps/worker/package.json ./apps/worker/
-COPY --from=builder --chown=worker:nodejs /app/apps/worker/node_modules ./apps/worker/node_modules
-COPY --from=builder --chown=worker:nodejs /app/apps/worker/dist ./apps/worker/dist
-COPY --from=builder --chown=worker:nodejs /app/packages ./packages
+COPY --from=deploy --chown=worker:nodejs /deploy /app
 COPY --from=builder --chown=worker:nodejs /root/.cache/ms-playwright /home/worker/.cache/ms-playwright
 
 EXPOSE 4001

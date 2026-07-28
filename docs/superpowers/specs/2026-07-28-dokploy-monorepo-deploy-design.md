@@ -3,6 +3,8 @@
 **Date:** 2026-07-28  
 **Status:** Superseded by [`2026-07-28-docker-dokploy-nixpacks-removal-design.md`](./2026-07-28-docker-dokploy-nixpacks-removal-design.md)
 
+> **HISTORICAL ONLY — DO NOT FOLLOW.** Nixpacks was removed. Production is Docker + Dokploy Compose only (`docker-compose.dokploy.yml`). See [`DEPLOYMENT.md`](../../../DEPLOYMENT.md).
+
 > **Superseded:** Nixpacks was removed. Production is Docker + Dokploy Compose only. Keep this file for historical context; do not follow Nixpacks instructions below.
 
 ## Problem

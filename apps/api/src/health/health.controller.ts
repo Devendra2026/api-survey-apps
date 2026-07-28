@@ -1,11 +1,15 @@
-import { Controller, Get, ServiceUnavailableException } from "@nestjs/common"
+import { Controller, Get, Header, ServiceUnavailableException } from "@nestjs/common"
 import { ConfigService } from "@nestjs/config"
 import { ApiTags } from "@nestjs/swagger"
 import { Redis } from "ioredis"
+import { collectDefaultMetrics, Registry } from "prom-client"
 import { Public } from "../common/decorators/public.decorator.js"
 import { redisConnectionOptions } from "../jobs/redis-connection.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import { StorageService } from "../storage/storage.service.js"
+
+const metricsRegistry = new Registry()
+collectDefaultMetrics({ register: metricsRegistry, prefix: "api_" })
 
 @ApiTags("health")
 @Controller()
@@ -34,6 +38,13 @@ export class HealthController {
       service: "api",
       timestamp: new Date().toISOString(),
     }
+  }
+
+  @Public()
+  @Get("metrics")
+  @Header("Content-Type", metricsRegistry.contentType)
+  async getMetrics(): Promise<string> {
+    return metricsRegistry.metrics()
   }
 
   @Public()

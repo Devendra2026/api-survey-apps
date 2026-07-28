@@ -103,4 +103,5 @@ See [`deploy/docker-stack.swarm.yml`](deploy/docker-stack.swarm.yml).
 - [Production / Dokploy / Traefik](docs/ops/production-deployment.md)
 - [Dokploy runbook](docs/ops/dokploy-runbook.md)
 - [Env matrix](docs/ops/dokploy-env.md)
+- [Observability](docs/ops/observability.md)
 - [Go-live](docs/ops/go-live.md)

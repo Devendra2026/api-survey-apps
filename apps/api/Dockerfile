@@ -37,6 +37,22 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
   pnpm --filter @workspace/database db:generate \
   && pnpm turbo build --filter=api...
 
+# Portable production tree (prod deps + injected workspace packages).
+FROM builder AS deploy
+ENV HUSKY=0
+RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
+  pnpm --filter api deploy --prod --legacy /deploy \
+  && mkdir -p /deploy/apps/api /deploy/packages/database \
+  && cp -r /app/apps/api/dist /deploy/apps/api/dist \
+  && cp /app/apps/api/docker-entrypoint.sh /deploy/apps/api/docker-entrypoint.sh \
+  && cp /app/apps/api/docker-entrypoint.migrate.sh /deploy/apps/api/docker-entrypoint.migrate.sh \
+  && cp -r /app/packages/database/prisma /deploy/packages/database/prisma \
+  && cp /app/packages/database/package.json /deploy/packages/database/package.json \
+  && if [ -f /app/packages/database/prisma.config.ts ]; then cp /app/packages/database/prisma.config.ts /deploy/packages/database/prisma.config.ts; fi \
+  && if [ -f /app/packages/database/prisma.config.js ]; then cp /app/packages/database/prisma.config.js /deploy/packages/database/prisma.config.js; fi \
+  && if [ -f /app/packages/database/load-root-env.ts ]; then cp /app/packages/database/load-root-env.ts /deploy/packages/database/load-root-env.ts; fi \
+  && chmod +x /deploy/apps/api/docker-entrypoint.sh /deploy/apps/api/docker-entrypoint.migrate.sh
+
 FROM node:${NODE_VERSION}-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
@@ -47,15 +63,7 @@ RUN apk add --no-cache curl wget \
   && addgroup --system --gid 1001 nodejs \
   && adduser --system --uid 1001 nestjs
 
-COPY --from=builder --chown=nestjs:nodejs /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
-COPY --from=builder --chown=nestjs:nodejs /app/node_modules ./node_modules
-COPY --from=builder --chown=nestjs:nodejs /app/apps/api/package.json ./apps/api/
-COPY --from=builder --chown=nestjs:nodejs /app/apps/api/node_modules ./apps/api/node_modules
-COPY --from=builder --chown=nestjs:nodejs /app/apps/api/dist ./apps/api/dist
-COPY --from=builder --chown=nestjs:nodejs /app/packages ./packages
-COPY --from=builder --chown=nestjs:nodejs /app/apps/api/docker-entrypoint.sh /app/apps/api/docker-entrypoint.sh
-COPY --from=builder --chown=nestjs:nodejs /app/apps/api/docker-entrypoint.migrate.sh /app/apps/api/docker-entrypoint.migrate.sh
-RUN chmod +x /app/apps/api/docker-entrypoint.sh /app/apps/api/docker-entrypoint.migrate.sh
+COPY --from=deploy --chown=nestjs:nodejs /deploy /app
 
 EXPOSE 4000
 USER nestjs

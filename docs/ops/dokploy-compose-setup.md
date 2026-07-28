@@ -111,7 +111,7 @@ Build context for every app image is **repository root** (`.`).
 
 1. Click **Deploy**.
 2. First build pulls/builds three app images (worker is slowest).
-3. Order: infra healthy → `minio-init` → `migrate` OK → `api` / `worker` / `web` healthy.
+3. Order: infra healthy → `minio-init` (waits for MinIO healthy) → `migrate` OK → `api` / `worker` / `web` healthy.
 4. Smoke:
 
 ```bash
@@ -119,6 +119,14 @@ curl -fsS https://backend.sdvedutech.in/live
 curl -fsS https://backend.sdvedutech.in/ready
 curl -fsSI https://admin.sdvedutech.in/
 ```
+
+### Startup expectations
+
+| Signal                                                                                                                 | Meaning                                                                        |
+| ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `minio-init` logs `Alias 'local' configured` then `Bucket '…' ready` with **no** `connection refused`                  | MinIO race fixed — init gated on `service_healthy` + quiet retries             |
+| `migrate` logs `Running prisma migrate deploy` then either applied migrations or **`No pending migrations to apply.`** | Success (idempotent). Only the `migrate` one-shot runs this; api/worker do not |
+| `migrate` / `minio-init` exit 0; no inherited `/live` healthcheck on migrate                                           | One-shots stay one-shots (no false unhealthy / recreate loops)                 |
 
 ## 6. Fixing wrong or incomplete Compose apps
 

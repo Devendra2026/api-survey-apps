@@ -95,10 +95,11 @@ services:
         max_attempts: 10
 
   minio-init:
-    image: minio/mc:latest
+    # Pin mc RELEASE to match server era; :latest drifts and can break init.
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
     depends_on:
       minio:
-        condition: service_started
+        condition: service_healthy
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in Dokploy Environment}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in Dokploy Environment}
@@ -107,18 +108,24 @@ services:
       - /bin/sh
       - -c
       - |
-        set -e
+        set -eu
+        echo "Waiting for MinIO API (service_healthy + defensive retries)..."
         i=0
-        until mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do
+        until mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" >/dev/null 2>&1; do
           i=$$((i+1))
           if [ "$$i" -gt 30 ]; then
             echo "MinIO not ready after 30 attempts" >&2
             exit 1
           fi
+          echo "MinIO not ready, retry $$i/30..."
           sleep 2
         done
+        echo "Alias 'local' configured"
+        mc ready local
         mc mb --ignore-existing "local/$$MINIO_BUCKET"
-        # Private bucket — apps use presigned URLs (no anonymous download).
+        echo "Bucket '$$MINIO_BUCKET' ready (private; apps use presigned URLs)"
+    healthcheck:
+      disable: true
     restart: "no"
     networks:
       - app
@@ -129,6 +136,9 @@ services:
       dockerfile: apps/api/Dockerfile
     image: ${APP_IMAGE_API:-api-survey-api:prod}
     restart: "no"
+    # One-shot job — do not inherit API image HEALTHCHECK (/live).
+    healthcheck:
+      disable: true
     depends_on:
       postgres:
         condition: service_healthy

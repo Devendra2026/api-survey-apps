@@ -56,6 +56,10 @@ PRISMA_BIN="$(find_prisma)" || {
   exit 1
 }
 
+# Idempotent: applies pending migrations or exits 0 with "No pending migrations to apply."
+# This one-shot job is the only production migrate path (api/worker do not run migrate).
+echo "Running prisma migrate deploy (idempotent)..."
+
 case "$PRISMA_BIN" in
   *.js)
     exec node "$PRISMA_BIN" migrate deploy

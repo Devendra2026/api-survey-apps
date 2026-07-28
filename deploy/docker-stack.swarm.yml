@@ -6,6 +6,12 @@
 # Deploy:
 #   docker stack deploy -c deploy/docker-stack.swarm.yml survey
 #
+# Note: Swarm is a secondary path. Prefer Dokploy Compose
+# (docker-compose.dokploy.yml) for migrate + minio-init orchestration with
+# service_healthy / service_completed_successfully. Swarm ignores depends_on;
+# minio-init relies on retry loops. Run prisma migrate deploy manually (see
+# migrate comment below) before relying on api/worker.
+#
 # Domains (override via env):
 #   WEB_HOST=admin.sdvedutech.in
 #   API_HOST=backend.sdvedutech.in
@@ -59,20 +65,66 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET:-api-survey-app}
     volumes:
       - survey_minio_data:/data
     networks:
       - survey-internal
+    # Image includes curl; health endpoint does not need `mc`.
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
       retries: 12
-      start_period: 15s
+      start_period: 10s
     deploy:
       replicas: 1
       restart_policy:
         condition: on-failure
+
+  # Swarm ignores depends_on; retries are the fault-tolerance layer.
+  # Prefer Dokploy Compose (docker-compose.dokploy.yml) for migrate + init orchestration.
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET:-api-survey-app}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        echo "Waiting for MinIO API (defensive retries; Swarm has no depends_on)..."
+        i=0
+        until mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" >/dev/null 2>&1; do
+          i=$$((i+1))
+          if [ "$$i" -gt 30 ]; then
+            echo "MinIO not ready after 30 attempts" >&2
+            exit 1
+          fi
+          echo "MinIO not ready, retry $$i/30..."
+          sleep 2
+        done
+        echo "Alias 'local' configured"
+        mc ready local
+        mc mb --ignore-existing "local/$$MINIO_BUCKET"
+        echo "Bucket '$$MINIO_BUCKET' ready (private; apps use presigned URLs)"
+    networks:
+      - survey-internal
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: none
+      # Run once per stack deploy; do not restart on success/failure loops.
+
+  # One-shot migrate: run manually or via Compose (Dokploy primary path).
+  # Swarm does not reliably order one-shots before replicas — prefer:
+  #   docker run --rm --network <stack>_survey-internal \
+  #     -e DATABASE_URL=... -e DIRECT_URL=... \
+  #     --entrypoint sh ${APP_IMAGE_API:-api-survey-api:prod} \
+  #     /app/apps/api/docker-entrypoint.migrate.sh
+  # before scaling api/worker, or use docker-compose.dokploy.yml.
 
   api:
     image: ${APP_IMAGE_API:-api-survey-api:prod}

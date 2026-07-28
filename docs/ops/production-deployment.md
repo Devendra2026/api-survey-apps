@@ -4,7 +4,7 @@
 
 Starting the **monorepo root** as a single application fails: root is workspace-only and has **no** app `start` script, so no healthy process remains → Swarm `0/1` replicas → Traefik **502**.
 
-**Fix:** deploy via **Docker Compose** ([`docker-compose.dokploy.yml`](../../docker-compose.dokploy.yml)) or three application images (web / api / worker) built from Dockerfiles. Never run the monorepo root as one undifferentiated process. See [`DEPLOYMENT.md`](../../DEPLOYMENT.md).
+**Fix:** deploy via **Docker Compose** ([`docker-compose.dokploy.yml`](../../docker-compose.dokploy.yml)). There is intentionally **no root Dockerfile** — do not run web+api+worker in one container. See [`DEPLOYMENT.md`](../../DEPLOYMENT.md).
 
 ---
 
@@ -20,11 +20,11 @@ All bind `HOSTNAME=0.0.0.0`.
 
 ---
 
-## Preferred: Dokploy Compose application
+## Supported: Dokploy Compose application
 
-1. Create one Dokploy **Compose** application.
+1. Create one Dokploy **Compose** application (build type = **Docker Compose**).
 2. Compose file: `docker-compose.dokploy.yml`
-3. Inject secrets via Dokploy **Environment** UI (see [dokploy-env.md](./dokploy-env.md) or `deploy/env/*.env.example`). On-disk `.env.production` is optional.
+3. Inject secrets via Dokploy **Environment** UI (see [dokploy-env.md](./dokploy-env.md) or `deploy/env/*.env.example`). Dokploy writes `.env`; compose loads it into app services. On-disk `.env.production` is optional (local only).
 4. Domains via Dokploy domains **or** Traefik labels already on `web` / `api`:
    - `admin.sdvedutech.in` → web container port **3000**
    - `backend.sdvedutech.in` → api container port **4000**
@@ -32,57 +32,17 @@ All bind `HOSTNAME=0.0.0.0`.
 
 ### Critical Dokploy settings
 
-| Setting    | Value                             |
-| ---------- | --------------------------------- |
-| Builder    | **Dockerfile** (Compose services) |
-| Context    | Repository root                   |
-| Do not set | Root Start Command / `pnpm start` |
+| Setting      | Value                                      |
+| ------------ | ------------------------------------------ |
+| Build type   | **Docker Compose**                         |
+| Compose file | `docker-compose.dokploy.yml`               |
+| Context      | Repository root (`.`)                      |
+| Dockerfiles  | Via compose only (`apps/*/Dockerfile`)     |
+| Do not set   | Root Dockerfile / Start Command / Nixpacks |
 
 ---
 
-## Alternative: three Dokploy Applications
-
-Create separate apps; each uses its Dockerfile with **build context = repo root**.
-
-### Web
-
-| Field      | Value                                                                                         |
-| ---------- | --------------------------------------------------------------------------------------------- |
-| Dockerfile | `apps/web/Dockerfile`                                                                         |
-| Port       | `3000`                                                                                        |
-| Health     | `/healthz`                                                                                    |
-| Build args | `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` |
-| Env file   | `deploy/env/web.env.example` → secrets                                                        |
-
-### API
-
-| Field      | Value                        |
-| ---------- | ---------------------------- |
-| Dockerfile | `apps/api/Dockerfile`        |
-| Port       | `4000`                       |
-| Health     | `/live`                      |
-| Env file   | `deploy/env/api.env.example` |
-
-### Worker
-
-| Field      | Value                           |
-| ---------- | ------------------------------- |
-| Dockerfile | `apps/worker/Dockerfile`        |
-| Port       | `4001` (no public domain)       |
-| Health     | `/live`                         |
-| Env file   | `deploy/env/worker.env.example` |
-
-Run migrations once before/with API:
-
-```bash
-docker run --rm --env-file api.env \
-  --entrypoint sh api-survey-api:prod \
-  /app/apps/api/docker-entrypoint.migrate.sh
-```
-
----
-
-## Docker Swarm + Traefik
+## Docker Swarm + Traefik (optional, non-Dokploy)
 
 ```bash
 docker network create --driver=overlay --attachable traefik-public

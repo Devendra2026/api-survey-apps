@@ -7,8 +7,8 @@ Use after first Dokploy deploy with `docker-compose.dokploy.yml`.
 - [ ] Postgres, MinIO, Redis containers healthy
 - [ ] Docker volumes present: `survey_pg_data_prod`, `survey_minio_data_prod`, `survey_redis_data_prod`
 - [ ] Postgres and MinIO not published publicly (compose keeps them on the internal `app` network)
-- [ ] Strong `POSTGRES_PASSWORD` / `MINIO_ROOT_PASSWORD` set in Dokploy secrets
-- [ ] Secrets only in Dokploy (no committed real `.env.production` passwords)
+- [ ] Strong `POSTGRES_PASSWORD` / `REDIS_PASSWORD` / `MINIO_ROOT_*` set in Dokploy Environment
+- [ ] Secrets only in Dokploy (Dokploy `.env` on host; never commit real passwords)
 - [ ] TLS terminates at Dokploy / reverse proxy for `admin` and `backend` domains
 
 ## Application

@@ -63,29 +63,32 @@ pnpm turbo build --filter=web... --filter=api... --filter=worker...
 
 ## Dokploy — Compose (only supported path)
 
+There is **intentionally no root `Dockerfile`**. Do not create a single multi-process image for web+api+worker. Production is **Docker Compose only**.
+
 | Setting       | Value                                                                                                 |
 | ------------- | ----------------------------------------------------------------------------------------------------- |
-| Build type    | Docker Compose                                                                                        |
+| Build type    | **Docker Compose** (not Dockerfile / Nixpacks / Railpack)                                             |
 | Compose file  | `docker-compose.dokploy.yml`                                                                          |
 | Build context | repository root (`.`)                                                                                 |
-| Dockerfiles   | `apps/web/Dockerfile`, `apps/api/Dockerfile`, `apps/worker/Dockerfile`                                |
+| Dockerfiles   | Per service only: `apps/web/Dockerfile`, `apps/api/Dockerfile`, `apps/worker/Dockerfile`              |
 | Ports         | web `3001→3000`, api `4000`, worker `4001`                                                            |
 | Health        | web `/healthz`, api/worker `/live`                                                                    |
 | Metrics       | api/worker `/metrics` (optional scrape; see [`docs/ops/observability.md`](docs/ops/observability.md)) |
 | Infra images  | Postgres **17**, Redis **8**, MinIO (pinned RELEASE)                                                  |
 
-1. Create a **Compose** application in Dokploy.
+1. Create a **Compose** application in Dokploy (build type = Docker Compose).
 2. Compose file: [`docker-compose.dokploy.yml`](docker-compose.dokploy.yml).
 3. Build context = **repository root** (each service `build.context: .`).
 4. Dockerfile paths (via compose): `apps/web/Dockerfile`, `apps/api/Dockerfile`, `apps/worker/Dockerfile`.
-5. Secrets in Dokploy **Environment** UI (`.env.production` optional via `env_file.required: false`).
+5. Secrets in Dokploy **Environment** UI. Dokploy writes them to `.env`; compose loads that file into migrate/api/worker/web (`env_file: .env`, `required: false`). Optional local fallback: `.env.production`.
    **Required with no defaults:** `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`.
-6. Domains: `admin.sdvedutech.in` → web:3000; `backend.sdvedutech.in` → api:4000.
-7. Host ports: web `3001→3000`, api `4000`, worker `4001`.
+   Also set `DATABASE_URL` / `DIRECT_URL`, Clerk keys, and `NEXT_PUBLIC_*` — see [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md).
+6. Domains: `admin.sdvedutech.in` → web:**3000**; `backend.sdvedutech.in` → api:**4000** (Traefik container ports).
+7. Host ports (direct access / SG): web `3001→3000`, api `4000`, worker `4001`.
 8. Health: web `/healthz`, api/worker `/live`.
 9. Deploy: migrate → api / worker / web healthy.
 
-Web **build args** (Compose already wires these): `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`.
+Web **build args** (Compose already wires these from the same Dokploy env): `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`.
 
 **Postgres 16 → 17:** existing data volumes are not binary-compatible. Dump/restore or recreate the volume before first PG17 start.
 
@@ -117,21 +120,22 @@ See [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md), [`.env.example`](.env.
 
 ## Troubleshooting
 
-| Symptom                          | Fix                                                                       |
-| -------------------------------- | ------------------------------------------------------------------------- |
-| Traefik 502 / no healthy process | Use Compose + Dockerfiles; do not start the monorepo root as a single app |
-| Prisma generate fails            | Ensure dummy/real `DATABASE_URL` at build                                 |
-| Web missing Clerk/API URL        | Set `NEXT_PUBLIC_*` at **build** time                                     |
-| Worker Chromium fails            | Use `apps/worker/Dockerfile` (Debian + Playwright deps)                   |
-| Wrong workspace packages         | Build context = monorepo root                                             |
-| Engine/lockfile errors           | Node >=24, pnpm 11.17.0 via corepack                                      |
+| Symptom                            | Fix                                                                            |
+| ---------------------------------- | ------------------------------------------------------------------------------ |
+| Traefik 502 / no healthy process   | Use Compose + per-app Dockerfiles; no root Dockerfile / no monorepo-root start |
+| App missing `DATABASE_URL` / Clerk | Ensure vars are in Dokploy Environment UI; compose must `env_file: .env`       |
+| Prisma generate fails              | Ensure dummy/real `DATABASE_URL` at build                                      |
+| Web missing Clerk/API URL          | Set `NEXT_PUBLIC_*` at **build** time                                          |
+| Worker Chromium fails              | Use `apps/worker/Dockerfile` (Debian + Playwright deps)                        |
+| Wrong workspace packages           | Build context = monorepo root                                                  |
+| Engine/lockfile errors             | Node >=24, pnpm 11.17.0 via corepack                                           |
 
 ---
 
 ## Verification checklist
 
 - [x] Nixpacks removed; Docker is the only deploy path
-- [x] Compose `env_file` optional
+- [x] Compose `env_file: .env` (Dokploy) + optional `.env.production`
 - [x] `prisma` in database dependencies
 - [x] `pnpm install --frozen-lockfile`
 - [x] `pnpm turbo build --filter=web... --filter=api... --filter=worker...`

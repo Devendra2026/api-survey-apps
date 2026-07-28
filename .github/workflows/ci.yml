@@ -120,5 +120,7 @@ jobs:
           REDIS_PASSWORD: ci-redis-password
           MINIO_ROOT_USER: ci-minio
           MINIO_ROOT_PASSWORD: ci-minio-password
+          DATABASE_URL: postgresql://postgres:ci-postgres-password@postgres:5432/survey?schema=public
+          DIRECT_URL: postgresql://postgres:ci-postgres-password@postgres:5432/survey?schema=public
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ci
         run: docker compose -f docker-compose.dokploy.yml config

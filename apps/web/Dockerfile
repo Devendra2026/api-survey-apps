@@ -5,6 +5,8 @@ ARG PNPM_VERSION=11.17.0
 ARG TURBO_VERSION=2.10.5
 
 FROM node:${NODE_VERSION}-alpine AS base
+# ARG before FROM is not in stage scope — redeclare for corepack.
+ARG PNPM_VERSION
 RUN apk add --no-cache libc6-compat \
   && corepack enable \
   && corepack prepare pnpm@${PNPM_VERSION} --activate

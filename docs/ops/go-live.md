@@ -2,19 +2,20 @@
 
 ## What is already done in the repo
 
-- `docker-compose.dokploy.yml` — builds web/api/worker + Docker Postgres, MinIO, Redis
-- `.env.production` — domains, Clerk, Docker DB/storage URLs
+- `docker-compose.dokploy.yml` — builds web/api/worker + Docker Postgres, MinIO, Redis (no root Dockerfile)
+- Env templates: [`dokploy-env.md`](./dokploy-env.md), [`deploy/env/*.env.example`](../../deploy/env/)
 - Migrations fail fast if `REPLACE_ME` is still in `DATABASE_URL`
 - Release workflow can push to ECR later (optional); first launch uses compose **build**
 
 ## Blockers only you can clear
 
-1. **Postgres + MinIO passwords** in Dokploy env  
-   Set strong `POSTGRES_PASSWORD` / `MINIO_ROOT_PASSWORD` and keep them aligned with `DATABASE_URL` / `DIRECT_URL`.
+1. **Infra + app secrets** in Dokploy Environment UI  
+   Required: `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`.  
+   Also set `DATABASE_URL` / `DIRECT_URL` (same password as Postgres), Clerk keys, and `NEXT_PUBLIC_*`.
 
 2. **DNS + TLS in Dokploy**
-   - `admin.sdvedutech.in` → service `web` port `3001`
-   - `backend.sdvedutech.in` → service `api` port `4000`
+   - `admin.sdvedutech.in` → service `web` container port **3000** (host map is `3001→3000`)
+   - `backend.sdvedutech.in` → service `api` container port **4000**
    - Worker listens on `4001` (internal; open SG if you need direct access)
    - Clerk allowed origins / redirect URLs include `https://admin.sdvedutech.in`
 
@@ -37,8 +38,8 @@ aws ec2 authorize-security-group-ingress --group-id sg-XXXXXXXX --protocol tcp -
 
 ## Dokploy deploy steps
 
-1. Paste `.env.production` into Dokploy environment (after setting strong passwords).
-2. Deploy compose file `docker-compose.dokploy.yml` from this repo.
+1. Paste the env matrix from [dokploy-env.md](./dokploy-env.md) (or `deploy/env/*.env.example`) into Dokploy **Environment** (after setting strong passwords). Dokploy writes `.env`; compose loads it.
+2. Deploy as Build type **Docker Compose**, file `docker-compose.dokploy.yml`, context = repo root.
 3. Wait for `postgres` / `minio` / `redis` healthy, `migrate` success, then `api` `/health` + `/ready`, then `web`.
 4. Open `https://admin.sdvedutech.in` and sign in with Clerk.
 5. Optional: set `BOOTSTRAP_ADMIN_CLERK_USER_IDS` to your Clerk user id, redeploy once.

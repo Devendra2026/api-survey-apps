@@ -37,14 +37,14 @@ pnpm dev                                       # api + web + worker
 
 **Full guide:** [`DEPLOYMENT.md`](DEPLOYMENT.md).
 
-**Docker Compose only** ([`docker-compose.dokploy.yml`](docker-compose.dokploy.yml)). Nixpacks is not used.
+**Docker Compose only** ([`docker-compose.dokploy.yml`](docker-compose.dokploy.yml)). No root Dockerfile; Nixpacks is not used.
 
 ### One Compose application
 
-1. Dokploy → new Compose application
+1. Dokploy → new **Compose** application (build type = Docker Compose)
 2. File: [`docker-compose.dokploy.yml`](docker-compose.dokploy.yml)
 3. Build context = repository root
-4. Env: paste into Dokploy **Environment** UI (see [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md) and [`deploy/env/*.env.example`](deploy/env/)). No on-disk `.env.production` required.
+4. Env: paste into Dokploy **Environment** UI (Dokploy writes `.env`; see [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md) and [`deploy/env/*.env.example`](deploy/env/))
 5. Domains (Traefik labels included):
    - `admin.sdvedutech.in` → **web:3000**
    - `backend.sdvedutech.in` → **api:4000**

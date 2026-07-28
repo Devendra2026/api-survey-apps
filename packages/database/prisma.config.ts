@@ -1,11 +1,12 @@
 import { defineConfig } from "prisma/config"
-import { loadRootEnv } from "./load-root-env.js"
-
-loadRootEnv(import.meta.url)
 
 /**
  * Prefer DIRECT_URL for migrate/deploy when a pooled URL is used at runtime.
  * Runtime app connections continue to use DATABASE_URL via createPrismaClient().
+ *
+ * Env must already be present (Dokploy/Compose inject; local: export or root `.env`
+ * loaded by the calling tool). Avoid importing `dotenv` here — the production
+ * migrate image resolves modules from a pruned pnpm deploy tree.
  */
 function resolveDatasourceUrl(): string {
   const direct = process.env.DIRECT_URL?.trim()

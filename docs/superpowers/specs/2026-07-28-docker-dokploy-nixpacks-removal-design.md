@@ -75,7 +75,7 @@ Optimizations:
 1. Create a **Compose** application in Dokploy.
 2. Compose file: `docker-compose.dokploy.yml`.
 3. Build context: repository root (compose `build.context: .`).
-4. Secrets: Dokploy Environment UI (primary); optional `.env.production` via `env_file.required: false`.
+4. Secrets: Dokploy Environment UI → Dokploy `.env`; compose `env_file: .env` (optional `.env.production` fallback).
 5. Domains (Traefik labels in compose):
    - `admin.sdvedutech.in` → web:3000
    - `backend.sdvedutech.in` → api:4000

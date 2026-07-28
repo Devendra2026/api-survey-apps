@@ -11,16 +11,18 @@ OpenSearch is **not** deployed (application uses Prisma indexes only).
 
 ## Stack
 
-Use root [`docker-compose.dokploy.yml`](../../docker-compose.dokploy.yml):
+Use root [`docker-compose.dokploy.yml`](../../docker-compose.dokploy.yml) as a **single Compose application**:
 
-- `postgres` — survey database
-- `minio` + `minio-init` — object storage bucket
-- `redis` — BullMQ
-- `migrate` → `api` / `worker` / `web`
+- Build type: **Docker Compose** (not a root Dockerfile / Nixpacks)
+- Compose file: `docker-compose.dokploy.yml`
+- Build context: repository root
+- Per-service Dockerfiles: `apps/{web,api,worker}/Dockerfile` (`turbo prune --docker`)
+- Services: `postgres`, `redis`, `minio`, `minio-init`, `migrate`, `api`, `worker`, `web`
+- Domains (Traefik labels): `admin.sdvedutech.in` → web:**3000**; `backend.sdvedutech.in` → api:**4000**
 
 Primary guide: [`DEPLOYMENT.md`](../../DEPLOYMENT.md). Ops checklist: [production-deployment.md](./production-deployment.md).
 
-**Important:** Use `docker-compose.dokploy.yml` + Dockerfiles under `apps/*/`. Inject secrets via Dokploy Environment UI (`.env.production` optional). Docker is the only supported production builder — see [`DEPLOYMENT.md`](../../DEPLOYMENT.md).
+**Important:** There is intentionally **no root Dockerfile**. Inject secrets via Dokploy Environment UI (Dokploy writes `.env`; compose loads it). Optional on-disk `.env.production` for local compose only. See [`DEPLOYMENT.md`](../../DEPLOYMENT.md).
 
 Env matrix: [dokploy-env.md](./dokploy-env.md)
 
@@ -31,10 +33,10 @@ Go-live: [go-live.md](./go-live.md)
 Tag `v*` or workflow_dispatch → [`.github/workflows/release.yml`](../../.github/workflows/release.yml):
 
 1. OIDC assume role (if configured)
-2. Build/push api, web, worker to ECR
+2. Build/push api, web, worker to ECR (per-app Dockerfiles, context = repo root)
 3. Dokploy webhook
 
-First launch can skip ECR and build images on the Dokploy host.
+First launch can skip ECR and build images on the Dokploy host from compose.
 
 ## Rollback
 

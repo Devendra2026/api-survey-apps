@@ -5,6 +5,8 @@ ARG PNPM_VERSION=11.17.0
 ARG TURBO_VERSION=2.10.5
 
 FROM node:${NODE_VERSION}-alpine AS base
+# ARG before FROM is not in stage scope — redeclare for corepack.
+ARG PNPM_VERSION
 RUN apk add --no-cache libc6-compat \
   && corepack enable \
   && corepack prepare pnpm@${PNPM_VERSION} --activate
@@ -42,16 +44,21 @@ FROM builder AS deploy
 ENV HUSKY=0
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
   pnpm --filter api deploy --prod --legacy /deploy \
-  && mkdir -p /deploy/apps/api /deploy/packages/database \
+  && mkdir -p /deploy/apps/api /deploy/packages/database/src \
   && cp -r /app/apps/api/dist /deploy/apps/api/dist \
   && cp /app/apps/api/docker-entrypoint.sh /deploy/apps/api/docker-entrypoint.sh \
   && cp /app/apps/api/docker-entrypoint.migrate.sh /deploy/apps/api/docker-entrypoint.migrate.sh \
   && cp -r /app/packages/database/prisma /deploy/packages/database/prisma \
   && cp /app/packages/database/package.json /deploy/packages/database/package.json \
+  && if [ -d /app/packages/database/dist ]; then cp -r /app/packages/database/dist /deploy/packages/database/dist; fi \
+  && if [ -d /app/packages/database/src/generated ]; then cp -r /app/packages/database/src/generated /deploy/packages/database/src/generated; fi \
   && if [ -f /app/packages/database/prisma.config.ts ]; then cp /app/packages/database/prisma.config.ts /deploy/packages/database/prisma.config.ts; fi \
-  && if [ -f /app/packages/database/prisma.config.js ]; then cp /app/packages/database/prisma.config.js /deploy/packages/database/prisma.config.js; fi \
-  && if [ -f /app/packages/database/load-root-env.ts ]; then cp /app/packages/database/load-root-env.ts /deploy/packages/database/load-root-env.ts; fi \
-  && chmod +x /deploy/apps/api/docker-entrypoint.sh /deploy/apps/api/docker-entrypoint.migrate.sh
+  && PRISMA_DIR="$(find /deploy/node_modules/.pnpm -type f -path '*/node_modules/prisma/package.json' | head -n 1 | sed 's|/package.json||')" \
+  && if [ -z "$PRISMA_DIR" ]; then echo "prisma package missing from deploy tree" >&2; exit 1; fi \
+  && ln -sfn "${PRISMA_DIR#/deploy/node_modules/}" /deploy/node_modules/prisma \
+  && mkdir -p /deploy/node_modules/.bin \
+  && printf '%s\n' '#!/bin/sh' 'exec node /app/node_modules/prisma/build/index.js "$@"' > /deploy/node_modules/.bin/prisma \
+  && chmod +x /deploy/node_modules/.bin/prisma /deploy/apps/api/docker-entrypoint.sh /deploy/apps/api/docker-entrypoint.migrate.sh
 
 FROM node:${NODE_VERSION}-alpine AS runner
 WORKDIR /app

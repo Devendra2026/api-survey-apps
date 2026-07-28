@@ -5,6 +5,8 @@ ARG PNPM_VERSION=11.17.0
 ARG TURBO_VERSION=2.10.5
 
 FROM node:${NODE_VERSION}-bookworm-slim AS base
+# ARG before FROM is not in stage scope — redeclare for corepack.
+ARG PNPM_VERSION
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl wget \
   && rm -rf /var/lib/apt/lists/* \
@@ -34,6 +36,7 @@ ENV NODE_ENV=production
 ENV DATABASE_URL=postgresql://postgres:postgres@localhost:5432/survey?schema=public
 ENV DIRECT_URL=postgresql://postgres:postgres@localhost:5432/survey?schema=public
 COPY --from=prepare /app/out/full/ .
+ENV PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT=180000
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
   pnpm --filter @workspace/database db:generate \
   && pnpm turbo build --filter=worker... \
@@ -44,8 +47,11 @@ FROM builder AS deploy
 ENV HUSKY=0
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
   pnpm --filter worker deploy --prod --legacy /deploy \
-  && mkdir -p /deploy/apps/worker \
-  && cp -r /app/apps/worker/dist /deploy/apps/worker/dist
+  && mkdir -p /deploy/apps/worker /deploy/packages/database/src \
+  && cp -r /app/apps/worker/dist /deploy/apps/worker/dist \
+  && if [ -d /app/packages/database/dist ]; then cp -r /app/packages/database/dist /deploy/packages/database/dist; fi \
+  && if [ -d /app/packages/database/src/generated ]; then cp -r /app/packages/database/src/generated /deploy/packages/database/src/generated; fi \
+  && cp /app/packages/database/package.json /deploy/packages/database/package.json
 
 FROM node:${NODE_VERSION}-bookworm-slim AS runner
 WORKDIR /app

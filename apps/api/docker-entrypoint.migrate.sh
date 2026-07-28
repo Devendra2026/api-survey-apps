@@ -20,10 +20,13 @@ esac
 
 cd /app/packages/database
 
-# Runner image has no pnpm; locate the Prisma CLI binary from the deploy tree.
+# Runner image has no pnpm; locate the Prisma CLI from the deploy tree
+# (pnpm deploy often nests bins under node_modules/.pnpm/...).
 find_prisma() {
   for candidate in \
     /app/node_modules/.bin/prisma \
+    /app/node_modules/.pnpm/node_modules/.bin/prisma \
+    /app/packages/database/node_modules/.bin/prisma \
     /app/node_modules/prisma/build/index.js \
     /app/node_modules/@prisma/cli/build/index.js \
     ./node_modules/.bin/prisma
@@ -33,6 +36,14 @@ find_prisma() {
       return 0
     fi
   done
+
+  # Last resort: first executable prisma bin under node_modules
+  found="$(find /app/node_modules -path '*/.bin/prisma' \( -type f -o -type l \) 2>/dev/null | head -n 1)"
+  if [ -n "$found" ] && { [ -x "$found" ] || [ -f "$found" ]; }; then
+    echo "$found"
+    return 0
+  fi
+
   return 1
 }
 

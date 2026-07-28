@@ -2,9 +2,12 @@
 # Services: postgres + minio + redis (Docker) + migrate + api + worker + web
 #
 # Deploy as ONE Compose application in Dokploy (this file). Docker only — no Nixpacks.
-# Secrets: inject via Dokploy Environment UI (primary). Optional DOKPLOY_ENV_FILE / .env.production
-# is loaded only when the file exists (env_file.required=false).
-# See DEPLOYMENT.md.
+# There is intentionally NO root Dockerfile (do not run web+api+worker in one image).
+#
+# Secrets: paste into Dokploy Environment UI. Dokploy writes them to `.env` next to this
+# compose file (interpolation + container injection via env_file below). Optional
+# `.env.production` / DOKPLOY_ENV_FILE is a local/offline fallback (required=false).
+# See DEPLOYMENT.md and docs/ops/dokploy-env.md.
 #
 # Required secrets (no insecure defaults): POSTGRES_PASSWORD, REDIS_PASSWORD,
 # MINIO_ROOT_USER, MINIO_ROOT_PASSWORD.
@@ -126,13 +129,16 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    # Dokploy Environment UI is primary; optional file for local/offline compose.
+    # Dokploy writes UI env to `.env`; must env_file it or vars never reach the container.
     env_file:
+      - path: .env
+        required: false
       - path: ${DOKPLOY_ENV_FILE:-.env.production}
         required: false
     environment:
       NODE_ENV: production
-      DATABASE_URL: ${DIRECT_URL:-${DATABASE_URL}}
+      DATABASE_URL: ${DIRECT_URL:-${DATABASE_URL:?Set DATABASE_URL or DIRECT_URL in Dokploy Environment}}
+      DIRECT_URL: ${DIRECT_URL:-${DATABASE_URL:?Set DATABASE_URL or DIRECT_URL in Dokploy Environment}}
     entrypoint: ["sh", "/app/apps/api/docker-entrypoint.migrate.sh"]
     networks:
       - app
@@ -155,15 +161,23 @@ services:
       minio-init:
         condition: service_completed_successfully
     env_file:
+      - path: .env
+        required: false
       - path: ${DOKPLOY_ENV_FILE:-.env.production}
         required: false
     environment:
       NODE_ENV: production
       PORT: "4000"
       HOSTNAME: "0.0.0.0"
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in Dokploy Environment}
+      DIRECT_URL: ${DIRECT_URL:-${DATABASE_URL}}
       STORAGE_PROVIDER: minio
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       MINIO_ENDPOINT: http://minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET:-api-survey-app}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-api-survey-app}
     ports:
       - "4000:4000"
     labels:
@@ -209,15 +223,23 @@ services:
       minio-init:
         condition: service_completed_successfully
     env_file:
+      - path: .env
+        required: false
       - path: ${DOKPLOY_ENV_FILE:-.env.production}
         required: false
     environment:
       NODE_ENV: production
       WORKER_PORT: "4001"
       HOSTNAME: "0.0.0.0"
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in Dokploy Environment}
+      DIRECT_URL: ${DIRECT_URL:-${DATABASE_URL}}
       STORAGE_PROVIDER: minio
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       MINIO_ENDPOINT: http://minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET:-api-survey-app}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-api-survey-app}
     ports:
       - "4001:4001"
     healthcheck:
@@ -251,6 +273,8 @@ services:
       api:
         condition: service_healthy
     env_file:
+      - path: .env
+        required: false
       - path: ${DOKPLOY_ENV_FILE:-.env.production}
         required: false
     environment:

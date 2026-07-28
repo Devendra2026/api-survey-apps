@@ -138,3 +138,19 @@ Before production sign-in, set `BOOTSTRAP_ADMIN_CLERK_USER_IDS` and rebuild
 the web image with the final `NEXT_PUBLIC_*` values. Treat any PostgreSQL
 major-volume transition as a dump/restore or planned `pg_upgrade`, run a full
 backup smoke, copy it off-host, and complete a disposable restore drill.
+
+## Final validation gate (Task 9)
+
+Validated locally on 2026-07-29 from `chore/production-upgrade-stability`:
+
+- `pnpm install` - PASS (lockfile already current; pnpm 11.17.0).
+- `pnpm turbo build` - PASS (9/9 tasks).
+- `pnpm turbo lint` - PASS (12/12 tasks; 26 existing web warnings, 0 errors).
+- `pnpm turbo typecheck` - PASS (15/15 tasks).
+- `pnpm turbo test` - PASS (8/8 tasks; API 29 suites/127 tests and ETL core 2 suites/12 tests).
+- `docker build -f apps/api/Dockerfile .` - PASS after starting the initially unavailable local Docker Desktop daemon.
+- `docker build -f apps/web/Dockerfile .` - PASS without additional build arguments.
+- `docker build -f apps/worker/Dockerfile .` - PASS.
+- `docker compose -f docker-compose.dokploy.yml config` - PASS with dummy values for required deployment variables.
+
+No upgrade-scoped implementation failures were found, so no fix-forward code changes were required. Remaining go-live concerns are the existing web lint warnings, final production secrets and public build-time values, and the previously documented live authorization and restore drills.

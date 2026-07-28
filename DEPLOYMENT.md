@@ -84,9 +84,9 @@ There is **intentionally no root `Dockerfile`**. Do not create a single multi-pr
 2. Compose file: [`docker-compose.dokploy.yml`](docker-compose.dokploy.yml).
 3. Build context = **repository root** (each service `build.context: .`).
 4. Dockerfile paths (via compose): `apps/web/Dockerfile`, `apps/api/Dockerfile`, `apps/worker/Dockerfile`.
-5. Secrets in Dokploy **Environment** UI. Dokploy writes them to `.env`; compose loads that file into migrate/api/worker/web (`env_file: .env`, `required: false`). Optional local fallback: `.env.production`.
-   **Required with no defaults:** `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`.
-   Also set `DATABASE_URL` / `DIRECT_URL` with host **`postgres`** (not localhost), Clerk keys, and `NEXT_PUBLIC_*` — see [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md).
+5. Secrets in Dokploy **Environment** UI — paste [`deploy/env/dokploy.compose.env.example`](deploy/env/dokploy.compose.env.example) (replace `REPLACE_ME_*`). Dokploy writes `.env`; compose loads it into migrate/api/worker/web.
+   **Interpolation-required (no defaults):** `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `DATABASE_URL`.
+   Also set Clerk keys and `NEXT_PUBLIC_*` — see [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md).
 6. Domains: `admin.sdvedutech.in` → web:**3000**; `backend.sdvedutech.in` → api:**4000** (Traefik container ports).
 7. Host ports (direct access / SG): web `3001→3000`, api `4000`, worker `4001`.
 8. Health: web `/healthz`, api/worker `/live`.
@@ -118,23 +118,25 @@ docker compose -f docker-compose.dokploy.yml config
 
 ## Required environment variables
 
-See [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md), [`.env.example`](.env.example), [`deploy/env/`](deploy/env/).
+Paste-ready Compose env: [`deploy/env/dokploy.compose.env.example`](deploy/env/dokploy.compose.env.example).  
+Matrix: [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md). Local: [`.env.example`](.env.example).
 
 ---
 
 ## Troubleshooting
 
-| Symptom                                      | Fix                                                                                                                                                                                                                            |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `open Dockerfile: no such file or directory` | Dokploy app type is **Docker**, not Compose. Recreate as **Docker Compose** with `docker-compose.dokploy.yml`. See [`docs/ops/dokploy-compose-setup.md`](docs/ops/dokploy-compose-setup.md). **Do not add a root Dockerfile.** |
-| Traefik 502 / no healthy process             | Use Compose + per-app Dockerfiles; no root Dockerfile / no monorepo-root start                                                                                                                                                 |
-| App missing `DATABASE_URL` / Clerk           | Ensure vars are in Dokploy Environment UI; compose must `env_file: .env`                                                                                                                                                       |
-| Migrate fails on `localhost`                 | Use `@postgres` in `DATABASE_URL` / `DIRECT_URL` (Compose DNS), not localhost                                                                                                                                                  |
-| Prisma generate fails                        | Ensure dummy/real `DATABASE_URL` at build                                                                                                                                                                                      |
-| Web missing Clerk/API URL                    | Set `NEXT_PUBLIC_*` at **build** time                                                                                                                                                                                          |
-| Worker Chromium fails                        | Use `apps/worker/Dockerfile` (Debian + Playwright deps)                                                                                                                                                                        |
-| Wrong workspace packages                     | Build context = monorepo root                                                                                                                                                                                                  |
-| Engine/lockfile errors                       | Node >=24, pnpm 11.17.0 via corepack                                                                                                                                                                                           |
+| Symptom                                                            | Fix                                                                                                                                                                                                                            |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `open Dockerfile: no such file or directory`                       | Dokploy app type is **Docker**, not Compose. Recreate as **Docker Compose** with `docker-compose.dokploy.yml`. See [`docs/ops/dokploy-compose-setup.md`](docs/ops/dokploy-compose-setup.md). **Do not add a root Dockerfile.** |
+| `MINIO_ROOT_USER` / `POSTGRES_PASSWORD` / `REDIS_PASSWORD` missing | Paste [`deploy/env/dokploy.compose.env.example`](deploy/env/dokploy.compose.env.example) into Dokploy Environment                                                                                                              |
+| Traefik 502 / no healthy process                                   | Use Compose + per-app Dockerfiles; no root Dockerfile / no monorepo-root start                                                                                                                                                 |
+| App missing `DATABASE_URL` / Clerk                                 | Ensure vars are in Dokploy Environment UI; compose must `env_file: .env`                                                                                                                                                       |
+| Migrate fails on `localhost`                                       | Use `@postgres` in `DATABASE_URL` / `DIRECT_URL` (Compose DNS), not localhost                                                                                                                                                  |
+| Prisma generate fails                                              | Ensure dummy/real `DATABASE_URL` at build                                                                                                                                                                                      |
+| Web missing Clerk/API URL                                          | Set `NEXT_PUBLIC_*` at **build** time                                                                                                                                                                                          |
+| Worker Chromium fails                                              | Use `apps/worker/Dockerfile` (Debian + Playwright deps)                                                                                                                                                                        |
+| Wrong workspace packages                                           | Build context = monorepo root                                                                                                                                                                                                  |
+| Engine/lockfile errors                                             | Node >=24, pnpm 11.17.0 via corepack                                                                                                                                                                                           |
 
 ---
 

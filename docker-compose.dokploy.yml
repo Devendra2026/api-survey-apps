@@ -13,7 +13,7 @@
 # See DEPLOYMENT.md and docs/ops/dokploy-env.md.
 #
 # Required secrets (no insecure defaults): POSTGRES_PASSWORD, REDIS_PASSWORD,
-# MINIO_ROOT_USER, MINIO_ROOT_PASSWORD. DATABASE_URL host must be `postgres`.
+# MINIO_ROOT_USER, MINIO_ROOT_PASSWORD, DATABASE_URL. Paste deploy/env/dokploy.compose.env.example.
 #
 # Domains (example):
 #   admin.sdvedutech.in   → web:3000

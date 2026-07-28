@@ -3,15 +3,16 @@
 ## What is already done in the repo
 
 - `docker-compose.dokploy.yml` — builds web/api/worker + Docker Postgres, MinIO, Redis (no root Dockerfile)
-- Env templates: [`dokploy-env.md`](./dokploy-env.md), [`deploy/env/*.env.example`](../../deploy/env/)
+- Env templates: [`deploy/env/dokploy.compose.env.example`](../../deploy/env/dokploy.compose.env.example), [`dokploy-env.md`](./dokploy-env.md)
 - Migrations fail fast if `REPLACE_ME` is still in `DATABASE_URL`
 - Release workflow can push to ECR later (optional); first launch uses compose **build**
 
 ## Blockers only you can clear
 
 1. **Infra + app secrets** in Dokploy Environment UI  
-   Required: `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`.  
-   Also set `DATABASE_URL` / `DIRECT_URL` (same password as Postgres), Clerk keys, and `NEXT_PUBLIC_*`.
+   Paste [`dokploy.compose.env.example`](../../deploy/env/dokploy.compose.env.example).  
+   Interpolation-required: `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `DATABASE_URL`.  
+   Runtime: Clerk, `NEXT_PUBLIC_*`, `CORS_ORIGIN` / `APP_URL` (host `postgres` in DB URLs).
 
 2. **DNS + TLS in Dokploy**
    - `admin.sdvedutech.in` → service `web` container port **3000** (host map is `3001→3000`)
@@ -38,9 +39,9 @@ aws ec2 authorize-security-group-ingress --group-id sg-XXXXXXXX --protocol tcp -
 
 ## Dokploy deploy steps
 
-0. **App type must be Docker Compose** — if you see `open Dockerfile: no such file`, follow [`dokploy-compose-setup.md`](./dokploy-compose-setup.md) (recreate `sdv-dashboard-jpnilc` as Compose). Do **not** add a root Dockerfile.
-1. Paste the env matrix from [dokploy-env.md](./dokploy-env.md) (or `deploy/env/*.env.example`) into Dokploy **Environment** (after setting strong passwords). `DATABASE_URL` host = `postgres`. Dokploy writes `.env`; compose loads it.
-2. Deploy as Build type **Docker Compose**, file `docker-compose.dokploy.yml`, context = repo root.
+0. **App type must be Docker Compose** — if you see `open Dockerfile: no such file`, follow [`dokploy-compose-setup.md`](./dokploy-compose-setup.md). Do **not** add a root Dockerfile.
+1. Paste [`deploy/env/dokploy.compose.env.example`](../../deploy/env/dokploy.compose.env.example) into Dokploy **Environment** (replace all `REPLACE_ME_*`). Missing `MINIO_ROOT_USER` / `POSTGRES_PASSWORD` / etc. fails compose interpolation before start.
+2. Confirm `DATABASE_URL` host is `postgres` (not localhost). Deploy Compose file `docker-compose.dokploy.yml`, context = repo root.
 3. Wait for `postgres` / `minio` / `redis` healthy, `migrate` success, then `api` `/health` + `/ready`, then `web`.
 4. Open `https://admin.sdvedutech.in` and sign in with Clerk.
 5. Optional: set `BOOTSTRAP_ADMIN_CLERK_USER_IDS` to your Clerk user id, redeploy once.

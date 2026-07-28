@@ -2,21 +2,75 @@
 
 Data plane runs **inside** the compose stack (Postgres 17, MinIO, Redis 8). Prefer Dokploy secrets for passwords — do not commit real values.
 
+**Copy-paste block for Compose:** [`deploy/env/dokploy.compose.env.example`](../../deploy/env/dokploy.compose.env.example)  
+**UI steps:** [`dokploy-compose-setup.md`](./dokploy-compose-setup.md)
+
 ## How Dokploy injects env
 
 1. Paste variables into the Compose app **Environment** UI.
 2. Dokploy writes them to a `.env` file beside the compose file (used for `${VAR}` interpolation **and** for container injection).
-3. [`docker-compose.dokploy.yml`](../../docker-compose.dokploy.yml) loads that file on `migrate` / `api` / `worker` / `web` via `env_file: .env` (`required: false`). An optional `.env.production` (or `DOKPLOY_ENV_FILE`) is a local/offline fallback only.
+3. [`docker-compose.dokploy.yml`](../../docker-compose.dokploy.yml) loads that file on `migrate` / `api` / `worker` / `web` via `env_file: .env` (`required: false`).
 
-UI variables are **not** auto-injected unless referenced via `env_file` or `environment: ${VAR}` — that is why compose must load `.env`.
+If you see `required variable MINIO_ROOT_USER is missing a value` (or `POSTGRES_PASSWORD` / `REDIS_PASSWORD` / `MINIO_ROOT_PASSWORD` / `DATABASE_URL`), the Environment UI is empty or incomplete — paste the block from `dokploy.compose.env.example` and redeploy.
 
-Compose **requires** (no insecure defaults): `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `DATABASE_URL` (and ideally `DIRECT_URL`).
+## Checklist: interpolation vs runtime
 
-`REDIS_URL` for api/worker is set by compose to `redis://:${REDIS_PASSWORD}@redis:6379`. Compose also injects `DATABASE_URL`, MinIO credentials, and `MINIO_ENDPOINT` into api/worker so containers receive them even if only Dokploy `.env` interpolation is used.
+### A — Mandatory for `docker compose up` (interpolation)
 
-Use URL-safe Redis passwords (avoid `@`, `:`, `/` in the password) so the composed `REDIS_URL` remains valid.
+Compose uses `${VAR:?…}` — deploy **stops before containers start** if any are missing:
 
-## Required
+| Variable              | Used by                                                |
+| --------------------- | ------------------------------------------------------ |
+| `POSTGRES_PASSWORD`   | `postgres`                                             |
+| `REDIS_PASSWORD`      | `redis`, composed `REDIS_URL` for api/worker           |
+| `MINIO_ROOT_USER`     | `minio`, `minio-init`, api/worker                      |
+| `MINIO_ROOT_PASSWORD` | `minio`, `minio-init`, api/worker                      |
+| `DATABASE_URL`        | `migrate`, `api`, `worker` (`:?` required)             |
+| `DIRECT_URL`          | preferred for `migrate` (falls back to `DATABASE_URL`) |
+
+Safe defaults already in compose (no need to set unless overriding): `POSTGRES_USER`, `POSTGRES_DB`, `MINIO_BUCKET`.
+
+### B — Mandatory for healthy app runtime / web build
+
+| Variable                                                    | Where                                               |
+| ----------------------------------------------------------- | --------------------------------------------------- |
+| `DATABASE_URL` / `DIRECT_URL`                               | host **`postgres`**, password = `POSTGRES_PASSWORD` |
+| `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`                 | api (+ web server if used)                          |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `NEXT_PUBLIC_API_URL`  | **web build args**                                  |
+| `CLERK_AUTHORIZED_PARTIES`, `CORS_ORIGIN`, `APP_URL`        | production domains                                  |
+| `DEMAND_NOTICE_PRINT_SECRET`                                | api                                                 |
+| `STORAGE_PROVIDER=minio`, `MINIO_BUCKET` / `STORAGE_BUCKET` | api/worker (endpoint overridden by compose)         |
+
+## Paste-ready minimal block
+
+```bash
+POSTGRES_PASSWORD=REPLACE_ME_POSTGRES_PASSWORD
+REDIS_PASSWORD=REPLACE_ME_REDIS_PASSWORD_URL_SAFE
+MINIO_ROOT_USER=REPLACE_ME_MINIO_USER
+MINIO_ROOT_PASSWORD=REPLACE_ME_MINIO_PASSWORD
+
+DATABASE_URL=postgresql://postgres:REPLACE_ME_POSTGRES_PASSWORD@postgres:5432/survey?schema=public
+DIRECT_URL=postgresql://postgres:REPLACE_ME_POSTGRES_PASSWORD@postgres:5432/survey?schema=public
+
+NEXT_PUBLIC_API_URL=https://backend.sdvedutech.in
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_live_REPLACE_ME
+CLERK_PUBLISHABLE_KEY=pk_live_REPLACE_ME
+CLERK_SECRET_KEY=sk_live_REPLACE_ME
+CLERK_AUTHORIZED_PARTIES=https://admin.sdvedutech.in
+
+CORS_ORIGIN=https://admin.sdvedutech.in
+APP_URL=https://admin.sdvedutech.in
+DEMAND_NOTICE_PRINT_SECRET=REPLACE_ME_LONG_RANDOM
+
+STORAGE_PROVIDER=minio
+MINIO_BUCKET=api-survey-app
+STORAGE_BUCKET=api-survey-app
+NODE_ENV=production
+```
+
+Use a URL-safe `REDIS_PASSWORD` (avoid `@`, `:`, `/`).
+
+## Required (full table)
 
 | Variable                            | Example / source                                                |
 | ----------------------------------- | --------------------------------------------------------------- |
@@ -25,13 +79,13 @@ Use URL-safe Redis passwords (avoid `@`, `:`, `/` in the password) so the compos
 | `POSTGRES_PASSWORD`                 | Strong password (must match URLs below) — **required**          |
 | `POSTGRES_DB`                       | `survey` (optional; default)                                    |
 | `DATABASE_URL`                      | `postgresql://postgres:PASS@postgres:5432/survey?schema=public` |
-| `DIRECT_URL`                        | Same as `DATABASE_URL` for migrate (compose prefers this)       |
+| `DIRECT_URL`                        | Same as `DATABASE_URL` for migrate                              |
 | `REDIS_PASSWORD`                    | Strong URL-safe password — **required**                         |
 | `REDIS_URL`                         | Compose sets `redis://:${REDIS_PASSWORD}@redis:6379`            |
 | `STORAGE_PROVIDER`                  | `minio`                                                         |
 | `MINIO_ROOT_USER`                   | Strong unique user — **required**                               |
 | `MINIO_ROOT_PASSWORD`               | Strong password — **required**                                  |
-| `MINIO_ENDPOINT`                    | `http://minio:9000` (compose overrides this for api/worker)     |
+| `MINIO_ENDPOINT`                    | `http://minio:9000` (compose overrides for api/worker)          |
 | `MINIO_BUCKET`                      | `api-survey-app`                                                |
 | `STORAGE_BUCKET`                    | Same as `MINIO_BUCKET`                                          |
 | `CORS_ORIGIN`                       | `https://admin.sdvedutech.in`                                   |
@@ -86,7 +140,7 @@ Required on **api** and **worker** when using Master Data → Sync from Convex o
 | `ETL_SYSTEM_USER_ID` | worker       | Optional Nest user UUID as survey creator fallback                 |
 | `ETL_MAX_RETRIES`    | worker       | Default `5`                                                        |
 
-Also ensure: worker replicas ≥ 1, MinIO bucket writable, geo catalog (ULBs/wards) seeded before first sync. UI: Tenants & Wards **Sync from Convex** and Administration → **ETL Sync**.
+Also ensure: worker replicas ≥ 1, MinIO bucket writable, geo catalog (ULBs/wards) seeded before first sync.
 
 ## Local development (unchanged)
 

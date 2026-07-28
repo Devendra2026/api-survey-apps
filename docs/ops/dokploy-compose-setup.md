@@ -4,18 +4,24 @@
 
 ## If you see this error
 
+### Wrong app type (root Dockerfile)
+
 ```text
 ERROR: failed to solve: failed to read dockerfile: open Dockerfile: no such file or directory
 ```
 
-Dokploy app (e.g. `sdv-dashboard-jpnilc`) is building as a **single Docker** application and looking for `/Dockerfile`. That will never work here.
+Recreate as **Docker Compose** — see §1. Do **not** add a root Dockerfile.
 
-**Do not add a root Dockerfile.** Fix Dokploy instead:
+### Missing Environment secrets (your current Compose failure)
 
-1. Create a **new** application → type **Docker Compose** (not Docker / Nixpacks / Railpack), **or**
-2. Change the existing app’s build type to **Compose** if your Dokploy version allows it.
+```text
+error while interpolating services.minio-init.environment.MINIO_ROOT_USER:
+required variable MINIO_ROOT_USER is missing a value
+```
 
-Then set compose file = `docker-compose.dokploy.yml` and redeploy.
+Compose type is fine. Dokploy **Environment** is empty/incomplete. Paste [`deploy/env/dokploy.compose.env.example`](../../deploy/env/dokploy.compose.env.example) into Environment (replace `REPLACE_ME_*`), then redeploy.
+
+Same class of error for: `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `MINIO_ROOT_PASSWORD`, `DATABASE_URL`.
 
 ---
 
@@ -44,33 +50,39 @@ Then set compose file = `docker-compose.dokploy.yml` and redeploy.
 
 Dokploy writes these to `.env`. Compose loads `.env` into `migrate` / `api` / `worker` / `web`.
 
+**Preferred:** open [`deploy/env/dokploy.compose.env.example`](../../deploy/env/dokploy.compose.env.example), replace every `REPLACE_ME_*`, paste the whole file into Dokploy **Environment**, Save, Deploy.
+
+Minimal paste (same keys):
+
 ```bash
-POSTGRES_PASSWORD=CHANGE_ME_STRONG
-REDIS_PASSWORD=CHANGE_ME_URL_SAFE
-MINIO_ROOT_USER=CHANGE_ME_USER
-MINIO_ROOT_PASSWORD=CHANGE_ME_STRONG
+POSTGRES_PASSWORD=REPLACE_ME_POSTGRES_PASSWORD
+REDIS_PASSWORD=REPLACE_ME_REDIS_PASSWORD_URL_SAFE
+MINIO_ROOT_USER=REPLACE_ME_MINIO_USER
+MINIO_ROOT_PASSWORD=REPLACE_ME_MINIO_PASSWORD
 
 # Host MUST be Compose service name `postgres` — NOT localhost
-DATABASE_URL=postgresql://postgres:CHANGE_ME_STRONG@postgres:5432/survey?schema=public
-DIRECT_URL=postgresql://postgres:CHANGE_ME_STRONG@postgres:5432/survey?schema=public
+DATABASE_URL=postgresql://postgres:REPLACE_ME_POSTGRES_PASSWORD@postgres:5432/survey?schema=public
+DIRECT_URL=postgresql://postgres:REPLACE_ME_POSTGRES_PASSWORD@postgres:5432/survey?schema=public
 
 NEXT_PUBLIC_API_URL=https://backend.sdvedutech.in
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_live_...
-CLERK_PUBLISHABLE_KEY=pk_live_...
-CLERK_SECRET_KEY=sk_live_...
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_live_REPLACE_ME
+CLERK_PUBLISHABLE_KEY=pk_live_REPLACE_ME
+CLERK_SECRET_KEY=sk_live_REPLACE_ME
 CLERK_AUTHORIZED_PARTIES=https://admin.sdvedutech.in
 
 CORS_ORIGIN=https://admin.sdvedutech.in
 APP_URL=https://admin.sdvedutech.in
-DEMAND_NOTICE_PRINT_SECRET=CHANGE_ME_LONG_RANDOM
+DEMAND_NOTICE_PRINT_SECRET=REPLACE_ME_LONG_RANDOM
 
 STORAGE_PROVIDER=minio
 MINIO_BUCKET=api-survey-app
 STORAGE_BUCKET=api-survey-app
+NODE_ENV=production
 ```
 
 - Keep `POSTGRES_PASSWORD` identical to the password inside `DATABASE_URL` / `DIRECT_URL`.
 - Use a URL-safe `REDIS_PASSWORD` (avoid `@`, `:`, `/`).
+- Interpolation vs runtime checklist: [dokploy-env.md](./dokploy-env.md).
 - Optional: `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`, ETL vars — [dokploy-env.md](./dokploy-env.md).
 
 ## 3. Domains
@@ -106,15 +118,13 @@ curl -fsS https://backend.sdvedutech.in/ready
 curl -fsSI https://admin.sdvedutech.in/
 ```
 
-## 6. Fixing `sdv-dashboard-jpnilc` (wrong type today)
+## 6. Fixing wrong or incomplete Compose apps
 
-| Wrong                         | Right                                                       |
-| ----------------------------- | ----------------------------------------------------------- |
-| Application type: **Docker**  | Application type: **Docker Compose**                        |
-| Looking for root `Dockerfile` | Compose file: `docker-compose.dokploy.yml`                  |
-| Single process / Nixpacks     | Services: postgres, redis, minio, migrate, api, worker, web |
-
-Preferred path: create a **new Compose** app with the settings above, attach domains, then remove the old Docker app. Do not invent a root multi-process Dockerfile.
+| Situation                                                             | Action                                                                                               |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `open Dockerfile: no such file`                                       | Wrong type — use **Docker Compose**, not Application/Dockerfile                                      |
+| `MINIO_ROOT_USER is missing a value` (e.g. `sdv-frontend-app-qrll5q`) | Paste [`dokploy.compose.env.example`](../../deploy/env/dokploy.compose.env.example) into Environment |
+| Compose OK but migrate/api crash                                      | Check `DATABASE_URL` host is `postgres`; Clerk + `NEXT_PUBLIC_*` set                                 |
 
 ## Related
 

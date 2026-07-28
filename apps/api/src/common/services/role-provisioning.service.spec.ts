@@ -13,9 +13,9 @@ describe("RoleProvisioningService", () => {
   }) {
     const userTenantRole = {
       findFirst: jest.fn(),
-      findMany: jest.fn().mockResolvedValue(opts.existing ?? []),
-      create: jest.fn().mockResolvedValue({ id: "utr-new" }),
-      update: jest.fn().mockResolvedValue({}),
+      findMany: jest.fn().mockResolvedValue((opts.existing ?? []) as never),
+      create: jest.fn().mockResolvedValue({ id: "utr-new" } as never),
+      update: jest.fn().mockResolvedValue({} as never),
     }
     const role = {
       findUnique: jest.fn(({ where }: { where: { name: string } }) =>

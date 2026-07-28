@@ -243,7 +243,7 @@ export function EtlConsole() {
             <p className="text-sm text-muted-foreground">No ETL jobs yet.</p>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-border/60">
-              <table className="w-full min-w-[640px] text-left text-sm">
+              <table className="w-full min-w-160 text-left text-sm">
                 <thead className="border-b bg-muted/40 text-muted-foreground">
                   <tr>
                     <th className="px-3 py-2 font-medium">Type</th>

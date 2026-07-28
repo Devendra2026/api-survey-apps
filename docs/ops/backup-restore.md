@@ -1,11 +1,12 @@
 # Backup and restore
 
-The scripts create one UTC-dated backup set under
-`${BACKUP_ROOT:-/backups}/YYYY-MM-DD/`:
+Aggregate runs create an isolated UTC backup set under
+`${BACKUP_ROOT:-/backups}/YYYY-MM-DD/HHMMSSZ/`:
 
 - `postgres-HHMMSSZ.dump.gz`: compressed PostgreSQL custom-format dump.
 - `redis-HHMMSSZ.rdb`: Redis point-in-time RDB export.
 - `minio/`: mirrored contents of `MINIO_BUCKET`.
+- `.complete`: written only after all three component backups succeed.
 
 Run the scripts from a host or utility container that has Bash, PostgreSQL
 client tools, `redis-cli`, MinIO Client (`mc`), and access to each service.
@@ -36,6 +37,9 @@ bash scripts/backup/redis.sh
 bash scripts/backup/minio.sh
 ```
 
+The legacy `scripts/ops/backup-pg.sh` wrapper maps `BACKUP_DIR` to
+`BACKUP_ROOT` when `BACKUP_ROOT` is unset; `BACKUP_ROOT` takes precedence.
+
 If `REDIS_URL` is unavailable, the Redis script accepts `REDIS_PASSWORD` plus
 optional `REDIS_HOST` and `REDIS_PORT`. The production Redis service uses AOF;
 a stopped-volume snapshot of its data volume is an alternative to the RDB
@@ -45,12 +49,12 @@ snapshots.
 ## Copy every backup off-host
 
 Keeping only the Dokploy volume copy is not a backup strategy. After every
-run, copy the dated directory to independently managed storage:
+run, copy the completed run directory to independently managed storage:
 
 ```bash
-rsync -avz /backups/YYYY-MM-DD/ user@offsite:/path/
+rsync -avz /backups/YYYY-MM-DD/HHMMSSZ/ user@offsite:/path/
 # or
-scp -r /backups/YYYY-MM-DD/ user@offsite:/path/
+scp -r /backups/YYYY-MM-DD/HHMMSSZ/ user@offsite:/path/
 ```
 
 Verify transfer success and periodically compare checksums at the destination.
@@ -75,22 +79,25 @@ MINIO_BUCKET='api-survey-app-restore' \
   bash scripts/restore/all.sh /backups/YYYY-MM-DD
 ```
 
-The restore selects the newest timestamped PostgreSQL and Redis artifacts in
-the directory. Individual restore commands are also available:
+Given a day directory, aggregate restore selects its newest run containing a
+`.complete` marker. An exact completed run directory can be passed instead.
+It refuses incomplete aggregate sets and preflights every required variable,
+tool, and artifact before invoking any destructive component restore.
+Individual restore commands remain available:
 
 ```bash
 CONFIRM=yes DATABASE_URL='postgresql://...' \
-  bash scripts/restore/postgres.sh /backups/YYYY-MM-DD/postgres-HHMMSSZ.dump.gz
+  bash scripts/restore/postgres.sh /backups/YYYY-MM-DD/HHMMSSZ/postgres-HHMMSSZ.dump.gz
 
 # Redis must be stopped. Existing dump.rdb and appendonlydir are retained with
 # a .pre-restore-<timestamp> suffix before the selected RDB is installed.
 CONFIRM=yes REDIS_DATA_DIR='/path/to/stopped/redis-data' \
-  bash scripts/restore/redis.sh /backups/YYYY-MM-DD/redis-HHMMSSZ.rdb
+  bash scripts/restore/redis.sh /backups/YYYY-MM-DD/HHMMSSZ/redis-HHMMSSZ.rdb
 
 CONFIRM=yes MINIO_ENDPOINT='http://scratch-minio:9000' \
 MINIO_ROOT_USER='...' MINIO_ROOT_PASSWORD='...' \
 MINIO_BUCKET='api-survey-app-restore' \
-  bash scripts/restore/minio.sh /backups/YYYY-MM-DD/minio
+  bash scripts/restore/minio.sh /backups/YYYY-MM-DD/HHMMSSZ/minio
 ```
 
 The MinIO restore overwrites matching objects but does not remove unrelated

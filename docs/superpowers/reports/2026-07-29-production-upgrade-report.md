@@ -154,3 +154,12 @@ Validated locally on 2026-07-29 from `chore/production-upgrade-stability`:
 - `docker compose -f docker-compose.dokploy.yml config` - PASS with dummy values for required deployment variables.
 
 No upgrade-scoped implementation failures were found, so no fix-forward code changes were required. Remaining go-live concerns are the existing web lint warnings, final production secrets and public build-time values, and the previously documented live authorization and restore drills.
+
+## Final review fixes
+
+The public landing route is now available without Clerk authentication while
+API routes remain protected. Aggregate backups use isolated, completion-marked
+run directories; aggregate restore selects only completed runs and validates
+all required environment, tools, targets, and artifacts before PostgreSQL is
+touched. The legacy PostgreSQL backup wrapper also honors `BACKUP_DIR` when
+`BACKUP_ROOT` is not set.

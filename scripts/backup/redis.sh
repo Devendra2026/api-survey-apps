@@ -3,7 +3,7 @@ set -euo pipefail
 
 BACKUP_ROOT="${BACKUP_ROOT:-/backups}"
 DAY="$(date -u +%Y-%m-%d)"
-DIR="${BACKUP_ROOT}/${DAY}"
+DIR="${BACKUP_RUN_DIR:-${BACKUP_ROOT}/${DAY}}"
 OUT="${DIR}/redis-$(date -u +%H%M%SZ).rdb"
 
 if [[ -n "${REDIS_URL:-}" ]]; then

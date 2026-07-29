@@ -119,15 +119,41 @@ describe("transformSurveyBundle", () => {
     }
   })
 
-  it("fails when geo catalog missing", () => {
-    const badCtx: TransformContext = {
-      ...ctx,
-      resolveGeo: () => null,
+  it("imports incomplete drafts with ward and assessment-year placeholders", () => {
+    const result = transformSurveyBundle(
+      fixtureBundle({
+        status: "draft",
+        wardNo: "",
+        assessmentYear: "",
+        parcelNo: "",
+        propertyId: undefined,
+        mobileNo: "",
+        locality: "",
+      }),
+      ctx
+    )
+    expect(result.ok).toBe(true)
+    if (result.ok && "survey" in result && result.survey) {
+      expect(result.survey.surveyStatus).toBe("DRAFT")
+      expect(result.survey.wardNumber).toBe("00")
+      expect(result.survey.assessmentYear).toBe("AY_2025_2026")
+      expect(result.survey.propertyId).toBe("LOCAL-1")
     }
-    const result = transformSurveyBundle(fixtureBundle(), badCtx)
-    expect(result.ok).toBe(false)
-    if (!result.ok) {
-      expect(result.error).toMatch(/Geo catalog not found/)
+  })
+
+  it("still rejects finished surveys that lack ward or assessment year", () => {
+    const result = transformSurveyBundle(
+      fixtureBundle({
+        status: "submitted",
+        wardNo: "",
+        assessmentYear: "",
+      }),
+      ctx
+    )
+    expect(result.ok).toBe(true)
+    if (result.ok && "skip" in result) {
+      expect(result.skip).toBe(true)
+      expect(result.reason).toMatch(/incomplete/)
     }
   })
 })

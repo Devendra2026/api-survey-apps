@@ -29,6 +29,7 @@ import {
   DEFAULT_ETL_BATCH_SIZE,
   DEFAULT_ETL_MAX_RETRIES,
   DEFAULT_MAX_IMAGE_BYTES,
+  ETL_DRAFT_PLACEHOLDER_WARD,
   ETL_MIGRATABLE_STATUSES,
   extensionFromMime,
   isFinalAttempt,
@@ -345,9 +346,10 @@ export class EtlOrchestratorService {
     municipalityName?: string | null
     wardNo: string
     districtName?: string | null
+    status?: string
   }): Promise<void> {
     const code = bundle.municipalityCode?.trim()
-    const wardNo = bundle.wardNo?.trim()
+    const wardNo = bundle.wardNo?.trim() || (bundle.status === "draft" ? ETL_DRAFT_PLACEHOLDER_WARD : "")
     if (!code || !wardNo) return
 
     let ulb = await this.prisma.db.ulb.findFirst({
@@ -421,8 +423,7 @@ export class EtlOrchestratorService {
 
   async listBatchIds(cursor: string | null, batchSize = DEFAULT_ETL_BATCH_SIZE) {
     const extractor = this.createExtractor()
-    // Everything except drafts: drafts lack ward/assessment fields, while
-    // approved and rejected surveys are finished records that must be imported.
+    // All Convex statuses, including drafts (placeholders fill missing ward/AY).
     return extractor.listSurveyIds({
       cursor,
       numItems: batchSize,

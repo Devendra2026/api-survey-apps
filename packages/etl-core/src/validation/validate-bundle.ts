@@ -5,8 +5,15 @@ export interface ValidationIssue {
   message: string
 }
 
+/**
+ * Validates a Convex survey bundle before transform.
+ *
+ * Drafts are allowed to omit ward and assessment year — those are filled with
+ * placeholders downstream. Finished statuses still require a complete identity.
+ */
 export function validateConvexBundle(bundle: ConvexSurveyBundle): ValidationIssue[] {
   const issues: ValidationIssue[] = []
+  const isDraft = bundle.status === "draft"
 
   if (!bundle._id?.trim()) {
     issues.push({ field: "legacySurveyId", message: "Missing Convex survey _id" })
@@ -17,16 +24,16 @@ export function validateConvexBundle(bundle: ConvexSurveyBundle): ValidationIssu
   if (!bundle.municipalityCode?.trim()) {
     issues.push({ field: "municipalityCode", message: "Missing municipality / ULB code" })
   }
-  if (!bundle.wardNo?.trim()) {
+  if (!isDraft && !bundle.wardNo?.trim()) {
     issues.push({ field: "wardNo", message: "Missing ward number" })
   }
-  if (!bundle.parcelNo?.trim() && !bundle.propertyId?.trim() && !bundle.localId?.trim()) {
+  if (!bundle.parcelNo?.trim() && !bundle.propertyId?.trim() && !bundle.localId?.trim() && !bundle._id?.trim()) {
     issues.push({
       field: "propertyId",
       message: "Missing property identity (propertyId, parcelNo, or localId)",
     })
   }
-  if (!bundle.assessmentYear?.trim()) {
+  if (!isDraft && !bundle.assessmentYear?.trim()) {
     issues.push({ field: "assessmentYear", message: "Missing assessment year" })
   }
 

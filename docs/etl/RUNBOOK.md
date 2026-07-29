@@ -74,8 +74,11 @@ Auth: uses `ETL_DEV_CLERK_USER_ID` or first `BOOTSTRAP_ADMIN_CLERK_USER_IDS` as 
 
 ## What gets imported
 
-Surveys with status `submitted`, `approved`, or `rejected`. Drafts are the only
-exclusion: they have no ward or assessment year yet, so they cannot be mapped.
+All Convex survey statuses: `draft`, `submitted`, `approved`, and `rejected`.
+
+Drafts that have not yet captured a ward or assessment year still import: the
+worker assigns ward `00` and assessment year `AY_2025_2026` as placeholders so
+Nest's required FKs are satisfied. Rows keep `surveyStatus = DRAFT`.
 
 The set lives in `ETL_MIGRATABLE_STATUSES` and is defined twice — once in
 `packages/etl-core/src/domain/types.ts` here, once in `convex/etl/queries.ts` in

@@ -10,16 +10,21 @@ export type ConvexSurveyStatus = (typeof CONVEX_SURVEY_STATUSES)[number]
  * Statuses pulled from Convex into Postgres. Must stay in step with
  * `ETL_MIGRATABLE_STATUSES` in the Convex backend.
  *
- * Only `draft` is withheld — a draft has no ward or assessment year yet, so it
- * cannot be mapped. Approved and rejected surveys are finished records and were
- * previously dropped by a `status: "submitted"` filter, which left the pipeline
- * green while their rows never arrived.
+ * Includes drafts — incomplete ward / assessment-year are filled with
+ * placeholders on the Nest side so field captures still land as DRAFT rows.
  */
 export const ETL_MIGRATABLE_STATUSES = [
+  "draft",
   "submitted",
   "approved",
   "rejected",
 ] as const satisfies readonly ConvexSurveyStatus[]
+
+/** Sentinel ward used when a Convex draft has not picked a ward yet. */
+export const ETL_DRAFT_PLACEHOLDER_WARD = "00"
+
+/** Default assessment year when a Convex draft has not set one yet. */
+export const ETL_DRAFT_DEFAULT_ASSESSMENT_YEAR = "AY_2025_2026"
 
 export type MigrationStatus = "PENDING" | "IN_PROGRESS" | "COMPLETED" | "SKIPPED" | "FAILED"
 

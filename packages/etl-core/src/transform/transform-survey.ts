@@ -21,6 +21,8 @@ import {
 } from "@workspace/validation"
 import { computeChecksum } from "../checksum/checksum.js"
 import {
+  ETL_DRAFT_DEFAULT_ASSESSMENT_YEAR,
+  ETL_DRAFT_PLACEHOLDER_WARD,
   SLOT_TO_PHOTO_TYPE,
   type ConvexSurveyBundle,
   type MappedPhotoPlan,
@@ -62,21 +64,25 @@ export function transformSurveyBundle(
     }
   }
 
+  const isDraft = bundle.status === "draft"
+  const wardNo = bundle.wardNo?.trim() || (isDraft ? ETL_DRAFT_PLACEHOLDER_WARD : "")
+
   const geo = ctx.resolveGeo({
     districtCode: bundle.districtCode,
     municipalityCode: bundle.municipalityCode,
-    wardNo: bundle.wardNo,
+    wardNo,
   })
   if (!geo) {
     return {
       ok: false,
       legacySurveyId,
       stage: "TRANSFORM",
-      error: `Geo catalog not found for district=${bundle.districtCode} ulb=${bundle.municipalityCode} ward=${bundle.wardNo}`,
+      error: `Geo catalog not found for district=${bundle.districtCode} ulb=${bundle.municipalityCode} ward=${wardNo}`,
     }
   }
 
-  const assessmentYear = mapAssessmentYear(bundle.assessmentYear)
+  const assessmentYear =
+    mapAssessmentYear(bundle.assessmentYear) ?? (isDraft ? ETL_DRAFT_DEFAULT_ASSESSMENT_YEAR : undefined)
   if (!assessmentYear) {
     return {
       ok: false,
@@ -182,7 +188,7 @@ export function transformSurveyBundle(
     sectorNo: bundle.sectorNo,
     constructedYear: bundle.constructedYear,
     isSlum: bundle.isSlum ?? false,
-    wardNumber: bundle.wardNo,
+    wardNumber: wardNo,
     ulbCode: bundle.municipalityCode,
     districtName: bundle.districtName,
     respondentName: bundle.respondentName,

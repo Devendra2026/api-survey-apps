@@ -29,20 +29,20 @@ function extractorWithCapture(payload: unknown) {
 }
 
 describe("migratable status set", () => {
-  it("covers every finished status, excluding only drafts", () => {
-    expect([...ETL_MIGRATABLE_STATUSES].sort()).toEqual(["approved", "rejected", "submitted"])
+  it("imports every Convex survey status, including drafts", () => {
+    expect([...ETL_MIGRATABLE_STATUSES].sort()).toEqual(["approved", "draft", "rejected", "submitted"])
   })
 
   it("leaves no Convex status unaccounted for", () => {
     const unhandled = CONVEX_SURVEY_STATUSES.filter(
       (status) => !(ETL_MIGRATABLE_STATUSES as readonly string[]).includes(status)
     )
-    expect(unhandled).toEqual(["draft"])
+    expect(unhandled).toEqual([])
   })
 })
 
 describe("ConvexHttpExtractor status filtering", () => {
-  it("asks Convex for every migratable status, not just submitted", async () => {
+  it("asks Convex for every migratable status, including drafts", async () => {
     const { extractor, calls } = extractorWithCapture({ ids: [], continueCursor: "", isDone: true })
 
     await extractor.listSurveyIds({
@@ -52,7 +52,7 @@ describe("ConvexHttpExtractor status filtering", () => {
     })
 
     expect(calls[0]?.url).toBe("https://example.convex.site/etl/list-survey-ids")
-    expect(calls[0]?.body.statuses).toEqual(["submitted", "approved", "rejected"])
+    expect(calls[0]?.body.statuses).toEqual(["draft", "submitted", "approved", "rejected"])
   })
 
   it("omits the filter entirely when no statuses are given", async () => {
@@ -69,6 +69,6 @@ describe("ConvexHttpExtractor status filtering", () => {
     await expect(extractor.countSurveys(ETL_MIGRATABLE_STATUSES)).resolves.toBe(7)
 
     expect(calls[0]?.url).toBe("https://example.convex.site/etl/count-surveys")
-    expect(calls[0]?.body.statuses).toEqual(["submitted", "approved", "rejected"])
+    expect(calls[0]?.body.statuses).toEqual(["draft", "submitted", "approved", "rejected"])
   })
 })

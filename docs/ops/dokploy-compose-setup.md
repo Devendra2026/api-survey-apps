@@ -81,9 +81,10 @@ NODE_ENV=production
 ```
 
 - Keep `POSTGRES_PASSWORD` identical to the password inside `DATABASE_URL` / `DIRECT_URL`.
-- Use a URL-safe `REDIS_PASSWORD` (avoid `@`, `:`, `/`).
+- Use a URL-safe `REDIS_PASSWORD` (avoid `@`, `:`, `/`). Do **not** set `REDIS_URL` — compose builds it from `REDIS_PASSWORD`.
 - Interpolation vs runtime checklist: [dokploy-env.md](./dokploy-env.md).
 - Optional: `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`, ETL vars — [dokploy-env.md](./dokploy-env.md).
+- After first migrate on an empty DB, run one-time catalog seed — [dokploy-env.md](./dokploy-env.md) § One-time catalog seed.
 
 ## 3. Domains
 
@@ -127,7 +128,7 @@ curl -fsSI https://admin.sdvedutech.in/
 | `minio-init` logs `Alias 'local' configured` then `Bucket '…' ready` with **no** `connection refused`     | MinIO race fixed — init gated on `service_healthy` + quiet retries             |
 | `migrate` logs `✓ Loading environment` → `✓ Waiting for PostgreSQL` → `✓ Database reachable`              | Entrypoint preflight (host-only URL logged; credentials never printed)         |
 | `migrate` logs `✓ Prisma migrate deploy` then applied migrations or **`No pending migrations to apply.`** | Success (idempotent). Only the `migrate` one-shot runs this; api/worker do not |
-| `migrate` logs `✓ Seed execution` then `✓ Finished successfully` (unless `SKIP_DB_SEED=true`)             | Catalog seed completed                                                         |
+| `migrate` logs `✓ Finished successfully` (exit 0) — **no** seed step                                      | Migrate-only job complete; catalog seed is one-time manual (see dokploy-env)   |
 | `migrate` / `minio-init` exit 0; no inherited `/live` healthcheck on migrate                              | One-shots stay one-shots (no false unhealthy / recreate loops)                 |
 
 ## 6. Fixing wrong or incomplete Compose apps

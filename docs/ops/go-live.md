@@ -27,17 +27,19 @@
 0. **App type must be Docker Compose** — if you see `open Dockerfile: no such file`, follow [`dokploy-compose-setup.md`](./dokploy-compose-setup.md). Do **not** add a root Dockerfile.
 1. Paste [`deploy/env/dokploy.compose.env.example`](../../deploy/env/dokploy.compose.env.example) into Dokploy **Environment** (replace all `REPLACE_ME_*`). Missing `MINIO_ROOT_USER` / `POSTGRES_PASSWORD` / etc. fails compose interpolation before start.
 2. Confirm `DATABASE_URL` host is `postgres` (not localhost). Deploy Compose file `docker-compose.dokploy.yml`, context = repo root.
-3. Wait for `postgres` / `minio` / `redis` healthy, `migrate` success (migrate also runs **catalog seed**: roles, permissions, reference catalogs, sample Etah geo), then `api` `/health` + `/ready`, then `web`.
-4. Set `BOOTSTRAP_ADMIN_CLERK_USER_IDS` to your Clerk user id (`user_…` from Clerk Dashboard → Users) **before the first production sign-in**, then redeploy/restart **api**.
-5. Open `https://admin.sdvedutech.in` and sign in. The dashboard returns HTTP 403 when the profile has no permissions; there is no Pending User dashboard screen.
+3. Wait for `postgres` / `minio` / `redis` healthy, `migrate` success (`prisma migrate deploy` only — `No pending migrations to apply.` is OK), then `api` `/health` + `/ready`, then `web`.
+4. **First empty DB only:** run one-time catalog seed from a host that can reach Postgres (`SEED_DEMO=false pnpm --filter @workspace/database db:seed`) — see [`dokploy-env.md`](./dokploy-env.md). Without this, roles/permissions are missing and RBAC/bootstrap will fail.
+5. Set `BOOTSTRAP_ADMIN_CLERK_USER_IDS` to your Clerk user id (`user_…` from Clerk Dashboard → Users) **before the first production sign-in**, then redeploy/restart **api**.
+6. Open `https://admin.sdvedutech.in` and sign in. The dashboard returns HTTP 403 when the profile has no permissions; there is no Pending User dashboard screen.
 
 ### First admin receives HTTP 403
 
 Chicken-and-egg: without bootstrap, the first signup gets `PENDING_APPROVAL` (0 permissions). Fix:
 
-1. Copy your Clerk user id into Dokploy env: `BOOTSTRAP_ADMIN_CLERK_USER_IDS=user_xxxxx`
-2. Redeploy so **api** picks up the env (and **migrate** re-runs catalog seed if the image includes the seed entrypoint).
-3. Reload the dashboard or sign in again so the API provisions the configured user as `ADMIN`.
+1. Ensure catalog seed has been run once (roles/permissions exist).
+2. Copy your Clerk user id into Dokploy env: `BOOTSTRAP_ADMIN_CLERK_USER_IDS=user_xxxxx`
+3. Redeploy/restart **api** so it picks up the env.
+4. Reload the dashboard or sign in again so the API provisions the configured user as `ADMIN`.
 
 Alternatively, promote an existing Clerk user explicitly from an environment
 with database access:
@@ -46,7 +48,7 @@ with database access:
 pnpm admin:promote -- --clerk-user-id user_xxxxx
 ```
 
-Optional: `SKIP_DB_SEED=true` skips catalog seed on migrate; `SEED_DEMO=true` also seeds demo users/surveys (not for production).
+Manual seed notes: keep `SEED_DEMO=false` in production (catalog only). `SEED_DEMO=true` also seeds demo users/surveys (not for production). Do **not** set a static `REDIS_URL` in Dokploy — only `REDIS_PASSWORD` (compose builds the URL).
 
 ## Smoke test
 

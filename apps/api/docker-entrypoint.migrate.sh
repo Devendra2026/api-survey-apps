@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Production migrate one-shot: prisma migrate deploy + catalog seed.
-# Fail closed — never use || true on migrate/seed.
+# Production migrate one-shot: prisma migrate deploy only (idempotent).
+# Catalog seed is a one-time manual step — see docs/ops/dokploy-runbook.md.
+# Fail closed — never use || true on migrate.
 set -Eeuo pipefail
 
 log() {
@@ -50,7 +51,7 @@ trap 'on_err "$BASH_COMMAND"' ERR
 log "✓ Loading environment"
 if [ -n "${DIRECT_URL:-}" ]; then
   export DATABASE_URL="$DIRECT_URL"
-  log "  using DIRECT_URL for migrate/seed connection"
+  log "  using DIRECT_URL for migrate connection"
 fi
 
 if [ -z "${DATABASE_URL:-}" ]; then
@@ -98,28 +99,6 @@ find_prisma() {
   return 1
 }
 
-find_tsx() {
-  for candidate in \
-    /app/node_modules/.bin/tsx \
-    /app/node_modules/tsx/dist/cli.mjs \
-    /app/packages/database/node_modules/.bin/tsx \
-    /app/packages/database/node_modules/tsx/dist/cli.mjs
-  do
-    if [ -x "$candidate" ] || [ -f "$candidate" ]; then
-      echo "$candidate"
-      return 0
-    fi
-  done
-
-  found="$(find /app/node_modules -path '*/tsx/dist/cli.mjs' -type f -print -quit 2>/dev/null || true)"
-  if [ -n "$found" ]; then
-    echo "$found"
-    return 0
-  fi
-
-  return 1
-}
-
 run_prisma() {
   PRISMA_BIN_LOCAL="$1"
   shift
@@ -130,19 +109,6 @@ run_prisma() {
       ;;
     *)
       "$PRISMA_BIN_LOCAL" "$@"
-      ;;
-  esac
-}
-
-run_seed() {
-  TSX_BIN_LOCAL="$1"
-  log "+ tsx prisma/seed.ts"
-  case "$TSX_BIN_LOCAL" in
-    *.mjs)
-      node "$TSX_BIN_LOCAL" prisma/seed.ts
-      ;;
-    *)
-      "$TSX_BIN_LOCAL" prisma/seed.ts
       ;;
   esac
 }
@@ -163,9 +129,6 @@ if [ ! -d prisma/migrations ]; then
 fi
 if [ ! -f prisma.config.ts ]; then
   fail "Missing prisma.config.ts (required for Prisma 7 datasource URL)"
-fi
-if [ ! -f prisma/seed.ts ]; then
-  fail "Missing prisma/seed.ts"
 fi
 
 GENERATED=""
@@ -258,21 +221,5 @@ wait_for_postgres 60 2
 log "✓ Prisma migrate deploy"
 run_prisma "$PRISMA_BIN" migrate deploy
 ok "Prisma migrate deploy"
-
-# Catalog seed (roles, permissions, reference catalogs, sample geo) — idempotent upserts.
-# Demo users/surveys stay off in production unless SEED_DEMO=true.
-if [ "${SKIP_DB_SEED:-false}" = "true" ]; then
-  ok "Skipping catalog seed (SKIP_DB_SEED=true)"
-  ok "Finished successfully"
-  exit 0
-fi
-
-export SEED_DEMO="${SEED_DEMO:-false}"
-log "✓ Seed execution (SEED_DEMO=$SEED_DEMO)"
-
-TSX_BIN="$(find_tsx)" || fail "tsx not found under node_modules — cannot run catalog seed. Rebuild the api image."
-
-run_seed "$TSX_BIN"
-ok "Seed execution"
 
 ok "Finished successfully"

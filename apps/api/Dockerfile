@@ -9,11 +9,11 @@ FROM node:${NODE_VERSION}-bookworm-slim AS base
 ARG PNPM_VERSION
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
-    bash \
-    ca-certificates \
-    openssl \
-    curl \
-    wget \
+  bash \
+  ca-certificates \
+  openssl \
+  curl \
+  wget \
   && rm -rf /var/lib/apt/lists/* \
   && corepack enable \
   && corepack prepare pnpm@${PNPM_VERSION} --activate
@@ -47,6 +47,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
   && pnpm turbo build --filter=api...
 
 # Portable production tree (prod deps + injected workspace packages).
+# Symlink prisma/pg/@prisma/* from .pnpm so Node resolves them (migrate wait + API runtime).
 FROM builder AS deploy
 ENV HUSKY=0
 ENV DATABASE_URL=postgresql://postgres:postgres@localhost:5432/survey?schema=public
@@ -59,8 +60,6 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
   && cp /app/apps/api/docker-entrypoint.migrate.sh /deploy/apps/api/docker-entrypoint.migrate.sh \
   && test -f /app/packages/database/prisma/schema.prisma \
   && test -d /app/packages/database/prisma/migrations \
-  && test -f /app/packages/database/prisma/seed.ts \
-  && test -f /app/packages/database/prisma/seed-catalog.ts \
   && test -f /app/packages/database/prisma.config.ts \
   && test -d /app/packages/database/src/generated/prisma \
   && cp -r /app/packages/database/prisma /deploy/packages/database/prisma \
@@ -73,15 +72,11 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
   && if [ -z "$PRISMA_DIR" ]; then echo "prisma package missing from deploy tree" >&2; exit 1; fi \
   && test -f "$PRISMA_DIR/build/index.js" \
   && ln -sfn "${PRISMA_DIR#/deploy/node_modules/}" /deploy/node_modules/prisma \
-  && TSX_DIR="$(find /deploy/node_modules/.pnpm -type f -path '*/node_modules/tsx/package.json' | head -n 1 | sed 's|/package.json||')" \
-  && if [ -z "$TSX_DIR" ]; then echo "tsx missing from deploy tree (needed for catalog seed)" >&2; exit 1; fi \
-  && test -f "$TSX_DIR/dist/cli.mjs" \
-  && ln -sfn "${TSX_DIR#/deploy/node_modules/}" /deploy/node_modules/tsx \
   && PG_DIR="$(find /deploy/node_modules/.pnpm -type f -path '*/node_modules/pg/package.json' | head -n 1 | sed 's|/package.json||')" \
-  && if [ -z "$PG_DIR" ]; then echo "pg missing from deploy tree (needed for migrate DB wait + seed)" >&2; exit 1; fi \
+  && if [ -z "$PG_DIR" ]; then echo "pg missing from deploy tree (needed for migrate DB wait)" >&2; exit 1; fi \
   && ln -sfn "${PG_DIR#/deploy/node_modules/}" /deploy/node_modules/pg \
   && ADAPTER_DIR="$(find /deploy/node_modules/.pnpm -type f -path '*/node_modules/@prisma/adapter-pg/package.json' | head -n 1 | sed 's|/package.json||')" \
-  && if [ -z "$ADAPTER_DIR" ]; then echo "@prisma/adapter-pg missing from deploy tree" >&2; exit 1; fi \
+  && if [ -z "$ADAPTER_DIR" ]; then echo "@prisma/adapter-pg missing from deploy tree (needed for API runtime)" >&2; exit 1; fi \
   && CLIENT_DIR="$(find /deploy/node_modules/.pnpm -type f -path '*/node_modules/@prisma/client/package.json' | head -n 1 | sed 's|/package.json||')" \
   && if [ -z "$CLIENT_DIR" ]; then echo "@prisma/client missing from deploy tree" >&2; exit 1; fi \
   && mkdir -p /deploy/node_modules/@prisma \
@@ -95,14 +90,12 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
   && echo "Found schema-engine at $ENGINE_BIN" \
   && mkdir -p /deploy/node_modules/.bin \
   && printf '%s\n' '#!/bin/sh' 'exec node /app/node_modules/prisma/build/index.js "$@"' > /deploy/node_modules/.bin/prisma \
-  && printf '%s\n' '#!/bin/sh' 'exec node /app/node_modules/tsx/dist/cli.mjs "$@"' > /deploy/node_modules/.bin/tsx \
-  && chmod +x /deploy/node_modules/.bin/prisma /deploy/node_modules/.bin/tsx /deploy/apps/api/docker-entrypoint.sh /deploy/apps/api/docker-entrypoint.migrate.sh \
+  && chmod +x /deploy/node_modules/.bin/prisma /deploy/apps/api/docker-entrypoint.sh /deploy/apps/api/docker-entrypoint.migrate.sh \
   && test -f /deploy/packages/database/prisma/schema.prisma \
   && test -d /deploy/packages/database/prisma/migrations \
   && test -f /deploy/packages/database/prisma.config.ts \
-  && test -f /deploy/packages/database/prisma/seed.ts \
   && ( test -f /deploy/packages/database/src/generated/prisma/client.js \
-    || test -f /deploy/packages/database/src/generated/prisma/client.ts ) \
+  || test -f /deploy/packages/database/src/generated/prisma/client.ts ) \
   && cd /deploy/packages/database \
   && node /deploy/node_modules/prisma/build/index.js -v
 
@@ -114,11 +107,11 @@ ENV HOSTNAME=0.0.0.0
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
-    bash \
-    ca-certificates \
-    openssl \
-    curl \
-    wget \
+  bash \
+  ca-certificates \
+  openssl \
+  curl \
+  wget \
   && rm -rf /var/lib/apt/lists/* \
   && groupadd --system --gid 1001 nodejs \
   && useradd --system --uid 1001 --gid nodejs nestjs

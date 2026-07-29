@@ -76,48 +76,61 @@ BACKUP_ROOT=/backups
 NODE_ENV=production
 ```
 
-Use a URL-safe `REDIS_PASSWORD` (avoid `@`, `:`, `/`).
+Use a URL-safe `REDIS_PASSWORD` (avoid `@`, `:`, `/`). Do **not** set `REDIS_URL` in the Environment UI — compose builds it from `REDIS_PASSWORD` for api/worker.
 `BACKUP_ROOT` is consumed by host-side backup/restore scripts; it is not an
 application container variable. Restrict access because its artifacts contain
 production data.
 
 ## Required (full table)
 
-| Variable                            | Example / source                                                |
-| ----------------------------------- | --------------------------------------------------------------- |
-| `NODE_ENV`                          | `production`                                                    |
-| `POSTGRES_USER`                     | `postgres` (optional; default)                                  |
-| `POSTGRES_PASSWORD`                 | Strong password (must match URLs below) — **required**          |
-| `POSTGRES_DB`                       | `survey` (optional; default)                                    |
-| `DATABASE_URL`                      | `postgresql://postgres:PASS@postgres:5432/survey?schema=public` |
-| `DIRECT_URL`                        | Same as `DATABASE_URL` for migrate                              |
-| `REDIS_PASSWORD`                    | Strong URL-safe password — **required**                         |
-| `REDIS_URL`                         | Compose sets `redis://:${REDIS_PASSWORD}@redis:6379`            |
-| `STORAGE_PROVIDER`                  | `minio`                                                         |
-| `MINIO_ROOT_USER`                   | Strong unique user — **required**                               |
-| `MINIO_ROOT_PASSWORD`               | Strong password — **required**                                  |
-| `MINIO_ENDPOINT`                    | `http://minio:9000` (compose overrides for api/worker)          |
-| `MINIO_BUCKET`                      | `api-survey-app`                                                |
-| `STORAGE_BUCKET`                    | Same as `MINIO_BUCKET`                                          |
-| `CORS_ORIGIN`                       | `https://admin.sdvedutech.in`                                   |
-| `APP_URL`                           | `https://admin.sdvedutech.in`                                   |
-| `NEXT_PUBLIC_API_URL`               | `https://backend.sdvedutech.in` (**build arg** for web)         |
-| `CLERK_SECRET_KEY`                  | Clerk dashboard                                                 |
-| `CLERK_PUBLISHABLE_KEY`             | Clerk dashboard                                                 |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk dashboard (**build arg** for web)                         |
-| `CLERK_AUTHORIZED_PARTIES`          | `https://admin.sdvedutech.in`                                   |
-| `BOOTSTRAP_ADMIN_CLERK_USER_IDS`    | Clerk `user_…` ids, comma-separated; set before first sign-in   |
-| `DEMAND_NOTICE_PRINT_SECRET`        | Strong random secret                                            |
-| `BACKUP_ROOT`                       | Host backup path, normally `/backups`                           |
+| Variable                            | Example / source                                                                                                                                                                                    |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NODE_ENV`                          | `production`                                                                                                                                                                                        |
+| `POSTGRES_USER`                     | `postgres` (optional; default)                                                                                                                                                                      |
+| `POSTGRES_PASSWORD`                 | Strong password (must match URLs below) — **required**                                                                                                                                              |
+| `POSTGRES_DB`                       | `survey` (optional; default)                                                                                                                                                                        |
+| `DATABASE_URL`                      | `postgresql://postgres:PASS@postgres:5432/survey?schema=public`                                                                                                                                     |
+| `DIRECT_URL`                        | Same as `DATABASE_URL` for migrate                                                                                                                                                                  |
+| `REDIS_PASSWORD`                    | Strong URL-safe password — **required**. Do **not** also set `REDIS_URL` in Dokploy Environment.                                                                                                    |
+| `REDIS_URL`                         | **Compose-only** for api/worker: `redis://:${REDIS_PASSWORD}@redis:6379` (overrides env_file). Never paste a static `REDIS_URL` into Dokploy UI — a mismatched password causes Redis auth failures. |
+| `STORAGE_PROVIDER`                  | `minio`                                                                                                                                                                                             |
+| `MINIO_ROOT_USER`                   | Strong unique user — **required**                                                                                                                                                                   |
+| `MINIO_ROOT_PASSWORD`               | Strong password — **required**                                                                                                                                                                      |
+| `MINIO_ENDPOINT`                    | `http://minio:9000` (compose overrides for api/worker)                                                                                                                                              |
+| `MINIO_BUCKET`                      | `api-survey-app`                                                                                                                                                                                    |
+| `STORAGE_BUCKET`                    | Same as `MINIO_BUCKET`                                                                                                                                                                              |
+| `CORS_ORIGIN`                       | `https://admin.sdvedutech.in`                                                                                                                                                                       |
+| `APP_URL`                           | `https://admin.sdvedutech.in`                                                                                                                                                                       |
+| `NEXT_PUBLIC_API_URL`               | `https://backend.sdvedutech.in` (**build arg** for web)                                                                                                                                             |
+| `CLERK_SECRET_KEY`                  | Clerk dashboard                                                                                                                                                                                     |
+| `CLERK_PUBLISHABLE_KEY`             | Clerk dashboard                                                                                                                                                                                     |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk dashboard (**build arg** for web)                                                                                                                                                             |
+| `CLERK_AUTHORIZED_PARTIES`          | `https://admin.sdvedutech.in`                                                                                                                                                                       |
+| `BOOTSTRAP_ADMIN_CLERK_USER_IDS`    | Clerk `user_…` ids, comma-separated; set before first sign-in                                                                                                                                       |
+| `DEMAND_NOTICE_PRINT_SECRET`        | Strong random secret                                                                                                                                                                                |
+| `BACKUP_ROOT`                       | Host backup path, normally `/backups`                                                                                                                                                               |
 
 ## Optional (recommended)
 
-| Variable                          | Notes                                                        |
-| --------------------------------- | ------------------------------------------------------------ |
-| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | Web build arg; maps UI                                       |
-| `WEB_HOST` / `API_HOST`           | Override Traefik Host rules                                  |
-| `SKIP_DB_SEED`                    | `true` to skip catalog seed on migrate (default runs seed)   |
-| `SEED_DEMO`                       | `true` seeds demo users/surveys — keep `false` in production |
+| Variable                          | Notes                                                           |
+| --------------------------------- | --------------------------------------------------------------- |
+| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | Web build arg; maps UI                                          |
+| `WEB_HOST` / `API_HOST`           | Override Traefik Host rules                                     |
+| `SEED_DEMO`                       | Only for **manual** `pnpm db:seed` — keep `false` in production |
+
+### One-time catalog seed (not part of migrate)
+
+`migrate` runs **`prisma migrate deploy` only**. Roles, permissions, reference catalogs, and sample geo are **not** applied by the migrate one-shot.
+
+After the first successful migrate on an empty database (from a host that can reach Postgres, e.g. tunnel/VPN):
+
+```bash
+SEED_DEMO=false DATABASE_URL='postgresql://…@postgres:5432/survey?schema=public' \
+  DIRECT_URL='postgresql://…@postgres:5432/survey?schema=public' \
+  pnpm --filter @workspace/database db:seed
+```
+
+Local dev still uses `pnpm db:seed` / `prisma db seed` as usual.
 
 ## Optional compose image vars (ECR)
 

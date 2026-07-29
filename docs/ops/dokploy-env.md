@@ -32,20 +32,26 @@ Safe defaults already in compose (no need to set unless overriding): `POSTGRES_U
 
 ### B — Mandatory for healthy app runtime / web build
 
-| Variable                                                    | Where                                         |
-| ----------------------------------------------------------- | --------------------------------------------- |
-| `POSTGRES_PASSWORD`                                         | single source of truth for in-compose DB auth |
-| `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`                 | api (+ web server if used)                    |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `NEXT_PUBLIC_API_URL`  | **web build args**                            |
-| `CLERK_AUTHORIZED_PARTIES`, `CORS_ORIGIN`, `APP_URL`        | production domains                            |
-| `BOOTSTRAP_ADMIN_CLERK_USER_IDS`                            | first production admin Clerk `user_…` id(s)   |
-| `DEMAND_NOTICE_PRINT_SECRET`                                | api                                           |
-| `STORAGE_PROVIDER=minio`, `MINIO_BUCKET` / `STORAGE_BUCKET` | api/worker (endpoint overridden by compose)   |
+| Variable                                                                                       | Where                                                                                        |
+| ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `POSTGRES_PASSWORD`                                                                            | single source of truth for in-compose DB auth                                                |
+| `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`                                                    | api + **web** (middleware / `auth()`)                                                        |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `NEXT_PUBLIC_API_URL`                                     | **web build args**                                                                           |
+| `NEXT_PUBLIC_CLERK_SIGN_IN_URL`, `NEXT_PUBLIC_CLERK_SIGN_UP_URL`                               | **web build args** — in-app paths (`/sign-in`, `/sign-up`); prevents Account Portal fallback |
+| `NEXT_PUBLIC_CLERK_SIGN_IN_FORCE_REDIRECT_URL`, `NEXT_PUBLIC_CLERK_SIGN_UP_FORCE_REDIRECT_URL` | **web build args** — post-auth destination (`/dashboard`)                                    |
+| `CLERK_AUTHORIZED_PARTIES`, `CORS_ORIGIN`, `APP_URL`                                           | production domains                                                                           |
+| `BOOTSTRAP_ADMIN_CLERK_USER_IDS`                                                               | first production admin Clerk `user_…` id(s)                                                  |
+| `DEMAND_NOTICE_PRINT_SECRET`                                                                   | api                                                                                          |
+| `STORAGE_PROVIDER=minio`, `MINIO_BUCKET` / `STORAGE_BUCKET`                                    | api/worker (endpoint overridden by compose)                                                  |
 
 `CLERK_SECRET_KEY` is server-only. Never expose it through a `NEXT_PUBLIC_*`
-name. `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, and the
-optional Maps key are compiled into the web image; changing them requires a
-new web build, not only a container restart.
+name. `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, Clerk path /
+force-redirect URLs, and the optional Maps key are compiled into the web image;
+changing them requires a new web build, not only a container restart.
+
+This app uses **standard single-domain Clerk** on `admin.sdvedutech.in` (hosted
+`/sign-in` / `/sign-up`). Do **not** set satellite vars
+(`NEXT_PUBLIC_CLERK_IS_SATELLITE`, `NEXT_PUBLIC_CLERK_DOMAIN`).
 
 ## Paste-ready minimal block
 
@@ -57,6 +63,10 @@ MINIO_ROOT_PASSWORD=REPLACE_ME_MINIO_PASSWORD
 
 NEXT_PUBLIC_API_URL=https://backend.sdvedutech.in
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_live_REPLACE_ME
+NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
+NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
+NEXT_PUBLIC_CLERK_SIGN_IN_FORCE_REDIRECT_URL=/dashboard
+NEXT_PUBLIC_CLERK_SIGN_UP_FORCE_REDIRECT_URL=/dashboard
 CLERK_PUBLISHABLE_KEY=pk_live_REPLACE_ME
 CLERK_SECRET_KEY=sk_live_REPLACE_ME
 CLERK_AUTHORIZED_PARTIES=https://admin.sdvedutech.in
@@ -92,33 +102,37 @@ production data.
 
 ## Required (full table)
 
-| Variable                            | Example / source                                                                                                                                                                                    |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NODE_ENV`                          | `production`                                                                                                                                                                                        |
-| `POSTGRES_USER`                     | `postgres` (optional; default)                                                                                                                                                                      |
-| `POSTGRES_PASSWORD`                 | Strong password — **required** (entrypoints build `DATABASE_URL` from this)                                                                                                                         |
-| `POSTGRES_DB`                       | `survey` (optional; default)                                                                                                                                                                        |
-| `DATABASE_URL`                      | Optional; only for **external** Postgres (host ≠ `postgres`)                                                                                                                                        |
-| `DIRECT_URL`                        | Optional; same as `DATABASE_URL` when using external DB                                                                                                                                             |
-| `DEBUG_STARTUP`                     | `true` to print migrate filesystem/env-key diagnostics                                                                                                                                              |
-| `REDIS_PASSWORD`                    | Strong URL-safe password — **required**. Do **not** also set `REDIS_URL` in Dokploy Environment.                                                                                                    |
-| `REDIS_URL`                         | **Compose-only** for api/worker: `redis://:${REDIS_PASSWORD}@redis:6379` (overrides env_file). Never paste a static `REDIS_URL` into Dokploy UI — a mismatched password causes Redis auth failures. |
-| `STORAGE_PROVIDER`                  | `minio`                                                                                                                                                                                             |
-| `MINIO_ROOT_USER`                   | Strong unique user — **required**                                                                                                                                                                   |
-| `MINIO_ROOT_PASSWORD`               | Strong password — **required**                                                                                                                                                                      |
-| `MINIO_ENDPOINT`                    | `http://minio:9000` (compose overrides for api/worker)                                                                                                                                              |
-| `MINIO_BUCKET`                      | `api-survey-app`                                                                                                                                                                                    |
-| `STORAGE_BUCKET`                    | Same as `MINIO_BUCKET`                                                                                                                                                                              |
-| `CORS_ORIGIN`                       | `https://admin.sdvedutech.in`                                                                                                                                                                       |
-| `APP_URL`                           | `https://admin.sdvedutech.in`                                                                                                                                                                       |
-| `NEXT_PUBLIC_API_URL`               | `https://backend.sdvedutech.in` (**build arg** for web)                                                                                                                                             |
-| `CLERK_SECRET_KEY`                  | Clerk dashboard                                                                                                                                                                                     |
-| `CLERK_PUBLISHABLE_KEY`             | Clerk dashboard                                                                                                                                                                                     |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk dashboard (**build arg** for web)                                                                                                                                                             |
-| `CLERK_AUTHORIZED_PARTIES`          | `https://admin.sdvedutech.in`                                                                                                                                                                       |
-| `BOOTSTRAP_ADMIN_CLERK_USER_IDS`    | Clerk `user_…` ids, comma-separated; set before first sign-in                                                                                                                                       |
-| `DEMAND_NOTICE_PRINT_SECRET`        | Strong random secret                                                                                                                                                                                |
-| `BACKUP_ROOT`                       | Host backup path, normally `/backups`                                                                                                                                                               |
+| Variable                                       | Example / source                                                                                                                                                                                    |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NODE_ENV`                                     | `production`                                                                                                                                                                                        |
+| `POSTGRES_USER`                                | `postgres` (optional; default)                                                                                                                                                                      |
+| `POSTGRES_PASSWORD`                            | Strong password — **required** (entrypoints build `DATABASE_URL` from this)                                                                                                                         |
+| `POSTGRES_DB`                                  | `survey` (optional; default)                                                                                                                                                                        |
+| `DATABASE_URL`                                 | Optional; only for **external** Postgres (host ≠ `postgres`)                                                                                                                                        |
+| `DIRECT_URL`                                   | Optional; same as `DATABASE_URL` when using external DB                                                                                                                                             |
+| `DEBUG_STARTUP`                                | `true` to print migrate filesystem/env-key diagnostics                                                                                                                                              |
+| `REDIS_PASSWORD`                               | Strong URL-safe password — **required**. Do **not** also set `REDIS_URL` in Dokploy Environment.                                                                                                    |
+| `REDIS_URL`                                    | **Compose-only** for api/worker: `redis://:${REDIS_PASSWORD}@redis:6379` (overrides env_file). Never paste a static `REDIS_URL` into Dokploy UI — a mismatched password causes Redis auth failures. |
+| `STORAGE_PROVIDER`                             | `minio`                                                                                                                                                                                             |
+| `MINIO_ROOT_USER`                              | Strong unique user — **required**                                                                                                                                                                   |
+| `MINIO_ROOT_PASSWORD`                          | Strong password — **required**                                                                                                                                                                      |
+| `MINIO_ENDPOINT`                               | `http://minio:9000` (compose overrides for api/worker)                                                                                                                                              |
+| `MINIO_BUCKET`                                 | `api-survey-app`                                                                                                                                                                                    |
+| `STORAGE_BUCKET`                               | Same as `MINIO_BUCKET`                                                                                                                                                                              |
+| `CORS_ORIGIN`                                  | `https://admin.sdvedutech.in`                                                                                                                                                                       |
+| `APP_URL`                                      | `https://admin.sdvedutech.in`                                                                                                                                                                       |
+| `NEXT_PUBLIC_API_URL`                          | `https://backend.sdvedutech.in` (**build arg** for web)                                                                                                                                             |
+| `CLERK_SECRET_KEY`                             | Clerk dashboard (api + web runtime)                                                                                                                                                                 |
+| `CLERK_PUBLISHABLE_KEY`                        | Clerk dashboard                                                                                                                                                                                     |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`            | Clerk dashboard (**build arg** for web)                                                                                                                                                             |
+| `NEXT_PUBLIC_CLERK_SIGN_IN_URL`                | `/sign-in` (**build arg**) — required so `auth.protect()` does not use Account Portal                                                                                                               |
+| `NEXT_PUBLIC_CLERK_SIGN_UP_URL`                | `/sign-up` (**build arg**)                                                                                                                                                                          |
+| `NEXT_PUBLIC_CLERK_SIGN_IN_FORCE_REDIRECT_URL` | `/dashboard` (**build arg**)                                                                                                                                                                        |
+| `NEXT_PUBLIC_CLERK_SIGN_UP_FORCE_REDIRECT_URL` | `/dashboard` (**build arg**)                                                                                                                                                                        |
+| `CLERK_AUTHORIZED_PARTIES`                     | `https://admin.sdvedutech.in`                                                                                                                                                                       |
+| `BOOTSTRAP_ADMIN_CLERK_USER_IDS`               | Clerk `user_…` ids, comma-separated; set before first sign-in                                                                                                                                       |
+| `DEMAND_NOTICE_PRINT_SECRET`                   | Strong random secret                                                                                                                                                                                |
+| `BACKUP_ROOT`                                  | Host backup path, normally `/backups`                                                                                                                                                               |
 
 ## Optional (recommended)
 

@@ -1,5 +1,6 @@
 import { ProtectedDashboardLayout } from "@/components/layout/protected-layout"
 import { hasDashboardAccess } from "@/lib/auth/dashboard-access"
+import { unwrapApiProfile } from "@/lib/auth/unwrap-api-profile"
 import { auth } from "@clerk/nextjs/server"
 import { forbidden, redirect } from "next/navigation"
 
@@ -18,16 +19,22 @@ async function fetchCurrentUser(token: string) {
     cache: "no-store",
   })
 
-  if (response.status === 401 || response.status === 403) {
-    return { status: response.status, profile: null }
+  if (response.status === 401) {
+    return { status: 401 as const, profile: null }
+  }
+  if (response.status === 403) {
+    return { status: 403 as const, profile: null }
   }
   if (!response.ok) {
     throw new Error(`Failed to load profile (${response.status})`)
   }
 
+  const body: unknown = await response.json()
+  const profile = unwrapApiProfile<CurrentUserProfile>(body)
+
   return {
-    status: 200,
-    profile: (await response.json()) as CurrentUserProfile,
+    status: 200 as const,
+    profile,
   }
 }
 
@@ -42,7 +49,8 @@ export default async function DashboardGroupLayout({ children }: { children: Rea
   if (currentUser.status === 401) {
     redirect("/sign-in")
   }
-  if (!hasDashboardAccess(currentUser.profile?.permissions)) {
+  // API 403 (e.g. disabled account messaging path) or empty permissions → Forbidden.
+  if (currentUser.status === 403 || !hasDashboardAccess(currentUser.profile?.permissions)) {
     forbidden()
   }
 

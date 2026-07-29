@@ -1,10 +1,10 @@
 import { ClerkProvider } from "@clerk/nextjs"
-import { Geist, Geist_Mono } from "next/font/google"
 import { Toaster } from "@workspace/ui/components/sonner"
+import { Geist, Geist_Mono } from "next/font/google"
 
-import "@workspace/ui/globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { AppProviders } from "@/providers/app-providers"
+import "@workspace/ui/globals.css"
 import { cn } from "@workspace/ui/lib/utils"
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-sans" })
@@ -20,7 +20,13 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <ClerkProvider>
+    <ClerkProvider
+      signInUrl="/sign-in"
+      signUpUrl="/sign-up"
+      signInForceRedirectUrl="/dashboard"
+      signUpForceRedirectUrl="/dashboard"
+      afterSignOutUrl="/sign-in"
+    >
       <html
         lang="en"
         suppressHydrationWarning

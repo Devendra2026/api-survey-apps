@@ -21,18 +21,19 @@
     "test:watch": "node ./scripts/run-jest.mjs --watch",
     "test:cov": "node ./scripts/run-jest.mjs --coverage",
     "test:debug": "node --inspect-brk ./scripts/run-jest.mjs --runInBand",
-    "test:e2e": "node ./scripts/run-jest.mjs --config ./test/jest-e2e.json --passWithNoTests"
+    "test:e2e": "node ./scripts/run-jest.mjs --config ./test/jest-e2e.json --passWithNoTests",
+    "promote-admin": "node ./scripts/promote-admin.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1085.0",
     "@aws-sdk/s3-request-presigner": "^3.1085.0",
-    "@clerk/backend": "^3.11.4",
+    "@clerk/backend": "^3.13.1",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^11.1.28",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.1.28",
     "@nestjs/platform-express": "^11.1.28",
-    "@nestjs/swagger": "^11.4.5",
+    "@nestjs/swagger": "^11.4.6",
     "@nestjs/throttler": "^6.5.0",
     "@workspace/database": "workspace:*",
     "@workspace/etl-core": "workspace:*",

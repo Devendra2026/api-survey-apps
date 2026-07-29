@@ -15,46 +15,40 @@
    Runtime: Clerk, `NEXT_PUBLIC_*`, `CORS_ORIGIN` / `APP_URL` (host `postgres` in DB URLs).
 
 2. **DNS + TLS in Dokploy**
-   - `admin.sdvedutech.in` → service `web` container port **3000** (host map is `3001→3000`)
+   - `admin.sdvedutech.in` → service `web` container port **3000**
    - `backend.sdvedutech.in` → service `api` container port **4000**
-   - Worker listens on `4001` (internal; open SG if you need direct access)
+   - Worker listens on `4001` and remains internal
    - Clerk allowed origins / redirect URLs include `https://admin.sdvedutech.in`
 
-3. **EC2 security group** — allow inbound TCP `3001`, `4000`, `4001` (plus `80`/`443` for the proxy):
-
-```powershell
-# Configure AWS credentials first, then:
-.\scripts\ops\open-dokploy-ports.ps1
-```
-
-Or manually:
-
-```bash
-aws ec2 authorize-security-group-ingress --group-id sg-XXXXXXXX --protocol tcp --port 3001 --cidr 0.0.0.0/0 --region ap-south-1
-aws ec2 authorize-security-group-ingress --group-id sg-XXXXXXXX --protocol tcp --port 4000 --cidr 0.0.0.0/0 --region ap-south-1
-aws ec2 authorize-security-group-ingress --group-id sg-XXXXXXXX --protocol tcp --port 4001 --cidr 0.0.0.0/0 --region ap-south-1
-```
-
-(Previous Dokploy host SG was `sg-02d37ca2cd71ed334` on `13.127.204.141`.)
+3. **EC2 security group** — expose only TCP `80`/`443` for Traefik. Do not allow public inbound access to application ports `3001`, `4000`, or `4001`.
 
 ## Dokploy deploy steps
 
 0. **App type must be Docker Compose** — if you see `open Dockerfile: no such file`, follow [`dokploy-compose-setup.md`](./dokploy-compose-setup.md). Do **not** add a root Dockerfile.
 1. Paste [`deploy/env/dokploy.compose.env.example`](../../deploy/env/dokploy.compose.env.example) into Dokploy **Environment** (replace all `REPLACE_ME_*`). Missing `MINIO_ROOT_USER` / `POSTGRES_PASSWORD` / etc. fails compose interpolation before start.
 2. Confirm `DATABASE_URL` host is `postgres` (not localhost). Deploy Compose file `docker-compose.dokploy.yml`, context = repo root.
-3. Wait for `postgres` / `minio` / `redis` healthy, `migrate` success (migrate also runs **catalog seed**: roles, permissions, reference catalogs, sample Etah geo), then `api` `/health` + `/ready`, then `web`.
-4. Set `BOOTSTRAP_ADMIN_CLERK_USER_IDS` to your Clerk user id (`user_…` from Clerk Dashboard → Users) **before or right after** first sign-in, then redeploy/restart **api**.
-5. Open `https://admin.sdvedutech.in`, sign in, and click **Refresh profile** if you still see Pending User.
+3. Wait for `postgres` / `minio` / `redis` healthy, `migrate` success (`prisma migrate deploy` only — `No pending migrations to apply.` is OK), then `api` `/health` + `/ready`, then `web`.
+4. **First empty DB only:** run one-time catalog seed from a host that can reach Postgres (`SEED_DEMO=false pnpm --filter @workspace/database db:seed`) — see [`dokploy-env.md`](./dokploy-env.md). Without this, roles/permissions are missing and RBAC/bootstrap will fail.
+5. Set `BOOTSTRAP_ADMIN_CLERK_USER_IDS` to your Clerk user id (`user_…` from Clerk Dashboard → Users) **before the first production sign-in**, then redeploy/restart **api**.
+6. Open `https://admin.sdvedutech.in` and sign in. The dashboard returns HTTP 403 when the profile has no permissions; there is no Pending User dashboard screen.
 
-### First admin stuck on “Pending User”
+### First admin receives HTTP 403
 
 Chicken-and-egg: without bootstrap, the first signup gets `PENDING_APPROVAL` (0 permissions). Fix:
 
-1. Copy your Clerk user id into Dokploy env: `BOOTSTRAP_ADMIN_CLERK_USER_IDS=user_xxxxx`
-2. Redeploy so **api** picks up the env (and **migrate** re-runs catalog seed if the image includes the seed entrypoint).
-3. Click **Refresh profile** on the Pending User screen — bootstrap now promotes `PENDING_APPROVAL` → `ADMIN`.
+1. Ensure catalog seed has been run once (roles/permissions exist).
+2. Copy your Clerk user id into Dokploy env: `BOOTSTRAP_ADMIN_CLERK_USER_IDS=user_xxxxx`
+3. Redeploy/restart **api** so it picks up the env.
+4. Reload the dashboard or sign in again so the API provisions the configured user as `ADMIN`.
 
-Optional: `SKIP_DB_SEED=true` skips catalog seed on migrate; `SEED_DEMO=true` also seeds demo users/surveys (not for production).
+Alternatively, promote an existing Clerk user explicitly from an environment
+with database access:
+
+```bash
+pnpm admin:promote -- --clerk-user-id user_xxxxx
+```
+
+Manual seed notes: keep `SEED_DEMO=false` in production (catalog only). `SEED_DEMO=true` also seeds demo users/surveys (not for production). Do **not** set a static `REDIS_URL` in Dokploy — only `REDIS_PASSWORD` (compose builds the URL).
 
 ## Smoke test
 

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common"
 import { ConfigService } from "@nestjs/config"
+import { promoteUserToAdmin } from "@workspace/database"
 import { PrismaService } from "../../prisma/prisma.service.js"
 
 /**
@@ -23,50 +24,15 @@ export class RoleProvisioningService {
       return false
     }
 
-    const adminRole = await this.prisma.db.role.findUnique({
-      where: { name: "ADMIN" },
-      select: { id: true },
-    })
-    if (!adminRole) {
+    const result = await promoteUserToAdmin(this.prisma.db, userId)
+    if (result.status === "admin-role-not-found") {
       this.logger.error("ADMIN role not found — run db seed before using bootstrap")
       return false
     }
 
-    const existing = await this.prisma.db.userTenantRole.findMany({
-      where: { userId, isActive: true },
-      select: {
-        id: true,
-        role: { select: { name: true } },
-      },
-    })
-
-    if (existing.some((row) => row.role.name === "ADMIN")) {
-      return true
+    if (result.status === "promoted") {
+      this.logger.log(`Bootstrapped ADMIN for clerkUserId=${clerkUserId}`)
     }
-
-    // Promote out of PENDING_APPROVAL (or any non-admin) so Refresh profile works
-    // after BOOTSTRAP_ADMIN_CLERK_USER_IDS is set post-signup.
-    for (const row of existing) {
-      await this.prisma.db.userTenantRole.update({
-        where: { id: row.id },
-        data: { isActive: false },
-      })
-    }
-
-    await this.prisma.db.userTenantRole.create({
-      data: {
-        userId,
-        roleId: adminRole.id,
-        assignedBy: userId,
-        stateId: null,
-        districtId: null,
-        ulbId: null,
-        wardId: null,
-        isActive: true,
-      },
-    })
-
-    this.logger.log(`Bootstrapped ADMIN for clerkUserId=${clerkUserId}`)
     return true
   }
 

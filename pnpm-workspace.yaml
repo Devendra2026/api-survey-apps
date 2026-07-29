@@ -2,6 +2,9 @@ packages:
   - "apps/*"
   - "packages/*"
 
+overrides:
+  "@types/react": "19.2.17"
+
 allowBuilds:
   "@prisma/engines": true
   "@scarf/scarf": true

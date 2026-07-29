@@ -3,6 +3,7 @@
 import { DashboardShell } from "@/components/layout/dashboard-shell"
 import { useCurrentUser } from "@/hooks/use-api"
 import { getApiErrorMessage } from "@/lib/api/client"
+import { hasDashboardAccess } from "@/lib/auth/dashboard-access"
 import { useAuthStore } from "@/stores/app-store"
 import { useAuth } from "@clerk/nextjs"
 import { Button } from "@workspace/ui/components/button"
@@ -81,28 +82,8 @@ export function ProtectedDashboardLayout({ children }: { children: React.ReactNo
   }
 
   const permissions = user?.permissions ?? []
-  if (permissions.length === 0) {
-    return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background p-6 text-center">
-        <div className="surface-elevated w-full max-w-md space-y-4 p-8">
-          <div className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-700 dark:text-amber-300">
-            <span className="text-lg font-semibold" aria-hidden>
-              …
-            </span>
-          </div>
-          <div className="space-y-2">
-            <p className="text-lg font-semibold tracking-tight">Pending User</p>
-            <p className="text-sm leading-relaxed text-muted-foreground">
-              Your account is waiting for administrator approval. An Admin must assign your role and working area before
-              you can access the portal.
-            </p>
-          </div>
-          <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={() => void refetch()}>
-            Refresh profile
-          </Button>
-        </div>
-      </div>
-    )
+  if (!hasDashboardAccess(permissions)) {
+    return null
   }
 
   const tenantRoles = user?.tenantRoles ?? []

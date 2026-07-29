@@ -21,7 +21,7 @@
         "APP_URL",
         "NEXT_TELEMETRY_DISABLED"
       ],
-      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+      "outputs": [".next/**", "!.next/cache/**", "!.next/dev/**", "dist/**"]
     },
     "start": {
       "cache": false,

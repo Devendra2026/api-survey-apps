@@ -48,6 +48,12 @@ function statsSummary(stats: unknown): string {
   return parts.length ? parts.join(" · ") : JSON.stringify(stats).slice(0, 120)
 }
 
+function statsError(stats: unknown): string | null {
+  if (!stats || typeof stats !== "object") return null
+  const value = (stats as Record<string, unknown>).error
+  return typeof value === "string" && value.trim() ? value : null
+}
+
 function ActiveStatusCard({
   etlEnabled,
   activeJob,
@@ -291,6 +297,11 @@ export function EtlConsole() {
               </div>
               <p className="text-xs text-muted-foreground">Job {report.jobId}</p>
               <p className="mt-2 text-muted-foreground">{statsSummary(report.stats)}</p>
+              {statsError(report.stats) ? (
+                <p className="mt-2 rounded-lg bg-destructive/10 px-3 py-2 text-xs wrap-break-word text-destructive">
+                  {statsError(report.stats)}
+                </p>
+              ) : null}
             </div>
           ) : null}
         </CardContent>

@@ -1,31 +1,16 @@
 import { Injectable, Logger } from "@nestjs/common"
 import { ConfigService } from "@nestjs/config"
 import {
-  ConvexHttpExtractor,
-  DEFAULT_ETL_BATCH_SIZE,
-  DEFAULT_ETL_MAX_RETRIES,
-  DEFAULT_MAX_IMAGE_BYTES,
-  extensionFromMime,
-  rebuildPhotoKeysWithExtension,
-  shouldSkipSurvey,
-  transformSurveyBundle,
-  validateImageBuffer,
-  type MappedSurvey,
-  type MigrationStatus,
-  type PhotoSlot,
-  type TransformContext,
-} from "@workspace/etl-core"
-import {
   AssessmentYear,
   ConstructionType,
   FloorPosition,
   GpsSource,
-  MigrationStatus as PrismaMigrationStatus,
   OwnershipType,
   PhotoType,
+  Prisma,
+  MigrationStatus as PrismaMigrationStatus,
   PropertyType,
   PropertyUse,
-  Prisma,
   QcStatus,
   RoadType,
   SanitationType,
@@ -39,6 +24,23 @@ import {
   UsageType,
   WaterConnection,
 } from "@workspace/database"
+import {
+  ConvexHttpExtractor,
+  DEFAULT_ETL_BATCH_SIZE,
+  DEFAULT_ETL_MAX_RETRIES,
+  DEFAULT_MAX_IMAGE_BYTES,
+  extensionFromMime,
+  isFinalAttempt,
+  rebuildPhotoKeysWithExtension,
+  shouldSkipSurvey,
+  transformSurveyBundle,
+  validateImageBuffer,
+  type AttemptBudget,
+  type MappedSurvey,
+  type MigrationStatus,
+  type PhotoSlot,
+  type TransformContext,
+} from "@workspace/etl-core"
 import type { EtlSurveyImportPayload } from "@workspace/jobs"
 import { PrismaService } from "../database/prisma.service.js"
 import { ObjectStorageService } from "../storage/object-storage.service.js"
@@ -672,6 +674,44 @@ export class EtlOrchestratorService {
         metaJson,
       },
     })
+  }
+
+  /**
+   * Close out a MigrationJob whose queue job threw. Without this the row stays
+   * RUNNING forever, hides the error, and blocks the next full migration.
+   */
+  async failJob(input: {
+    migrationJobId: string
+    correlationId?: string
+    error: unknown
+    attempt: AttemptBudget
+  }): Promise<void> {
+    const { migrationJobId, correlationId, error, attempt } = input
+    const message = (error instanceof Error ? error.message : String(error)).slice(0, 2000)
+
+    try {
+      const job = await this.prisma.db.migrationJob.findUnique({ where: { id: migrationJobId } })
+      if (!job) return
+
+      await this.appendLog(migrationJobId, "error", message, undefined, correlationId)
+      if (!isFinalAttempt(attempt)) return
+
+      const stats: Record<string, string | number> = {}
+      for (const [key, value] of Object.entries((job.statsJson as Record<string, unknown> | null) ?? {})) {
+        if (typeof value === "number" || typeof value === "string") stats[key] = value
+      }
+      stats.error = message
+
+      await this.prisma.db.migrationJob.update({
+        where: { id: migrationJobId },
+        data: { status: "FAILED", finishedAt: new Date(), statsJson: stats },
+      })
+      this.logger.error(`ETL job ${migrationJobId} marked FAILED: ${message}`)
+    } catch (err) {
+      this.logger.warn(
+        `Could not record ETL failure for job ${migrationJobId}: ${err instanceof Error ? err.message : String(err)}`
+      )
+    }
   }
 
   async bumpJobStats(

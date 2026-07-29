@@ -1,5 +1,4 @@
-import { Processor, WorkerHost } from "@nestjs/bullmq"
-import { InjectQueue } from "@nestjs/bullmq"
+import { InjectQueue, Processor, WorkerHost } from "@nestjs/bullmq"
 import { Logger } from "@nestjs/common"
 import { finalizeJobStats } from "@workspace/etl-core"
 import {
@@ -30,49 +29,59 @@ export class EtlValidationProcessor extends WorkerHost {
       throw new Error(`Unknown validate job: ${job.name}`)
     }
 
-    const convexCount = await this.orchestrator.countConvexSurveys()
-    const pgCount = await this.prisma.db.survey.count({
-      where: { legacySurveyId: { not: null }, deletedAt: null },
-    })
-    const photoCount = await this.prisma.db.photo.count({
-      where: { survey: { legacySurveyId: { not: null }, deletedAt: null } },
-    })
-    const convexUrlPhotos = await this.prisma.db.photo.count({
-      where: {
-        survey: { legacySurveyId: { not: null }, deletedAt: null },
-        OR: [{ sourceUrl: { contains: "convex" } }, { url: { contains: "convex" } }, { objectKey: null }],
-      },
-    })
+    try {
+      const convexCount = await this.orchestrator.countConvexSurveys()
+      const pgCount = await this.prisma.db.survey.count({
+        where: { legacySurveyId: { not: null }, deletedAt: null },
+      })
+      const photoCount = await this.prisma.db.photo.count({
+        where: { survey: { legacySurveyId: { not: null }, deletedAt: null } },
+      })
+      const convexUrlPhotos = await this.prisma.db.photo.count({
+        where: {
+          survey: { legacySurveyId: { not: null }, deletedAt: null },
+          OR: [{ sourceUrl: { contains: "convex" } }, { url: { contains: "convex" } }, { objectKey: null }],
+        },
+      })
 
-    const report = {
-      convexSurveyCount: convexCount,
-      postgresSurveyCount: pgCount,
-      photoCount,
-      photosMissingObjectKeyOrConvexUrl: convexUrlPhotos,
-      deltaSurveys: convexCount - pgCount,
-      validatedAt: new Date().toISOString(),
+      const report = {
+        convexSurveyCount: convexCount,
+        postgresSurveyCount: pgCount,
+        photoCount,
+        photosMissingObjectKeyOrConvexUrl: convexUrlPhotos,
+        deltaSurveys: convexCount - pgCount,
+        validatedAt: new Date().toISOString(),
+      }
+
+      await this.prisma.db.migrationJob.update({
+        where: { id: job.data.migrationJobId },
+        data: {
+          status: "COMPLETED",
+          finishedAt: new Date(),
+          statsJson: report,
+        },
+      })
+
+      await this.orchestrator.appendLog(
+        job.data.migrationJobId,
+        "info",
+        "Validation complete",
+        undefined,
+        job.data.correlationId,
+        report
+      )
+
+      this.logger.log(JSON.stringify({ msg: "etl_validation", ...report }))
+      return report
+    } catch (err) {
+      await this.orchestrator.failJob({
+        migrationJobId: job.data.migrationJobId,
+        correlationId: job.data.correlationId,
+        error: err,
+        attempt: { attemptsMade: job.attemptsMade, maxAttempts: job.opts.attempts },
+      })
+      throw err
     }
-
-    await this.prisma.db.migrationJob.update({
-      where: { id: job.data.migrationJobId },
-      data: {
-        status: "COMPLETED",
-        finishedAt: new Date(),
-        statsJson: report,
-      },
-    })
-
-    await this.orchestrator.appendLog(
-      job.data.migrationJobId,
-      "info",
-      "Validation complete",
-      undefined,
-      job.data.correlationId,
-      report
-    )
-
-    this.logger.log(JSON.stringify({ msg: "etl_validation", ...report }))
-    return report
   }
 }
 
@@ -80,6 +89,7 @@ export class EtlValidationProcessor extends WorkerHost {
 export class EtlRetryProcessor extends WorkerHost {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly orchestrator: EtlOrchestratorService,
     @InjectQueue(JOB_QUEUE_NAMES.etlSurveyImport)
     private readonly surveyQueue: Queue<EtlSurveyImportPayload>
   ) {
@@ -91,36 +101,46 @@ export class EtlRetryProcessor extends WorkerHost {
       throw new Error(`Unknown retry job: ${job.name}`)
     }
 
-    const failures = await this.prisma.db.failedImport.findMany({
-      where: {
-        resolvedAt: null,
-        retryCount: { lt: job.data.maxRetries },
-      },
-      take: 500,
-      orderBy: { createdAt: "asc" },
-    })
-
-    let enqueued = 0
-    for (const failure of failures) {
-      await this.surveyQueue.add(
-        JOB_NAMES.importSurvey,
-        {
-          migrationJobId: job.data.migrationJobId,
-          correlationId: job.data.correlationId,
-          legacySurveyId: failure.legacySurveyId,
-          type: "RETRY_FAILED",
-          createdById: job.data.createdById,
+    try {
+      const failures = await this.prisma.db.failedImport.findMany({
+        where: {
+          resolvedAt: null,
+          retryCount: { lt: job.data.maxRetries },
         },
-        {
-          jobId: `${job.data.migrationJobId}-retry-${failure.legacySurveyId}-${Date.now()}`,
-          attempts: 3,
-          backoff: { type: "exponential", delay: 2_000 },
-        }
-      )
-      enqueued += 1
-    }
+        take: 500,
+        orderBy: { createdAt: "asc" },
+      })
 
-    return { enqueued }
+      let enqueued = 0
+      for (const failure of failures) {
+        await this.surveyQueue.add(
+          JOB_NAMES.importSurvey,
+          {
+            migrationJobId: job.data.migrationJobId,
+            correlationId: job.data.correlationId,
+            legacySurveyId: failure.legacySurveyId,
+            type: "RETRY_FAILED",
+            createdById: job.data.createdById,
+          },
+          {
+            jobId: `${job.data.migrationJobId}-retry-${failure.legacySurveyId}-${Date.now()}`,
+            attempts: 3,
+            backoff: { type: "exponential", delay: 2_000 },
+          }
+        )
+        enqueued += 1
+      }
+
+      return { enqueued }
+    } catch (err) {
+      await this.orchestrator.failJob({
+        migrationJobId: job.data.migrationJobId,
+        correlationId: job.data.correlationId,
+        error: err,
+        attempt: { attemptsMade: job.attemptsMade, maxAttempts: job.opts.attempts },
+      })
+      throw err
+    }
   }
 }
 

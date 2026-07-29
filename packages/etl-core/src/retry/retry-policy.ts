@@ -41,3 +41,19 @@ export function computeBackoffMs(attempt: number, baseMs = 1_000, maxMs = 60_000
   const jitter = Math.floor(Math.random() * 250)
   return exp + jitter
 }
+
+export interface AttemptBudget {
+  /** BullMQ `job.attemptsMade`: attempts already failed, so the first run sees 0. */
+  attemptsMade: number
+  /** BullMQ `job.opts.attempts`; absent means the job runs once. */
+  maxAttempts?: number
+}
+
+/**
+ * True when the queue will not retry again, so the owning MigrationJob row
+ * must be closed out instead of being left in RUNNING forever.
+ */
+export function isFinalAttempt({ attemptsMade, maxAttempts }: AttemptBudget): boolean {
+  const budget = Math.max(1, maxAttempts ?? 1)
+  return attemptsMade + 1 >= budget
+}

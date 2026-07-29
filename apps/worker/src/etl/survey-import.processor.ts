@@ -1,8 +1,7 @@
-import { Processor, WorkerHost } from "@nestjs/bullmq"
+import { InjectQueue, Processor, WorkerHost } from "@nestjs/bullmq"
 import { Logger } from "@nestjs/common"
-import { InjectQueue } from "@nestjs/bullmq"
-import { emptyEtlJobStats } from "@workspace/etl-core"
 import { MigrationJobType } from "@workspace/database"
+import { emptyEtlJobStats } from "@workspace/etl-core"
 import { JOB_NAMES, JOB_QUEUE_NAMES, type EtlSurveyBatchPayload, type EtlSurveyImportPayload } from "@workspace/jobs"
 import type { Job, Queue } from "bullmq"
 import { randomUUID } from "node:crypto"
@@ -65,53 +64,63 @@ export class EtlSurveyImportProcessor extends WorkerHost {
       },
     })
 
-    const page = await this.orchestrator.listBatchIds(payload.cursor, payload.batchSize)
-    let enqueued = 0
+    try {
+      const page = await this.orchestrator.listBatchIds(payload.cursor, payload.batchSize)
+      let enqueued = 0
 
-    for (const legacySurveyId of page.ids) {
-      const child: EtlSurveyImportPayload = {
-        migrationJobId: payload.migrationJobId,
-        correlationId: payload.correlationId,
-        legacySurveyId,
-        type: payload.type,
-        createdById: payload.createdById,
-      }
-      await this.surveyQueue.add(JOB_NAMES.importSurvey, child, {
-        jobId: `${payload.migrationJobId}-${legacySurveyId}`,
-        attempts: 5,
-        backoff: { type: "exponential", delay: 2_000 },
-        removeOnComplete: true,
-        removeOnFail: { count: 5_000 },
-      })
-      enqueued += 1
-    }
-
-    await this.prisma.db.migrationJob.update({
-      where: { id: payload.migrationJobId },
-      data: { cursor: page.continueCursor },
-    })
-
-    if (!page.isDone) {
-      await this.surveyQueue.add(
-        JOB_NAMES.importSurveyBatch,
-        {
-          ...payload,
-          cursor: page.continueCursor,
-        },
-        {
-          jobId: `${payload.migrationJobId}-batch-${page.continueCursor.slice(0, 24)}`,
-          delay: 500,
+      for (const legacySurveyId of page.ids) {
+        const child: EtlSurveyImportPayload = {
+          migrationJobId: payload.migrationJobId,
+          correlationId: payload.correlationId,
+          legacySurveyId,
+          type: payload.type,
+          createdById: payload.createdById,
         }
-      )
-    } else {
-      await this.reportQueue.add(JOB_NAMES.generateReport, {
+        await this.surveyQueue.add(JOB_NAMES.importSurvey, child, {
+          jobId: `${payload.migrationJobId}-${legacySurveyId}`,
+          attempts: 5,
+          backoff: { type: "exponential", delay: 2_000 },
+          removeOnComplete: true,
+          removeOnFail: { count: 5_000 },
+        })
+        enqueued += 1
+      }
+
+      await this.prisma.db.migrationJob.update({
+        where: { id: payload.migrationJobId },
+        data: { cursor: page.continueCursor },
+      })
+
+      if (!page.isDone) {
+        await this.surveyQueue.add(
+          JOB_NAMES.importSurveyBatch,
+          {
+            ...payload,
+            cursor: page.continueCursor,
+          },
+          {
+            jobId: `${payload.migrationJobId}-batch-${page.continueCursor.slice(0, 24)}`,
+            delay: 500,
+          }
+        )
+      } else {
+        await this.reportQueue.add(JOB_NAMES.generateReport, {
+          migrationJobId: payload.migrationJobId,
+          correlationId: payload.correlationId,
+        })
+      }
+
+      this.logger.log(`ETL batch job=${payload.migrationJobId} enqueued=${enqueued} done=${page.isDone}`)
+      return { enqueued, isDone: page.isDone, continueCursor: page.continueCursor }
+    } catch (err) {
+      await this.orchestrator.failJob({
         migrationJobId: payload.migrationJobId,
         correlationId: payload.correlationId,
+        error: err,
+        attempt: { attemptsMade: job.attemptsMade, maxAttempts: job.opts.attempts },
       })
+      throw err
     }
-
-    this.logger.log(`ETL batch job=${payload.migrationJobId} enqueued=${enqueued} done=${page.isDone}`)
-    return { enqueued, isDone: page.isDone, continueCursor: page.continueCursor }
   }
 
   private async processOne(job: Job<EtlSurveyImportPayload>) {

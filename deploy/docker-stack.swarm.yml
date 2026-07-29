@@ -124,7 +124,7 @@ services:
   # Swarm does not reliably order one-shots before replicas — prefer:
   #   docker run --rm --network <stack>_survey-internal \
   #     -e DATABASE_URL=... -e DIRECT_URL=... \
-  #     --entrypoint sh ${APP_IMAGE_API:-api-survey-api:prod} \
+  #     --entrypoint bash ${APP_IMAGE_API:-api-survey-api:prod} \
   #     /app/apps/api/docker-entrypoint.migrate.sh
   # before scaling api/worker, or use docker-compose.dokploy.yml.
 

@@ -152,7 +152,11 @@ services:
       NODE_ENV: production
       DATABASE_URL: ${DIRECT_URL:-${DATABASE_URL:?Set DATABASE_URL or DIRECT_URL in Dokploy Environment}}
       DIRECT_URL: ${DIRECT_URL:-${DATABASE_URL:?Set DATABASE_URL or DIRECT_URL in Dokploy Environment}}
-    entrypoint: ["sh", "/app/apps/api/docker-entrypoint.migrate.sh"]
+      SKIP_DB_SEED: ${SKIP_DB_SEED:-false}
+      SEED_DEMO: ${SEED_DEMO:-false}
+    entrypoint: ["bash", "/app/apps/api/docker-entrypoint.migrate.sh"]
+    # Do not inherit API CMD (node apps/api/dist/main.js).
+    command: []
     networks:
       - app
 

@@ -98,12 +98,12 @@ Traefik is the only ingress. Compose does not publish `web`, `api`, or `worker` 
 
 ## 4. What Compose builds
 
-| Service                        | Dockerfile               | Notes                                                     |
-| ------------------------------ | ------------------------ | --------------------------------------------------------- |
-| `migrate` + `api`              | `apps/api/Dockerfile`    | `turbo prune api --docker`; Prisma CLI linked for migrate |
-| `worker`                       | `apps/worker/Dockerfile` | Playwright Chromium; longer first build                   |
-| `web`                          | `apps/web/Dockerfile`    | Next standalone; needs `NEXT_PUBLIC_*` at build           |
-| `postgres` / `redis` / `minio` | public images            | internal `app` network                                    |
+| Service                        | Dockerfile               | Notes                                                            |
+| ------------------------------ | ------------------------ | ---------------------------------------------------------------- |
+| `migrate` + `api`              | `apps/api/Dockerfile`    | `node:24-bookworm-slim` + OpenSSL; `turbo prune api`; Prisma CLI |
+| `worker`                       | `apps/worker/Dockerfile` | Playwright Chromium; longer first build                          |
+| `web`                          | `apps/web/Dockerfile`    | Next standalone; needs `NEXT_PUBLIC_*` at build                  |
+| `postgres` / `redis` / `minio` | public images            | internal `app` network                                           |
 
 Build context for every app image is **repository root** (`.`).
 
@@ -122,19 +122,21 @@ curl -fsSI https://admin.sdvedutech.in/
 
 ### Startup expectations
 
-| Signal                                                                                                                 | Meaning                                                                        |
-| ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `minio-init` logs `Alias 'local' configured` then `Bucket '…' ready` with **no** `connection refused`                  | MinIO race fixed — init gated on `service_healthy` + quiet retries             |
-| `migrate` logs `Running prisma migrate deploy` then either applied migrations or **`No pending migrations to apply.`** | Success (idempotent). Only the `migrate` one-shot runs this; api/worker do not |
-| `migrate` / `minio-init` exit 0; no inherited `/live` healthcheck on migrate                                           | One-shots stay one-shots (no false unhealthy / recreate loops)                 |
+| Signal                                                                                                    | Meaning                                                                        |
+| --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `minio-init` logs `Alias 'local' configured` then `Bucket '…' ready` with **no** `connection refused`     | MinIO race fixed — init gated on `service_healthy` + quiet retries             |
+| `migrate` logs `✓ Loading environment` → `✓ Waiting for PostgreSQL` → `✓ Database reachable`              | Entrypoint preflight (host-only URL logged; credentials never printed)         |
+| `migrate` logs `✓ Prisma migrate deploy` then applied migrations or **`No pending migrations to apply.`** | Success (idempotent). Only the `migrate` one-shot runs this; api/worker do not |
+| `migrate` logs `✓ Seed execution` then `✓ Finished successfully` (unless `SKIP_DB_SEED=true`)             | Catalog seed completed                                                         |
+| `migrate` / `minio-init` exit 0; no inherited `/live` healthcheck on migrate                              | One-shots stay one-shots (no false unhealthy / recreate loops)                 |
 
 ## 6. Fixing wrong or incomplete Compose apps
 
-| Situation                                                             | Action                                                                                               |
-| --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `open Dockerfile: no such file`                                       | Wrong type — use **Docker Compose**, not Application/Dockerfile                                      |
-| `MINIO_ROOT_USER is missing a value` (e.g. `sdv-frontend-app-qrll5q`) | Paste [`dokploy.compose.env.example`](../../deploy/env/dokploy.compose.env.example) into Environment |
-| Compose OK but migrate/api crash                                      | Check `DATABASE_URL` host is `postgres`; Clerk + `NEXT_PUBLIC_*` set                                 |
+| Situation                                                             | Action                                                                                                                                         |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `open Dockerfile: no such file`                                       | Wrong type — use **Docker Compose**, not Application/Dockerfile                                                                                |
+| `MINIO_ROOT_USER is missing a value` (e.g. `sdv-frontend-app-qrll5q`) | Paste [`dokploy.compose.env.example`](../../deploy/env/dokploy.compose.env.example) into Environment                                           |
+| Compose OK but migrate/api crash                                      | Check migrate logs for `✗` lines; `DATABASE_URL` host must be `postgres`; password must match `POSTGRES_PASSWORD`; Clerk + `NEXT_PUBLIC_*` set |
 
 ## Related
 

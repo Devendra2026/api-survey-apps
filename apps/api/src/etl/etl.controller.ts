@@ -45,6 +45,22 @@ export class EtlController {
     return this.etlService.startValidate(user.id)
   }
 
+  @Post("reap-stale")
+  @RequirePermission(PERMISSIONS.ETL_MANAGE)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiOperation({ summary: "Close ETL jobs abandoned in QUEUED/RUNNING so new runs are not blocked" })
+  async reapStale() {
+    const closed = await this.etlService.reapStaleJobs()
+    return { closed }
+  }
+
+  @Get("preflight")
+  @RequirePermission(PERMISSIONS.ETL_MANAGE)
+  @ApiOperation({ summary: "Diagnose the Convex ETL connection and shared secret without exposing it" })
+  preflight() {
+    return this.etlService.preflight()
+  }
+
   @Get("status")
   @RequirePermission(PERMISSIONS.ETL_MANAGE)
   @ApiOperation({ summary: "Active ETL job + migration_state counters" })

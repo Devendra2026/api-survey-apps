@@ -275,6 +275,15 @@ export class EnvironmentVariables {
   @Transform(emptyToUndefined)
   @IsString()
   ETL_SYSTEM_USER_ID?: string
+
+  /** Minutes without progress before a QUEUED/RUNNING migration job is closed as abandoned. */
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @Type(() => Number)
+  @IsInt()
+  @Min(5)
+  @Max(1_440)
+  ETL_STALE_JOB_TIMEOUT_MINUTES?: number
 }
 
 export function validateEnv(config: Record<string, unknown>) {

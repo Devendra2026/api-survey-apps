@@ -31,7 +31,9 @@ import {
   DEFAULT_MAX_IMAGE_BYTES,
   extensionFromMime,
   isFinalAttempt,
+  isPermanentFailure,
   rebuildPhotoKeysWithExtension,
+  remediationFor,
   shouldSkipSurvey,
   transformSurveyBundle,
   validateImageBuffer,
@@ -693,14 +695,25 @@ export class EtlOrchestratorService {
       const job = await this.prisma.db.migrationJob.findUnique({ where: { id: migrationJobId } })
       if (!job) return
 
-      await this.appendLog(migrationJobId, "error", message, undefined, correlationId)
-      if (!isFinalAttempt(attempt)) return
+      const permanent = isPermanentFailure(error)
+      const remediation = remediationFor(error)
+      await this.appendLog(
+        migrationJobId,
+        "error",
+        remediation ? `${message} — ${remediation}` : message,
+        undefined,
+        correlationId
+      )
+      // Permanent failures skip the retry budget entirely, so waiting for the
+      // final attempt would leave this row RUNNING forever.
+      if (!permanent && !isFinalAttempt(attempt)) return
 
       const stats: Record<string, string | number> = {}
       for (const [key, value] of Object.entries((job.statsJson as Record<string, unknown> | null) ?? {})) {
         if (typeof value === "number" || typeof value === "string") stats[key] = value
       }
       stats.error = message
+      if (remediation) stats.remediation = remediation
 
       await this.prisma.db.migrationJob.update({
         where: { id: migrationJobId },

@@ -24,6 +24,7 @@ ETL_BATCH_SIZE=100
 ETL_CRON=*/15 * * * *
 ETL_SYSTEM_USER_ID=<optional nest user uuid>
 ETL_MAX_RETRIES=5
+ETL_STALE_JOB_TIMEOUT_MINUTES=60
 STORAGE_PROVIDER=minio   # or s3
 ```
 
@@ -59,15 +60,76 @@ Auth: uses `ETL_DEV_CLERK_USER_ID` or first `BOOTSTRAP_ADMIN_CLERK_USER_IDS` as 
 
 ## APIs
 
-| Method | Path                    | Purpose                |
-| ------ | ----------------------- | ---------------------- |
-| POST   | `/etl/full-migration`   | Import all surveys     |
-| POST   | `/etl/incremental-sync` | Import missing only    |
-| POST   | `/etl/retry-failed`     | Retry `failed_imports` |
-| POST   | `/etl/validate`         | Count/URL validation   |
-| GET    | `/etl/status`           | Active job + counters  |
-| GET    | `/etl/report?jobId=`    | Job stats              |
-| GET    | `/etl/jobs`             | Recent jobs            |
+| Method | Path                    | Purpose                        |
+| ------ | ----------------------- | ------------------------------ |
+| POST   | `/etl/full-migration`   | Import all surveys             |
+| POST   | `/etl/incremental-sync` | Import missing only            |
+| POST   | `/etl/retry-failed`     | Retry `failed_imports`         |
+| POST   | `/etl/validate`         | Count/URL validation           |
+| POST   | `/etl/reap-stale`       | Close abandoned QUEUED/RUNNING |
+| GET    | `/etl/preflight`        | Diagnose Convex URL + secret   |
+| GET    | `/etl/status`           | Active job + counters          |
+| GET    | `/etl/report?jobId=`    | Job stats                      |
+| GET    | `/etl/jobs`             | Recent jobs                    |
+
+## Shared secret
+
+The worker sends `X-ETL-Secret`; Convex compares it to its own `ETL_SECRET`. Both
+sides trim the value, because a secret pasted or piped into an environment variable
+usually picks up a trailing newline that is invisible in every dashboard.
+
+Set the same value on both sides:
+
+```bash
+# Convex (from sdv-monorepo-apps/packages/backend)
+npx convex env set ETL_SECRET '<value>'
+
+# Nest api + worker (Dokploy env, quoted — avoid # and quotes inside the value)
+ETL_CONVEX_SECRET='<value>'
+```
+
+Verify without revealing it — both sides print the same 12-hex fingerprint:
+
+```bash
+pnpm etl:run preflight
+```
+
+`secretFingerprint` is what the worker sends; `secretFingerprintSeenByConvex` is
+what Convex received. Equal fingerprints with a 401 means Convex holds a different
+value; unequal means the header was altered in transit.
+
+## Troubleshooting
+
+### ETL jobs fail with 401 Unauthorized
+
+Run `pnpm etl:run preflight` (or `GET /etl/preflight`) and read `convex.reason`:
+
+| `reason`                          | Meaning                                  | Fix                                                       |
+| --------------------------------- | ---------------------------------------- | --------------------------------------------------------- |
+| `secret_mismatch`                 | Convex holds a different `ETL_SECRET`    | Re-set both sides from one value, then redeploy worker    |
+| `secret_missing`                  | Convex received no header                | Check the proxy in front of `CONVEX_SITE_URL` forwards it |
+| `secret_not_configured`           | Convex has no `ETL_SECRET` (returns 500) | `npx convex env set ETL_SECRET '<value>'`                 |
+| absent, `answeredByConvex: false` | A proxy answered, not Convex             | Inspect ingress/Traefik rules for `CONVEX_SITE_URL`       |
+
+A 404 instead means the ETL endpoints are not deployed — run `npx convex deploy`
+in `sdv-monorepo-apps/packages/backend`.
+
+Auth failures are permanent: the queue stops after one attempt instead of burning
+its retry budget, and the owning `migration_jobs` row is marked `FAILED` immediately
+with the remediation stored in `statsJson.remediation`.
+
+### Jobs stuck in RUNNING / "Full migration already running"
+
+Rows are closed automatically when the api starts and before each full migration.
+To sweep on demand:
+
+```bash
+pnpm etl:run reap-stale
+```
+
+A job is abandoned when it has made no progress for `ETL_STALE_JOB_TIMEOUT_MINUTES`
+(default 60); every batch advances `updatedAt`, so a quiet row means the worker died
+or was redeployed mid-run. `force=true` on a full migration still bypasses the check.
 
 ## Dry-run checklist
 

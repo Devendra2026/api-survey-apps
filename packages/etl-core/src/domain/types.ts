@@ -292,5 +292,7 @@ export const ALLOWED_IMAGE_MIME_TYPES = [
 export const DEFAULT_MAX_IMAGE_BYTES = 15 * 1024 * 1024
 export const DEFAULT_ETL_BATCH_SIZE = 100
 export const DEFAULT_ETL_MAX_RETRIES = 5
+/** Minutes without progress after which a QUEUED/RUNNING migration job is treated as abandoned. */
+export const DEFAULT_ETL_STALE_JOB_MINUTES = 60
 export const DEFAULT_IMAGE_CONCURRENCY = 4
 export const ETL_PREFIX = "etah-images"

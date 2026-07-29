@@ -1,3 +1,5 @@
+import { ConvexEtlHttpError } from "../extract/convex-etl-error.js"
+
 export type RetryKind = "transient" | "permanent"
 
 const TRANSIENT_PATTERNS = [
@@ -29,11 +31,26 @@ const PERMANENT_PATTERNS = [
 ]
 
 export function classifyError(error: unknown): RetryKind {
+  // A typed HTTP status beats message pattern matching: a 401 must never be
+  // retried, and the TRANSIENT_PATTERNS below would otherwise match on digits.
+  if (error instanceof ConvexEtlHttpError) {
+    return error.isRetryable ? "transient" : "permanent"
+  }
   const message = error instanceof Error ? error.message : String(error)
   if (PERMANENT_PATTERNS.some((re) => re.test(message))) return "permanent"
   if (TRANSIENT_PATTERNS.some((re) => re.test(message))) return "transient"
   // Default transient for unknown network-ish failures so BullMQ can retry
   return "transient"
+}
+
+/** True when retrying cannot succeed, so the queue should stop and the job row must close now. */
+export function isPermanentFailure(error: unknown): boolean {
+  return classifyError(error) === "permanent"
+}
+
+/** Operator-facing next step when a failure is known to be permanent. */
+export function remediationFor(error: unknown): string | undefined {
+  return error instanceof ConvexEtlHttpError ? error.remediation : undefined
 }
 
 export function computeBackoffMs(attempt: number, baseMs = 1_000, maxMs = 60_000): number {

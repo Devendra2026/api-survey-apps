@@ -86,6 +86,16 @@ try {
     case "status":
       console.log(JSON.stringify(await api("GET", "/etl/status"), null, 2))
       break
+    case "preflight": {
+      const result = await api("GET", "/etl/preflight")
+      console.log(JSON.stringify(result, null, 2))
+      if (!result?.ok) process.exit(1)
+      break
+    }
+    case "reap":
+    case "reap-stale":
+      console.log(JSON.stringify(await api("POST", "/etl/reap-stale", {}), null, 2))
+      break
     case "report": {
       const jobId = flags["job-id"] || flags.jobId
       if (!jobId) {
@@ -235,6 +245,8 @@ function printHelp() {
   pnpm etl:run retry [--max-retries 5] [--watch]
   pnpm etl:run validate [--watch]
   pnpm etl:run status
+  pnpm etl:run preflight            # diagnose Convex URL + shared secret
+  pnpm etl:run reap-stale           # close abandoned QUEUED/RUNNING jobs
   pnpm etl:run report --job-id <id>
   pnpm etl:run jobs [--limit 20]
 

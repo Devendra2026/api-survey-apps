@@ -191,15 +191,15 @@ ECR is optional — first launch can build from Dockerfiles in compose.
 
 Required on **api** and **worker** when using Master Data → Sync from Convex or `/admin/etl`. Self-hosted Convex must set `ETL_SECRET` to the same value as `ETL_CONVEX_SECRET`.
 
-| Variable             | Where        | Notes                                                              |
-| -------------------- | ------------ | ------------------------------------------------------------------ |
-| `CONVEX_SITE_URL`    | api + worker | HTTP site URL (e.g. `https://….convex.site` or self-host site URL) |
-| `ETL_CONVEX_SECRET`  | api + worker | Shared secret → `X-ETL-Secret` (must equal Convex `ETL_SECRET`)    |
-| `ETL_ENABLED`        | api          | `true` to register incremental cron                                |
-| `ETL_CRON`           | api          | Default `*/15 * * * *`                                             |
-| `ETL_BATCH_SIZE`     | api          | Default `100`                                                      |
-| `ETL_SYSTEM_USER_ID` | worker       | Optional Nest user UUID as survey creator fallback                 |
-| `ETL_MAX_RETRIES`    | worker       | Default `5`                                                        |
+| Variable             | Where        | Notes                                                           |
+| -------------------- | ------------ | --------------------------------------------------------------- |
+| `CONVEX_SITE_URL`    | api + worker | HTTP site URL (prod: `https://site.sdvedutech.in`)              |
+| `ETL_CONVEX_SECRET`  | api + worker | Shared secret → `X-ETL-Secret` (must equal Convex `ETL_SECRET`) |
+| `ETL_ENABLED`        | api          | `true` to register incremental cron                             |
+| `ETL_CRON`           | api          | Default `*/15 * * * *`                                          |
+| `ETL_BATCH_SIZE`     | api          | Default `100`                                                   |
+| `ETL_SYSTEM_USER_ID` | worker       | Optional Nest user UUID as survey creator fallback              |
+| `ETL_MAX_RETRIES`    | worker       | Default `5`                                                     |
 
 Also ensure: worker replicas ≥ 1, MinIO bucket writable, geo catalog (ULBs/wards) seeded before first sync.
 

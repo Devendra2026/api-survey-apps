@@ -130,17 +130,56 @@ export class CommandCenterRepository {
     // Require municipality (ULB) for populated ward grid — empty state otherwise
     if (!f.ulbId) return []
 
+    const scope = resolveTenantScope(user.tenantRoles)
+    const catalog = await this.prisma.db.ward.findMany({
+      where: { ulbId: f.ulbId, status: "ACTIVE" },
+      select: { id: true, wardName: true, wardNumber: true, ulbId: true },
+      orderBy: { wardNumber: "asc" },
+    })
+
+    if (catalog.length === 0) return []
+
+    const ulb = await this.prisma.db.ulb.findUnique({
+      where: { id: f.ulbId },
+      select: { id: true, districtId: true, district: { select: { stateId: true } } },
+    })
+    if (!ulb) return []
+
+    // Scope filter: ward-scoped users see only their wards in this ULB;
+    // broader scopes see all ACTIVE wards they can access under the ULB.
+    let wards = catalog
+    if (!scope.isGlobal) {
+      const catalogIds = new Set(catalog.map((w) => w.id))
+      if (scope.wardIds.length) {
+        wards = catalog.filter((w) => scope.wardIds.includes(w.id))
+      } else {
+        const canSeeUlb =
+          scope.ulbIds.includes(f.ulbId) ||
+          scope.districtIds.includes(ulb.districtId) ||
+          scope.stateIds.includes(ulb.district.stateId)
+        if (!canSeeUlb) return []
+      }
+      // If ward-scoped but none of their wards are in this ULB, empty
+      if (scope.wardIds.length && wards.length === 0) {
+        const anyInCatalog = scope.wardIds.some((id) => catalogIds.has(id))
+        if (!anyInCatalog) return []
+      }
+    }
+
+    if (wards.length === 0) return []
+
     const where = this.buildWhere(user, filters)
+    const wardIdList = wards.map((w) => w.id)
 
     const [statusRows, surveyorRows] = await Promise.all([
       this.prisma.db.survey.groupBy({
         by: ["wardId", "surveyStatus"],
-        where,
+        where: { ...where, wardId: { in: wardIdList } },
         _count: { _all: true },
       }),
       this.prisma.db.survey.groupBy({
         by: ["wardId", "createdById"],
-        where,
+        where: { ...where, wardId: { in: wardIdList } },
         _count: { _all: true },
       }),
     ])
@@ -150,19 +189,23 @@ export class CommandCenterRepository {
       { totalProperties: number; draft: number; submitted: number; qcApproved: number; surveyorIds: Set<string> }
     >()
 
-    for (const row of statusRows) {
-      const current = byWard.get(row.wardId) ?? {
+    for (const ward of wards) {
+      byWard.set(ward.id, {
         totalProperties: 0,
         draft: 0,
         submitted: 0,
         qcApproved: 0,
         surveyorIds: new Set<string>(),
-      }
+      })
+    }
+
+    for (const row of statusRows) {
+      const current = byWard.get(row.wardId)
+      if (!current) continue
       current.totalProperties += row._count._all
       if (row.surveyStatus === "DRAFT") current.draft += row._count._all
       if (row.surveyStatus === "SUBMITTED") current.submitted += row._count._all
       if (row.surveyStatus === "APPROVED") current.qcApproved += row._count._all
-      byWard.set(row.wardId, current)
     }
 
     for (const row of surveyorRows) {
@@ -171,20 +214,12 @@ export class CommandCenterRepository {
       current.surveyorIds.add(row.createdById)
     }
 
-    if (byWard.size === 0) return []
-
-    const wards = await this.prisma.db.ward.findMany({
-      where: { id: { in: [...byWard.keys()] } },
-      select: { id: true, wardName: true, wardNumber: true },
-      orderBy: { wardNumber: "asc" },
-    })
-
     return wards.map((ward) => {
       const stats = byWard.get(ward.id)!
-      const label = ward.wardName?.trim() || `Ward ${ward.wardNumber}`
+      const label = ward.wardName?.trim()
       return {
         wardId: ward.id,
-        wardName: label.startsWith("Ward") ? label : `Ward ${ward.wardNumber}`,
+        wardName: label || `Ward ${ward.wardNumber}`,
         wardNumber: ward.wardNumber,
         totalProperties: stats.totalProperties,
         draft: stats.draft,

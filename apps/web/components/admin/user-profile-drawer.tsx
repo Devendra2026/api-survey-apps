@@ -2,6 +2,7 @@
 
 import { PermissionMatrix, rolePermissionIdSet } from "@/components/admin/permission-matrix"
 import {
+  activeAssignments,
   assignmentGeoLabels,
   primaryAssignment,
   RoleBadge,
@@ -55,6 +56,7 @@ export function UserProfileDrawer({
   const reduceMotion = useReducedMotion()
   const canManageRoles = useAuthStore((s) => s.hasPermission("role:assign"))
   const assignment = user ? primaryAssignment(user.tenantRoles) : undefined
+  const allotments = user ? activeAssignments(user.tenantRoles).filter((r) => r.wardId || r.ulbId) : []
   const geo = assignmentGeoLabels(assignment)
   const roleName = assignment?.role?.name ?? assignment?.roleName
   const isPending = roleName === "PENDING_APPROVAL"
@@ -147,12 +149,31 @@ export function UserProfileDrawer({
                         Working area
                       </p>
                     </div>
-                    <div className="space-y-2.5 text-sm">
-                      <Row label="State" value={geo.state} />
-                      <Row label="District" value={geo.district} />
-                      <Row label="ULB" value={geo.ulb} />
-                      <Row label="Ward" value={geo.ward} />
-                    </div>
+                    {allotments.length > 1 ? (
+                      <ul className="space-y-3 text-sm">
+                        {allotments.map((row, index) => {
+                          const labels = assignmentGeoLabels(row)
+                          return (
+                            <li key={row.id} className="rounded-xl border bg-background/60 p-3">
+                              <p className="mb-2 text-xs font-medium text-muted-foreground">Allotment {index + 1}</p>
+                              <div className="space-y-1.5">
+                                <Row label="State" value={labels.state} />
+                                <Row label="District" value={labels.district} />
+                                <Row label="ULB" value={labels.ulb} />
+                                <Row label="Ward" value={labels.ward} />
+                              </div>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    ) : (
+                      <div className="space-y-2.5 text-sm">
+                        <Row label="State" value={geo.state} />
+                        <Row label="District" value={geo.district} />
+                        <Row label="ULB" value={geo.ulb} />
+                        <Row label="Ward" value={geo.ward} />
+                      </div>
+                    )}
                     {!assignment?.wardId && !assignment?.ulbId && !assignment?.districtId && !assignment?.stateId ? (
                       <p className="text-xs text-muted-foreground">Global scope (no geographic restriction).</p>
                     ) : null}

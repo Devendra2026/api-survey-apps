@@ -1,6 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger"
 import { Transform, Type, type TransformFnParams } from "class-transformer"
 import {
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
   IsEmail,
   IsIn,
@@ -12,6 +14,7 @@ import {
   Min,
   MinLength,
   ValidateIf,
+  ValidateNested,
 } from "class-validator"
 
 /** Empty string → null for nullable phone fields; other values narrowed from unknown. */
@@ -72,6 +75,24 @@ export class UpdateUserDto {
   isActive?: boolean
 }
 
+export class AllotmentGeoDto {
+  @ApiProperty()
+  @IsString()
+  stateId!: string
+
+  @ApiProperty()
+  @IsString()
+  districtId!: string
+
+  @ApiProperty()
+  @IsString()
+  ulbId!: string
+
+  @ApiProperty()
+  @IsString()
+  wardId!: string
+}
+
 export class AssignTenantRoleDto {
   @ApiProperty()
   @IsString()
@@ -80,6 +101,14 @@ export class AssignTenantRoleDto {
   @ApiProperty()
   @IsString()
   roleId!: string
+
+  @ApiPropertyOptional({ type: [AllotmentGeoDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => AllotmentGeoDto)
+  allotments?: AllotmentGeoDto[]
 
   @ApiPropertyOptional()
   @IsOptional()

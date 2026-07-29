@@ -3,14 +3,13 @@
 import { FormField } from "@/components/forms/form-field"
 import { PermissionMatrix, rolePermissionIdSet } from "@/components/admin/permission-matrix"
 import {
-  useAssignTenantRole,
-  useDistricts,
-  usePermissionsCatalog,
-  useRoles,
-  useStates,
-  useUlbs,
-  useWards,
-} from "@/hooks/use-api"
+  allotmentsComplete,
+  emptyAllotment,
+  toAllotmentPayload,
+  UserAllotmentsEditor,
+  type AllotmentDraft,
+} from "@/components/admin/user-allotments-editor"
+import { useAssignTenantRole, useDistricts, usePermissionsCatalog, useRoles, useStates, useUlbs } from "@/hooks/use-api"
 import { getApiErrorMessage } from "@/lib/api/client"
 import { ASSIGNABLE_ROLES, roleDisplayName, type AuthenticatedProfile } from "@/lib/api/types"
 import { Button } from "@workspace/ui/components/button"
@@ -28,8 +27,9 @@ import { Check } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
-const GEO_REQUIRED = new Set(["SURVEYOR", "FIELD_SUPERVISOR"])
+const GEO_REQUIRED = new Set(["SURVEYOR", "FIELD_SUPERVISOR", "QC_SUPERVISOR"])
 const GEO_FORBIDDEN = new Set(["ADMIN", "PENDING_APPROVAL"])
+const GEO_ULB_ONLY = new Set(["DEPT_ADMIN", "DEPT_CLERK", "DEPT_OPERATOR"])
 const OPERATIONAL_ROLES = ASSIGNABLE_ROLES.filter((r) => r !== "PENDING_APPROVAL")
 
 const STEPS = [
@@ -55,15 +55,14 @@ export function UserOnboardWizard({
 
   const [step, setStep] = useState(1)
   const [roleName, setRoleName] = useState("SURVEYOR")
+  const [allotments, setAllotments] = useState<AllotmentDraft[]>([emptyAllotment()])
   const [stateId, setStateId] = useState("")
   const [districtId, setDistrictId] = useState("")
   const [ulbId, setUlbId] = useState("")
-  const [wardId, setWardId] = useState("")
 
   const { data: states } = useStates({ limit: 100 })
   const { data: districts } = useDistricts(stateId || undefined)
   const { data: ulbs } = useUlbs(districtId || undefined)
-  const { data: wards } = useWards(ulbId || undefined)
 
   const roleByName = useMemo(() => {
     const map = new Map<string, { id: string; name: string }>()
@@ -75,26 +74,42 @@ export function UserOnboardWizard({
 
   const selectedRole = rolesData?.items.find((r) => r.name === roleName)
   const needsGeo = GEO_REQUIRED.has(roleName)
+  const needsUlbOnly = GEO_ULB_ONLY.has(roleName)
   const forbidGeo = GEO_FORBIDDEN.has(roleName)
 
   useEffect(() => {
     if (!open) return
     setStep(1)
     setRoleName("SURVEYOR")
+    setAllotments([emptyAllotment()])
     setStateId("")
     setDistrictId("")
     setUlbId("")
-    setWardId("")
   }, [open, user?.id])
 
   const canNext = () => {
     if (step === 2) return Boolean(roleName)
     if (step === 3) {
       if (forbidGeo) return true
-      if (needsGeo) return Boolean(stateId && districtId && ulbId && wardId)
+      if (needsGeo) return allotmentsComplete(allotments)
+      if (needsUlbOnly) return Boolean(ulbId)
       return true
     }
     return true
+  }
+
+  const geographySummary = () => {
+    if (forbidGeo) return "Global"
+    if (needsGeo) {
+      return (
+        allotments
+          .filter((a) => a.ulbId && a.wardId)
+          .map((a, i) => `Pair ${i + 1}`)
+          .join(", ") || "—"
+      )
+    }
+    if (needsUlbOnly) return ulbId ? "ULB scoped" : "Unset"
+    return "Optional / unset"
   }
 
   const handleFinish = async () => {
@@ -104,8 +119,12 @@ export function UserOnboardWizard({
       toast.error("Role catalog not loaded")
       return
     }
-    if (needsGeo && (!stateId || !districtId || !ulbId || !wardId)) {
-      toast.error("Surveyor and Supervisor require full geography")
+    if (needsGeo && !allotmentsComplete(allotments)) {
+      toast.error("Surveyor, Supervisor, and QC Supervisor require at least one full ULB + ward allotment")
+      return
+    }
+    if (needsUlbOnly && !ulbId) {
+      toast.error("Department roles require a ULB")
       return
     }
     try {
@@ -114,12 +133,15 @@ export function UserOnboardWizard({
         roleId: role.id,
         ...(forbidGeo
           ? {}
-          : {
-              stateId: stateId || undefined,
-              districtId: districtId || undefined,
-              ulbId: ulbId || undefined,
-              wardId: wardId || undefined,
-            }),
+          : needsGeo
+            ? { allotments: toAllotmentPayload(allotments) }
+            : needsUlbOnly
+              ? { ulbId }
+              : {
+                  stateId: stateId || undefined,
+                  districtId: districtId || undefined,
+                  ulbId: ulbId || undefined,
+                }),
       })
       toast.success(`${user.fullName} onboarded as ${roleDisplayName(roleName)}`)
       onOpenChange(false)
@@ -197,16 +219,17 @@ export function UserOnboardWizard({
               <p className="rounded-xl border bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground">
                 {roleName === "ADMIN" ? "Admin is assigned globally." : "This role does not require geography."}
               </p>
-            ) : (
+            ) : needsGeo ? (
+              <UserAllotmentsEditor value={allotments} onChange={setAllotments} />
+            ) : needsUlbOnly ? (
               <div className="grid gap-3 sm:grid-cols-2">
-                <FormField label="State" required={needsGeo}>
+                <FormField label="State" required>
                   <Select
                     value={stateId || undefined}
                     onValueChange={(v) => {
                       setStateId(v)
                       setDistrictId("")
                       setUlbId("")
-                      setWardId("")
                     }}
                   >
                     <SelectTrigger className="h-10 rounded-xl">
@@ -221,13 +244,12 @@ export function UserOnboardWizard({
                     </SelectContent>
                   </Select>
                 </FormField>
-                <FormField label="District" required={needsGeo}>
+                <FormField label="District" required>
                   <Select
                     value={districtId || undefined}
                     onValueChange={(v) => {
                       setDistrictId(v)
                       setUlbId("")
-                      setWardId("")
                     }}
                     disabled={!stateId}
                   >
@@ -243,15 +265,8 @@ export function UserOnboardWizard({
                     </SelectContent>
                   </Select>
                 </FormField>
-                <FormField label="ULB" required={needsGeo}>
-                  <Select
-                    value={ulbId || undefined}
-                    onValueChange={(v) => {
-                      setUlbId(v)
-                      setWardId("")
-                    }}
-                    disabled={!districtId}
-                  >
+                <FormField label="ULB" required className="sm:col-span-2">
+                  <Select value={ulbId || undefined} onValueChange={setUlbId} disabled={!districtId}>
                     <SelectTrigger className="h-10 rounded-xl">
                       <SelectValue placeholder="Select ULB" />
                     </SelectTrigger>
@@ -264,22 +279,9 @@ export function UserOnboardWizard({
                     </SelectContent>
                   </Select>
                 </FormField>
-                <FormField label="Ward" required={needsGeo}>
-                  <Select value={wardId || undefined} onValueChange={setWardId} disabled={!ulbId}>
-                    <SelectTrigger className="h-10 rounded-xl">
-                      <SelectValue placeholder="Select ward" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(wards?.items ?? []).map((w) => (
-                        <SelectItem key={w.id} value={w.id}>
-                          {w.wardNumber}
-                          {w.wardName ? ` · ${w.wardName}` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </FormField>
               </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Geography is optional for this role.</p>
             )
           ) : null}
 
@@ -309,12 +311,18 @@ export function UserOnboardWizard({
               </p>
               <p>
                 <span className="text-muted-foreground">Geography · </span>
-                {forbidGeo
-                  ? "Global"
-                  : [stateId && "State", districtId && "District", ulbId && "ULB", wardId && "Ward"]
-                      .filter(Boolean)
-                      .join(" → ") || "Optional / unset"}
+                {geographySummary()}
               </p>
+              {needsGeo ? (
+                <ul className="mt-2 list-inside list-disc text-muted-foreground">
+                  {allotments.map((a, i) => (
+                    <li key={a.key}>
+                      Allotment {i + 1}: {a.stateId ? "State" : "—"} → {a.districtId ? "District" : "—"} →{" "}
+                      {a.ulbId ? "ULB" : "—"} → {a.wardId ? "Ward" : "—"}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
           ) : null}
         </div>

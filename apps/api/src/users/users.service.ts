@@ -29,9 +29,16 @@ import { isPendingClerkUserId } from "./pending-clerk-id.util.js"
 import { UserImportService } from "./user-import.service.js"
 import { UsersRepository } from "./users.repository.js"
 
-const ROLES_REQUIRING_FULL_GEO = new Set(["SURVEYOR", "FIELD_SUPERVISOR"])
+const ROLES_REQUIRING_FULL_GEO = new Set(["SURVEYOR", "FIELD_SUPERVISOR", "QC_SUPERVISOR"])
 const ROLES_REQUIRING_GLOBAL = new Set(["ADMIN", "PENDING_APPROVAL"])
 const ROLES_REQUIRING_ULB = new Set(["DEPT_ADMIN", "DEPT_CLERK", "DEPT_OPERATOR"])
+
+type AllotmentGeo = {
+  stateId: string
+  districtId: string
+  ulbId: string
+  wardId: string
+}
 
 @Injectable()
 export class UsersService {
@@ -115,7 +122,68 @@ export class UsersService {
     const role = await this.prisma.db.role.findUnique({ where: { id: dto.roleId } })
     if (!role) throw new NotFoundException("Role not found")
 
-    // Normalize geo based on role rules
+    const target = await this.usersRepository.findById(dto.userId)
+    if (!this.canViewUser(actor, target)) {
+      throw new ForbiddenException("Cannot assign roles to users outside your tenant scope")
+    }
+
+    const actorRoleNames = actor.tenantRoles.filter((r) => r.isActive).map((r) => r.roleName)
+    if (!canGrantRole(actorRoleNames, role.name)) {
+      throw new ForbiddenException(`Your role cannot grant ${role.name}`)
+    }
+
+    // Field roles: multiple simultaneous ULB+ward allotments
+    if (ROLES_REQUIRING_FULL_GEO.has(role.name)) {
+      const allotments = this.normalizeFieldAllotments(dto)
+      if (!allotments.length) {
+        throw new BadRequestException(
+          `${this.fieldRoleLabel(role.name)} assignments require at least one State, District, ULB, and Ward allotment`
+        )
+      }
+
+      const wardIds = allotments.map((a) => a.wardId)
+      if (new Set(wardIds).size !== wardIds.length) {
+        throw new BadRequestException("Duplicate ward allotments are not allowed")
+      }
+
+      for (const geo of allotments) {
+        if (!geo.stateId || !geo.districtId || !geo.ulbId || !geo.wardId) {
+          throw new BadRequestException(
+            `${this.fieldRoleLabel(role.name)} assignments require State, District, ULB, and Ward on every allotment`
+          )
+        }
+
+        if (!actorScope.isGlobal && !userHasPermissionInTenant(actor, "role:assign", geo)) {
+          throw new ForbiddenException("Missing permission role:assign in this tenant scope")
+        }
+        if (!actorScope.isGlobal && !canAccessTenant(actorScope, geo)) {
+          throw new ForbiddenException("Cannot assign roles outside your tenant scope")
+        }
+        await this.assertGeoHierarchy(geo)
+      }
+
+      await this.prisma.db.securityAudit.create({
+        data: {
+          action: "ROLE_ASSIGNED",
+          actorId: actor.id,
+          targetType: "UserTenantRole",
+          targetId: dto.userId,
+          newValue: {
+            roleId: dto.roleId,
+            roleName: role.name,
+            allotments,
+          },
+        },
+      })
+
+      this.logger.log(
+        `Role assignment user=${dto.userId} role=${role.name} allotments=${allotments.length} by=${actor.id}`
+      )
+      const created = await this.usersRepository.replaceActiveTenantRoles(dto.userId, dto.roleId, allotments, actor.id)
+      return created.length === 1 ? created[0] : created
+    }
+
+    // Normalize geo based on role rules (single assignment)
     let stateId = dto.stateId
     let districtId = dto.districtId
     let ulbId = dto.ulbId
@@ -143,14 +211,6 @@ export class UsersService {
       wardId = undefined
     }
 
-    if (ROLES_REQUIRING_FULL_GEO.has(role.name)) {
-      if (!stateId || !districtId || !ulbId || !wardId) {
-        throw new BadRequestException(
-          `${role.name === "FIELD_SUPERVISOR" ? "Supervisor" : "Surveyor"} assignments require State, District, ULB, and Ward`
-        )
-      }
-    }
-
     const isGlobalAssignment = !stateId && !districtId && !ulbId && !wardId
     const geo = {
       stateId,
@@ -173,11 +233,6 @@ export class UsersService {
 
     await this.assertGeoHierarchy(geo)
 
-    const actorRoleNames = actor.tenantRoles.filter((r) => r.isActive).map((r) => r.roleName)
-    if (!canGrantRole(actorRoleNames, role.name)) {
-      throw new ForbiddenException(`Your role cannot grant ${role.name}`)
-    }
-
     // DEPT_ADMIN may only grant Clerk/Operator inside the same ULB
     if (isDepartmentRole(role.name) && !actorScope.isGlobal) {
       const actorDeptUlbs = actor.tenantRoles
@@ -186,11 +241,6 @@ export class UsersService {
       if (ulbId && actorDeptUlbs.length && !actorDeptUlbs.includes(ulbId)) {
         throw new ForbiddenException("Cannot assign department roles outside your ULB")
       }
-    }
-
-    const target = await this.usersRepository.findById(dto.userId)
-    if (!this.canViewUser(actor, target)) {
-      throw new ForbiddenException("Cannot assign roles to users outside your tenant scope")
     }
 
     // Single active assignment model: deactivate prior roles before creating the new one
@@ -221,6 +271,34 @@ export class UsersService {
 
     this.logger.log(`Role assignment user=${dto.userId} role=${role.name} by=${actor.id}`)
     return this.usersRepository.assignTenantRole(normalizedDto, actor.id)
+  }
+
+  private fieldRoleLabel(roleName: string): string {
+    if (roleName === "FIELD_SUPERVISOR") return "Supervisor"
+    if (roleName === "QC_SUPERVISOR") return "QC Supervisor"
+    return "Surveyor"
+  }
+
+  private normalizeFieldAllotments(dto: AssignTenantRoleDto): AllotmentGeo[] {
+    if (dto.allotments?.length) {
+      return dto.allotments.map((a) => ({
+        stateId: a.stateId,
+        districtId: a.districtId,
+        ulbId: a.ulbId,
+        wardId: a.wardId,
+      }))
+    }
+    if (dto.stateId || dto.districtId || dto.ulbId || dto.wardId) {
+      return [
+        {
+          stateId: dto.stateId ?? "",
+          districtId: dto.districtId ?? "",
+          ulbId: dto.ulbId ?? "",
+          wardId: dto.wardId ?? "",
+        },
+      ]
+    }
+    return []
   }
 
   async deactivateTenantRole(id: string, actor: AuthenticatedUser) {

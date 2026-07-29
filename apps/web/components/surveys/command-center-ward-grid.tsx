@@ -60,7 +60,9 @@ export function CommandCenterWardGrid({
           </span>
           <p className="text-base font-semibold text-foreground">No ward data</p>
           <p className="mt-1 max-w-md text-sm text-muted-foreground">
-            Select a municipality or adjust smart filters to see ward-wise survey cards.
+            {hasUlbSelected
+              ? "No active wards in master data for this municipality (or none in your scope)."
+              : "Select a municipality or adjust smart filters to see ward-wise survey cards."}
           </p>
         </div>
       ) : (

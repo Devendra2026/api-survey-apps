@@ -202,6 +202,57 @@ export class UsersRepository {
     })
   }
 
+  /**
+   * Deactivate all active roles for the user, then create one row per allotment
+   * (same roleId, different geography). Runs in a single transaction.
+   */
+  async replaceActiveTenantRoles(
+    userId: string,
+    roleId: string,
+    allotments: Array<{
+      stateId: string
+      districtId: string
+      ulbId: string
+      wardId: string
+    }>,
+    assignedBy: string
+  ) {
+    return this.prisma.db.$transaction(async (tx) => {
+      await tx.userTenantRole.updateMany({
+        where: { userId, isActive: true },
+        data: { isActive: false, deactivatedAt: new Date(), deactivatedBy: assignedBy },
+      })
+
+      const created: Array<{
+        id: string
+        userId: string
+        roleId: string
+        stateId: string | null
+        districtId: string | null
+        ulbId: string | null
+        wardId: string | null
+        isActive: boolean
+      }> = []
+      for (const geo of allotments) {
+        created.push(
+          await tx.userTenantRole.create({
+            data: {
+              userId,
+              roleId,
+              stateId: geo.stateId,
+              districtId: geo.districtId,
+              ulbId: geo.ulbId,
+              wardId: geo.wardId,
+              assignedBy,
+            },
+            include: tenantRoleInclude,
+          })
+        )
+      }
+      return created
+    })
+  }
+
   async deactivateActiveRolesForUser(userId: string, deactivatedBy: string) {
     return this.prisma.db.userTenantRole.updateMany({
       where: { userId, isActive: true },

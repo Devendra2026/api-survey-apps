@@ -699,6 +699,12 @@ export function useAssignTenantRole() {
     mutationFn: (body: {
       userId: string
       roleId: string
+      allotments?: Array<{
+        stateId: string
+        districtId: string
+        ulbId: string
+        wardId: string
+      }>
       stateId?: string
       districtId?: string
       ulbId?: string

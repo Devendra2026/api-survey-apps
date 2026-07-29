@@ -78,6 +78,11 @@ export function primaryAssignment(roles?: TenantRole[]): TenantRole | undefined 
   return roles?.find((r) => r.isActive)
 }
 
+/** All active geo-scoped assignments (multi-allotment field roles). */
+export function activeAssignments(roles?: TenantRole[]): TenantRole[] {
+  return roles?.filter((r) => r.isActive) ?? []
+}
+
 export function assignmentGeoLabels(role?: TenantRole) {
   if (!role) {
     return { state: "—", district: "—", ulb: "—", ward: "—" }
@@ -88,4 +93,16 @@ export function assignmentGeoLabels(role?: TenantRole) {
     ulb: role.ulb?.name ?? "—",
     ward: role.ward ? `${role.ward.wardNumber}${role.ward.wardName ? ` · ${role.ward.wardName}` : ""}` : "—",
   }
+}
+
+/** Compact ward labels for directory: first 3 + +N. */
+export function assignmentWardSummary(roles?: TenantRole[], maxVisible = 3): string {
+  const active = activeAssignments(roles).filter((r) => r.ward)
+  if (!active.length) return "—"
+  const labels = active.map((r) => {
+    const w = r.ward!
+    return w.wardName ? `${w.wardNumber} · ${w.wardName}` : w.wardNumber
+  })
+  if (labels.length <= maxVisible) return labels.join(", ")
+  return `${labels.slice(0, maxVisible).join(", ")} +${labels.length - maxVisible}`
 }

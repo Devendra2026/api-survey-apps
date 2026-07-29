@@ -4,6 +4,7 @@ import { BulkConfirmDialog } from "@/components/admin/bulk-confirm-dialog"
 import { UserAssignRoleDialog } from "@/components/admin/user-assign-role-dialog"
 import {
   assignmentGeoLabels,
+  assignmentWardSummary,
   primaryAssignment,
   RoleBadge,
   StatusBadge,
@@ -308,7 +309,11 @@ function AdminUsersPage() {
       {
         id: "ward",
         header: "Ward",
-        cell: ({ row }) => assignmentGeoLabels(primaryAssignment(row.original.tenantRoles)).ward,
+        cell: ({ row }) => (
+          <span className="max-w-48 truncate" title={assignmentWardSummary(row.original.tenantRoles, 99)}>
+            {assignmentWardSummary(row.original.tenantRoles)}
+          </span>
+        ),
       },
       {
         accessorKey: "isActive",

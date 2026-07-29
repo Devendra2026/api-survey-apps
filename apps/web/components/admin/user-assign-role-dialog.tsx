@@ -1,8 +1,15 @@
 "use client"
 
-import { primaryAssignment } from "@/components/admin/user-badges"
+import { activeAssignments, primaryAssignment } from "@/components/admin/user-badges"
 import { FormField } from "@/components/forms/form-field"
-import { useAssignTenantRole, useDistricts, useRoles, useStates, useUlbs, useWards } from "@/hooks/use-api"
+import {
+  allotmentsComplete,
+  emptyAllotment,
+  toAllotmentPayload,
+  UserAllotmentsEditor,
+  type AllotmentDraft,
+} from "@/components/admin/user-allotments-editor"
+import { useAssignTenantRole, useDistricts, useRoles, useStates, useUlbs } from "@/hooks/use-api"
 import { getApiErrorMessage } from "@/lib/api/client"
 import {
   ASSIGNABLE_ROLES,
@@ -26,9 +33,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
-const GEO_REQUIRED_FULL = new Set(["SURVEYOR", "FIELD_SUPERVISOR"])
+const GEO_REQUIRED_FULL = new Set(["SURVEYOR", "FIELD_SUPERVISOR", "QC_SUPERVISOR"])
 const GEO_FORBIDDEN = new Set(["ADMIN", "PENDING_APPROVAL"])
 const GEO_ULB_ONLY = new Set(["DEPT_ADMIN", "DEPT_CLERK", "DEPT_OPERATOR"])
+
+function draftsFromUser(user: AuthenticatedProfile | null): AllotmentDraft[] {
+  const active = activeAssignments(user?.tenantRoles).filter((r) => r.wardId && r.ulbId)
+  if (!active.length) return [emptyAllotment()]
+  return active.map((r) => ({
+    key: r.id,
+    stateId: r.stateId ?? "",
+    districtId: r.districtId ?? "",
+    ulbId: r.ulbId ?? "",
+    wardId: r.wardId ?? "",
+  }))
+}
 
 export function UserAssignRoleDialog({
   user,
@@ -48,15 +67,14 @@ export function UserAssignRoleDialog({
   const { data: rolesData } = useRoles()
   const profile = useAuthStore((s) => s.profile)
   const [roleName, setRoleName] = useState("SURVEYOR")
+  const [allotments, setAllotments] = useState<AllotmentDraft[]>([emptyAllotment()])
   const [stateId, setStateId] = useState("")
   const [districtId, setDistrictId] = useState("")
   const [ulbId, setUlbId] = useState("")
-  const [wardId, setWardId] = useState("")
 
   const { data: states } = useStates({ limit: 100 })
   const { data: districts } = useDistricts(stateId || undefined)
   const { data: ulbs } = useUlbs(districtId || undefined)
-  const { data: wards } = useWards(ulbId || undefined)
 
   const actorIsDeptOnly = useMemo(() => {
     const active = profile?.tenantRoles?.filter((r) => r.isActive) ?? []
@@ -87,10 +105,10 @@ export function UserAssignRoleDialog({
     const fallback = actorIsDeptOnly ? "DEPT_CLERK" : "SURVEYOR"
     const code = preferred ?? (current ? tenantRoleCode(current) : fallback)
     setRoleName(assignableRoles.includes(code as (typeof assignableRoles)[number]) ? code : fallback)
+    setAllotments(draftsFromUser(user))
     setStateId(current?.stateId ?? "")
     setDistrictId(current?.districtId ?? "")
     setUlbId(current?.ulbId ?? "")
-    setWardId(current?.wardId ?? "")
   }, [user, open, defaultRoleName, assignableRoles, actorIsDeptOnly])
 
   const needsFullGeo = GEO_REQUIRED_FULL.has(roleName)
@@ -104,8 +122,8 @@ export function UserAssignRoleDialog({
       toast.error("Role catalog not loaded. Try again.")
       return
     }
-    if (needsFullGeo && (!stateId || !districtId || !ulbId || !wardId)) {
-      toast.error("Surveyor and Supervisor require State, District, ULB, and Ward")
+    if (needsFullGeo && !allotmentsComplete(allotments)) {
+      toast.error("Surveyor, Supervisor, and QC Supervisor require State, District, ULB, and Ward on every allotment")
       return
     }
     if (needsUlbOnly && !ulbId) {
@@ -119,14 +137,15 @@ export function UserAssignRoleDialog({
         roleId,
         ...(forbidGeo
           ? {}
-          : needsUlbOnly
-            ? { ulbId }
-            : {
-                stateId: stateId || undefined,
-                districtId: districtId || undefined,
-                ulbId: ulbId || undefined,
-                wardId: wardId || undefined,
-              }),
+          : needsFullGeo
+            ? { allotments: toAllotmentPayload(allotments) }
+            : needsUlbOnly
+              ? { ulbId }
+              : {
+                  stateId: stateId || undefined,
+                  districtId: districtId || undefined,
+                  ulbId: ulbId || undefined,
+                }),
       })
       toast.success(mode === "location" ? "Location assigned" : "Role assigned")
       onOpenChange(false)
@@ -147,20 +166,23 @@ export function UserAssignRoleDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 px-6 py-5">
+        <div className="max-h-[60vh] space-y-4 overflow-y-auto px-6 py-5">
           <FormField label="Role" required>
             <Select
               value={roleName}
               onValueChange={(value) => {
                 setRoleName(value)
                 if (GEO_FORBIDDEN.has(value)) {
+                  setAllotments([emptyAllotment()])
                   setStateId("")
                   setDistrictId("")
                   setUlbId("")
-                  setWardId("")
                 }
                 if (GEO_ULB_ONLY.has(value)) {
-                  setWardId("")
+                  setAllotments([emptyAllotment()])
+                }
+                if (GEO_REQUIRED_FULL.has(value) && allotments.length === 0) {
+                  setAllotments([emptyAllotment()])
                 }
               }}
               disabled={mode === "location"}
@@ -246,92 +268,10 @@ export function UserAssignRoleDialog({
                 Department roles are scoped to the ULB (municipal client). No ward required.
               </p>
             </div>
+          ) : needsFullGeo ? (
+            <UserAllotmentsEditor value={allotments} onChange={setAllotments} />
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <FormField label="State" required={needsFullGeo}>
-                <Select
-                  value={stateId || undefined}
-                  onValueChange={(value) => {
-                    setStateId(value)
-                    setDistrictId("")
-                    setUlbId("")
-                    setWardId("")
-                  }}
-                >
-                  <SelectTrigger className="h-10 rounded-xl">
-                    <SelectValue placeholder="Select state" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(states?.items ?? []).map((state) => (
-                      <SelectItem key={state.id} value={state.id}>
-                        {state.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </FormField>
-
-              <FormField label="District" required={needsFullGeo}>
-                <Select
-                  value={districtId || undefined}
-                  onValueChange={(value) => {
-                    setDistrictId(value)
-                    setUlbId("")
-                    setWardId("")
-                  }}
-                  disabled={!stateId}
-                >
-                  <SelectTrigger className="h-10 rounded-xl">
-                    <SelectValue placeholder="Select district" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(districts?.items ?? []).map((district) => (
-                      <SelectItem key={district.id} value={district.id}>
-                        {district.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </FormField>
-
-              <FormField label="ULB" required={needsFullGeo}>
-                <Select
-                  value={ulbId || undefined}
-                  onValueChange={(value) => {
-                    setUlbId(value)
-                    setWardId("")
-                  }}
-                  disabled={!districtId}
-                >
-                  <SelectTrigger className="h-10 rounded-xl">
-                    <SelectValue placeholder="Select ULB" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(ulbs?.items ?? []).map((ulb) => (
-                      <SelectItem key={ulb.id} value={ulb.id}>
-                        {ulb.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </FormField>
-
-              <FormField label="Ward" required={needsFullGeo}>
-                <Select value={wardId || undefined} onValueChange={setWardId} disabled={!ulbId}>
-                  <SelectTrigger className="h-10 rounded-xl">
-                    <SelectValue placeholder="Select ward" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(wards?.items ?? []).map((ward) => (
-                      <SelectItem key={ward.id} value={ward.id}>
-                        {ward.wardNumber}
-                        {ward.wardName ? ` · ${ward.wardName}` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </FormField>
-            </div>
+            <p className="text-sm text-muted-foreground">Geography is optional for this role.</p>
           )}
         </div>
 

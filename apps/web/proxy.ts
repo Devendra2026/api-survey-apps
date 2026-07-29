@@ -6,7 +6,10 @@ export default clerkMiddleware(
   async (auth, request) => {
     if (!isPublicRoute(request)) {
       // Always redirect to in-app /sign-in — never fall through to Account Portal.
-      await auth.protect({ unauthenticatedUrl: "/sign-in" })
+      // Next.js 16 proxy requires absolute URLs for NextResponse.redirect().
+      await auth.protect({
+        unauthenticatedUrl: new URL("/sign-in", request.url).toString(),
+      })
     }
   },
   {

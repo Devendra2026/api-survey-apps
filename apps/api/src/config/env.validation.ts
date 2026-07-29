@@ -100,6 +100,11 @@ export class EnvironmentVariables {
   @IsString()
   BOOTSTRAP_ADMIN_CLERK_USER_IDS?: string
 
+  /** Optional Clerk user ID upserted as ADMIN during seed / API access bootstrap. */
+  @IsOptional()
+  @IsString()
+  SEED_ADMIN_CLERK_USER_ID?: string
+
   /** Allowed clock skew (ms) when verifying Clerk JWTs. Defaults to 30000 if unset. */
   @IsOptional()
   @Transform(emptyToUndefined)

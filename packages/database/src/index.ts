@@ -1,5 +1,9 @@
 export { createPrismaClient, getPrisma, prisma } from "./client.js"
 export type { CreatePrismaClientOptions } from "./client.js"
+export { ensureAccessBootstrap } from "./ensure-access-bootstrap.js"
+export type { AccessBootstrapResult } from "./ensure-access-bootstrap.js"
+export { seedPermissionsAndRoles } from "./rbac-catalog.js"
+export type { RoleMap } from "./rbac-catalog.js"
 export { promoteClerkUserToAdmin, promoteUserToAdmin } from "./role-promotion.js"
 export type { AdminPromotionResult } from "./role-promotion.js"
 

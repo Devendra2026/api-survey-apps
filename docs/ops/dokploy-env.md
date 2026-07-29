@@ -146,13 +146,21 @@ production data.
 
 `migrate` runs **`prisma migrate deploy` only**. Roles, permissions, reference catalogs, and sample geo are **not** applied by the migrate one-shot.
 
-After the first successful migrate on an empty database (from a host that can reach Postgres, e.g. tunnel/VPN):
+After the first successful migrate on an empty database (from a host that can reach Postgres, e.g. tunnel/VPN or `docker compose exec` on the Dokploy host):
 
 ```bash
-SEED_DEMO=false DATABASE_URL='postgresql://…@postgres:5432/survey?schema=public' \
+# Catalog + RBAC + geo + reference data.
+# Also upserts ADMIN for SEED_ADMIN_CLERK_USER_ID (or first BOOTSTRAP_ADMIN_CLERK_USER_IDS).
+# Does NOT create fake demo surveys/users when SEED_DEMO=false.
+SEED_DEMO=false \
+  SEED_ADMIN_CLERK_USER_ID='user_…' \
+  BOOTSTRAP_ADMIN_CLERK_USER_IDS='user_…' \
+  DATABASE_URL='postgresql://…@postgres:5432/survey?schema=public' \
   DIRECT_URL='postgresql://…@postgres:5432/survey?schema=public' \
   pnpm --filter @workspace/database db:seed
 ```
+
+Keep `SEED_DEMO=false` in production. Set the same Clerk `user_…` id on the API as `BOOTSTRAP_ADMIN_CLERK_USER_IDS` so later sign-ins stay admin-safe.
 
 Local dev still uses `pnpm db:seed` / `prisma db seed` as usual.
 

@@ -61,12 +61,14 @@ describe("RoleProvisioningService", () => {
     bootstrapIds?: string
     roles?: Record<string, { id: string }>
     existing?: Array<{ id: string; role: { name: string } }>
+    signedInAdminCount?: number
   }) {
     const existingAdmin = opts.existing?.find((row) => row.role.name === "ADMIN")
     const userTenantRole = {
       findFirst: jest.fn().mockResolvedValue((existingAdmin ? { id: existingAdmin.id } : null) as never),
       create: jest.fn().mockResolvedValue({ id: "utr-new" } as never),
       updateMany: jest.fn().mockResolvedValue({ count: opts.existing?.length ?? 0 } as never),
+      count: jest.fn().mockResolvedValue((opts.signedInAdminCount ?? 0) as never),
     }
     const role = {
       findUnique: jest.fn(({ where }: { where: { name: string } }) =>
@@ -91,10 +93,28 @@ describe("RoleProvisioningService", () => {
     return { service, userTenantRole, role }
   }
 
-  it("returns false when clerk id is not in bootstrap list", async () => {
-    const { service, userTenantRole } = createService({ bootstrapIds: "user_other" })
+  it("returns false when clerk id is not in bootstrap list and a signed-in admin exists", async () => {
+    const { service, userTenantRole } = createService({
+      bootstrapIds: "user_other",
+      signedInAdminCount: 1,
+    })
     await expect(service.ensureBootstrapAdmin(userId, clerkUserId)).resolves.toBe(false)
     expect(userTenantRole.create).not.toHaveBeenCalled()
+  })
+
+  it("promotes first signed-in user when no signed-in admin exists", async () => {
+    const { service, userTenantRole } = createService({
+      bootstrapIds: "user_other",
+      roles: { ADMIN: { id: "role-admin" } },
+      existing: [],
+      signedInAdminCount: 0,
+    })
+    await expect(service.ensureBootstrapAdmin(userId, clerkUserId)).resolves.toBe(true)
+    expect(userTenantRole.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ userId, roleId: "role-admin", isActive: true }),
+      })
+    )
   })
 
   it("creates ADMIN when bootstrap user has no roles", async () => {

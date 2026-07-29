@@ -4,10 +4,10 @@ import { promoteUserToAdmin } from "@workspace/database"
 import { PrismaService } from "../../prisma/prisma.service.js"
 
 /**
- * Bootstraps the first real ADMIN when a Clerk user has no tenant roles
- * (or only PENDING_APPROVAL) and their clerkUserId is listed in
- * BOOTSTRAP_ADMIN_CLERK_USER_IDS.
- * Otherwise assigns PENDING_APPROVAL so new signups wait for Admin approval.
+ * Bootstraps ADMIN when:
+ * - clerkUserId is listed in BOOTSTRAP_ADMIN_CLERK_USER_IDS, or
+ * - no signed-in ADMIN exists yet (first real login becomes admin).
+ * Otherwise the caller assigns PENDING_APPROVAL.
  */
 @Injectable()
 export class RoleProvisioningService {
@@ -20,18 +20,25 @@ export class RoleProvisioningService {
 
   async ensureBootstrapAdmin(userId: string, clerkUserId: string): Promise<boolean> {
     const bootstrapIds = this.parseBootstrapIds()
-    if (!bootstrapIds.has(clerkUserId)) {
+    const listed = bootstrapIds.has(clerkUserId)
+    const allowFirstAdmin = listed ? false : await this.hasNoSignedInAdmin()
+
+    if (!listed && !allowFirstAdmin) {
       return false
     }
 
     const result = await promoteUserToAdmin(this.prisma.db, userId)
     if (result.status === "admin-role-not-found") {
-      this.logger.error("ADMIN role not found — run db seed before using bootstrap")
+      this.logger.error("ADMIN role not found — run db seed / wait for access bootstrap on startup")
       return false
     }
 
     if (result.status === "promoted") {
-      this.logger.log(`Bootstrapped ADMIN for clerkUserId=${clerkUserId}`)
+      this.logger.log(
+        listed
+          ? `Bootstrapped ADMIN for configured clerkUserId=${clerkUserId}`
+          : `Bootstrapped first signed-in ADMIN for clerkUserId=${clerkUserId}`
+      )
     }
     return true
   }
@@ -73,6 +80,18 @@ export class RoleProvisioningService {
 
     this.logger.log(`Assigned PENDING_APPROVAL for userId=${userId}`)
     return true
+  }
+
+  /** True when no active ADMIN assignment belongs to a user who has signed in. */
+  private async hasNoSignedInAdmin(): Promise<boolean> {
+    const signedInAdmins = await this.prisma.db.userTenantRole.count({
+      where: {
+        isActive: true,
+        role: { name: "ADMIN" },
+        user: { lastLoginAt: { not: null } },
+      },
+    })
+    return signedInAdmins === 0
   }
 
   private parseBootstrapIds(): Set<string> {

@@ -78,6 +78,14 @@ The worker sends `X-ETL-Secret`; Convex compares it to its own `ETL_SECRET`. Bot
 sides trim the value, because a secret pasted or piped into an environment variable
 usually picks up a trailing newline that is invisible in every dashboard.
 
+Generate one without it ever reaching a terminal transcript or shell history —
+the value goes to the clipboard and only its fingerprint is printed:
+
+```bash
+pnpm etl:secret generate
+pnpm etl:secret fingerprint --env ETL_CONVEX_SECRET   # check a value already configured
+```
+
 Set the same value on both sides:
 
 ```bash

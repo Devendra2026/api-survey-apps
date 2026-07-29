@@ -1,11 +1,12 @@
 import { InjectQueue, Processor, WorkerHost } from "@nestjs/bullmq"
 import { Logger } from "@nestjs/common"
 import { MigrationJobType } from "@workspace/database"
-import { emptyEtlJobStats, isPermanentFailure, remediationFor } from "@workspace/etl-core"
+import { emptyEtlJobStats } from "@workspace/etl-core"
 import { JOB_NAMES, JOB_QUEUE_NAMES, type EtlSurveyBatchPayload, type EtlSurveyImportPayload } from "@workspace/jobs"
-import { UnrecoverableError, type Job, type Queue } from "bullmq"
+import type { Job, Queue } from "bullmq"
 import { PrismaService } from "../database/prisma.service.js"
 import { EtlOrchestratorService } from "./etl-orchestrator.service.js"
+import { toQueueError } from "./queue-error.js"
 
 /** Sentinel payload id used by the repeatable cron job; resolved to a real row per tick. */
 const CRON_PLACEHOLDER_ID = "cron-incremental"
@@ -106,7 +107,7 @@ export class EtlSurveyImportProcessor extends WorkerHost {
         error: err,
         attempt: { attemptsMade: job.attemptsMade, maxAttempts: job.opts.attempts },
       })
-      throw this.toQueueError(err)
+      throw toQueueError(err, this.logger)
     }
   }
 
@@ -150,28 +151,12 @@ export class EtlSurveyImportProcessor extends WorkerHost {
     return resolved
   }
 
-  /**
-   * Converts a permanent failure into an error BullMQ will not retry. Without this
-   * a misconfigured secret burns every attempt and its backoff on each cron tick.
-   */
-  private toQueueError(err: unknown): Error {
-    if (!isPermanentFailure(err)) {
-      return err instanceof Error ? err : new Error(String(err))
-    }
-    const message = err instanceof Error ? err.message : String(err)
-    const remediation = remediationFor(err)
-    this.logger.error(
-      remediation ? `ETL stopped retrying: ${message} — ${remediation}` : `ETL stopped retrying: ${message}`
-    )
-    return new UnrecoverableError(message)
-  }
-
   private async processOne(job: Job<EtlSurveyImportPayload>) {
     let result: Awaited<ReturnType<EtlOrchestratorService["processSurveyImport"]>>
     try {
       result = await this.orchestrator.processSurveyImport(job.data)
     } catch (err) {
-      throw this.toQueueError(err)
+      throw toQueueError(err, this.logger)
     }
     const delta =
       result.outcome === "imported"

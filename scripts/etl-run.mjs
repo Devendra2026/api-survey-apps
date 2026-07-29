@@ -89,7 +89,7 @@ try {
     case "preflight": {
       const result = await api("GET", "/etl/preflight")
       console.log(JSON.stringify(result, null, 2))
-      if (!result?.ok) process.exit(1)
+      if (!result?.ok) process.exitCode = 1
       break
     }
     case "reap":
@@ -126,7 +126,10 @@ try {
   }
 } catch (err) {
   console.error(err instanceof Error ? err.message : String(err))
-  process.exit(1)
+  // Setting exitCode instead of calling process.exit lets pending sockets close.
+  // Forcing exit here aborts libuv on Windows, replacing the real error with a
+  // stack-buffer-overrun assertion and exit code 3221226505.
+  process.exitCode = 1
 }
 
 async function startAndMaybeWatch(path, body) {
@@ -151,7 +154,7 @@ async function watchJob(jobId) {
     if (status === "COMPLETED" || status === "FAILED" || status === "CANCELLED") {
       console.log("\n")
       console.log(JSON.stringify(report, null, 2))
-      if (status !== "COMPLETED") process.exit(1)
+      if (status !== "COMPLETED") process.exitCode = 1
       return
     }
     await sleep(3000)
@@ -174,7 +177,19 @@ async function api(method, path, body) {
   // Nest ResponseTransformInterceptor may wrap as { data: ... }
   const payload = json?.data !== undefined && json?.success !== undefined ? json.data : json
   if (!res.ok) {
-    throw new Error(`${method} ${path} → ${res.status}: ${text.slice(0, 800)}`)
+    const detail = `${method} ${path} → ${res.status}: ${text.slice(0, 800)}`
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(
+        `${detail}\n\n` +
+        `This is API authentication, not the ETL secret.\n` +
+        `${apiBase} requires a real Clerk JWT; 'dev:' bearers only work when ALLOW_DEV_AUTH=true.\n\n` +
+        `Get one from the admin dashboard while signed in as a user with etl:manage —\n` +
+        `browser console:  await window.Clerk.session.getToken()\n` +
+        `then re-run within its short lifetime:\n` +
+        `  $env:ETL_BEARER_TOKEN="<token>"; pnpm etl:run ${command}`
+      )
+    }
+    throw new Error(detail)
   }
   return payload
 }

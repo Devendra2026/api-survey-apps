@@ -12,6 +12,7 @@ import {
 import type { Job, Queue } from "bullmq"
 import { PrismaService } from "../database/prisma.service.js"
 import { EtlOrchestratorService } from "./etl-orchestrator.service.js"
+import { toQueueError } from "./queue-error.js"
 
 @Processor(JOB_QUEUE_NAMES.etlValidation)
 export class EtlValidationProcessor extends WorkerHost {
@@ -80,13 +81,15 @@ export class EtlValidationProcessor extends WorkerHost {
         error: err,
         attempt: { attemptsMade: job.attemptsMade, maxAttempts: job.opts.attempts },
       })
-      throw err
+      throw toQueueError(err, this.logger)
     }
   }
 }
 
 @Processor(JOB_QUEUE_NAMES.etlRetry)
 export class EtlRetryProcessor extends WorkerHost {
+  private readonly logger = new Logger(EtlRetryProcessor.name)
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly orchestrator: EtlOrchestratorService,
@@ -139,7 +142,7 @@ export class EtlRetryProcessor extends WorkerHost {
         error: err,
         attempt: { attemptsMade: job.attemptsMade, maxAttempts: job.opts.attempts },
       })
-      throw err
+      throw toQueueError(err, this.logger)
     }
   }
 }

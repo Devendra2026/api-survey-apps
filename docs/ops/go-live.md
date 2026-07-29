@@ -4,15 +4,15 @@
 
 - `docker-compose.dokploy.yml` — builds web/api/worker + Docker Postgres, MinIO, Redis (no root Dockerfile)
 - Env templates: [`deploy/env/dokploy.compose.env.example`](../../deploy/env/dokploy.compose.env.example), [`dokploy-env.md`](./dokploy-env.md)
-- Migrations fail fast if `REPLACE_ME` is still in `DATABASE_URL`
+- Migrations fail fast on missing `POSTGRES_PASSWORD` / auth mismatch (entrypoint preflight)
 - Release workflow can push to ECR later (optional); first launch uses compose **build**
 
 ## Blockers only you can clear
 
 1. **Infra + app secrets** in Dokploy Environment UI  
    Paste [`dokploy.compose.env.example`](../../deploy/env/dokploy.compose.env.example).  
-   Interpolation-required: `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `DATABASE_URL`.  
-   Runtime: Clerk, `NEXT_PUBLIC_*`, `CORS_ORIGIN` / `APP_URL` (host `postgres` in DB URLs).
+   Interpolation-required: `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`.  
+   Runtime: Clerk, `NEXT_PUBLIC_*`, `CORS_ORIGIN` / `APP_URL`. Entrypoints build `DATABASE_URL` from `POSTGRES_*`.
 
 2. **DNS + TLS in Dokploy**
    - `admin.sdvedutech.in` → service `web` container port **3000**
@@ -26,11 +26,11 @@
 
 0. **App type must be Docker Compose** — if you see `open Dockerfile: no such file`, follow [`dokploy-compose-setup.md`](./dokploy-compose-setup.md). Do **not** add a root Dockerfile.
 1. Paste [`deploy/env/dokploy.compose.env.example`](../../deploy/env/dokploy.compose.env.example) into Dokploy **Environment** (replace all `REPLACE_ME_*`). Missing `MINIO_ROOT_USER` / `POSTGRES_PASSWORD` / etc. fails compose interpolation before start.
-2. Confirm `DATABASE_URL` host is `postgres` (not localhost). Deploy Compose file `docker-compose.dokploy.yml`, context = repo root.
+2. Deploy Compose file `docker-compose.dokploy.yml`, context = repo root. Do **not** paste a conflicting `DATABASE_URL` for in-compose Postgres.
 3. Wait for `postgres` / `minio` / `redis` healthy, `migrate` success (`prisma migrate deploy` only — `No pending migrations to apply.` is OK), then `api` `/health` + `/ready`, then `web`.
-4. **First empty DB only:** run one-time catalog seed from a host that can reach Postgres (`SEED_DEMO=false pnpm --filter @workspace/database db:seed`) — see [`dokploy-env.md`](./dokploy-env.md). Without this, roles/permissions are missing and RBAC/bootstrap will fail.
-5. Set `BOOTSTRAP_ADMIN_CLERK_USER_IDS` to your Clerk user id (`user_…` from Clerk Dashboard → Users) **before the first production sign-in**, then redeploy/restart **api**.
-6. Open `https://admin.sdvedutech.in` and sign in. The dashboard returns HTTP 403 when the profile has no permissions; there is no Pending User dashboard screen.
+   If migrate fails with auth / P1000: see [`dokploy-env.md`](./dokploy-env.md) § Prisma P1000 (volume password lock vs env drift).4. **First empty DB only:** run one-time catalog seed from a host that can reach Postgres (`SEED_DEMO=false pnpm --filter @workspace/database db:seed`) — see [`dokploy-env.md`](./dokploy-env.md). Without this, roles/permissions are missing and RBAC/bootstrap will fail.
+4. Set `BOOTSTRAP_ADMIN_CLERK_USER_IDS` to your Clerk user id (`user_…` from Clerk Dashboard → Users) **before the first production sign-in**, then redeploy/restart **api**.
+5. Open `https://admin.sdvedutech.in` and sign in. The dashboard returns HTTP 403 when the profile has no permissions; there is no Pending User dashboard screen.
 
 ### First admin receives HTTP 403
 

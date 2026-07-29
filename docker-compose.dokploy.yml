@@ -13,7 +13,9 @@
 # See DEPLOYMENT.md and docs/ops/dokploy-env.md.
 #
 # Required secrets (no insecure defaults): POSTGRES_PASSWORD, REDIS_PASSWORD,
-# MINIO_ROOT_USER, MINIO_ROOT_PASSWORD, DATABASE_URL. Paste deploy/env/dokploy.compose.env.example.
+# MINIO_ROOT_USER, MINIO_ROOT_PASSWORD. Paste deploy/env/dokploy.compose.env.example.
+# Entrypoints build DATABASE_URL from POSTGRES_* (URL-encoded). Do not paste a
+# conflicting DATABASE_URL for in-compose Postgres unless using an external DB.
 # Do NOT set REDIS_URL in Dokploy Environment — api/worker build it from REDIS_PASSWORD.
 #
 # Domains (example):
@@ -23,6 +25,19 @@
 #
 # Postgres 17 note: volumes created with Postgres 16 are not binary-compatible.
 # Dump/restore or recreate the volume before first PG17 start.
+
+# Shared DB env for migrate / api / worker. Entrypoints resolve DATABASE_URL from
+# POSTGRES_* when host is in-compose `postgres` (see scripts/docker/resolve-database-url.mjs).
+x-postgres-app-env: &postgres-app-env
+  POSTGRES_USER: ${POSTGRES_USER:-postgres}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in Dokploy Environment}
+  POSTGRES_DB: ${POSTGRES_DB:-survey}
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  # Optional: only needed for external Postgres (host != postgres).
+  DATABASE_URL: ${DATABASE_URL:-}
+  DIRECT_URL: ${DIRECT_URL:-}
+  DEBUG_STARTUP: ${DEBUG_STARTUP:-false}
 
 services:
   postgres:
@@ -150,9 +165,8 @@ services:
       - path: ${DOKPLOY_ENV_FILE:-.env.production}
         required: false
     environment:
+      <<: *postgres-app-env
       NODE_ENV: production
-      DATABASE_URL: ${DIRECT_URL:-${DATABASE_URL:?Set DATABASE_URL or DIRECT_URL in Dokploy Environment}}
-      DIRECT_URL: ${DIRECT_URL:-${DATABASE_URL:?Set DATABASE_URL or DIRECT_URL in Dokploy Environment}}
     entrypoint: ["bash", "/app/apps/api/docker-entrypoint.migrate.sh"]
     # Do not inherit API CMD (node apps/api/dist/main.js).
     command: []
@@ -182,11 +196,10 @@ services:
       - path: ${DOKPLOY_ENV_FILE:-.env.production}
         required: false
     environment:
+      <<: *postgres-app-env
       NODE_ENV: production
       PORT: "4000"
       HOSTNAME: "0.0.0.0"
-      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in Dokploy Environment}
-      DIRECT_URL: ${DIRECT_URL:-${DATABASE_URL}}
       # Explicit so Dokploy Environment bootstrap always reaches the API process
       BOOTSTRAP_ADMIN_CLERK_USER_IDS: ${BOOTSTRAP_ADMIN_CLERK_USER_IDS:-}
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
@@ -253,11 +266,10 @@ services:
       - path: ${DOKPLOY_ENV_FILE:-.env.production}
         required: false
     environment:
+      <<: *postgres-app-env
       NODE_ENV: production
       WORKER_PORT: "4001"
       HOSTNAME: "0.0.0.0"
-      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in Dokploy Environment}
-      DIRECT_URL: ${DIRECT_URL:-${DATABASE_URL}}
       STORAGE_PROVIDER: minio
       # Built from REDIS_PASSWORD (overrides any stale REDIS_URL from env_file). Do not set REDIS_URL in Dokploy UI.
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379

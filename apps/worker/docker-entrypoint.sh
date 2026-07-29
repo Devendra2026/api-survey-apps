@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# API runtime entrypoint: resolve DATABASE_URL from POSTGRES_* then exec CMD.
+# Worker runtime entrypoint: resolve DATABASE_URL from POSTGRES_* then exec CMD.
 set -Eeuo pipefail
 
 RESOLVE_URL_JS="${RESOLVE_URL_JS:-/app/scripts/docker/resolve-database-url.mjs}"
 
 if [ ! -f "$RESOLVE_URL_JS" ]; then
-  echo "Missing URL resolver: $RESOLVE_URL_JS (rebuild the api image)" >&2
+  echo "Missing URL resolver: $RESOLVE_URL_JS (rebuild the worker image)" >&2
   exit 1
 fi
 

@@ -11,7 +11,7 @@ Data plane runs **inside** the compose stack (Postgres 17, MinIO, Redis 8). Pref
 2. Dokploy writes them to a `.env` file beside the compose file (used for `${VAR}` interpolation **and** for container injection).
 3. [`docker-compose.dokploy.yml`](../../docker-compose.dokploy.yml) loads that file on `migrate` / `api` / `worker` / `web` via `env_file: .env` (`required: false`).
 
-If you see `required variable MINIO_ROOT_USER is missing a value` (or `POSTGRES_PASSWORD` / `REDIS_PASSWORD` / `MINIO_ROOT_PASSWORD` / `DATABASE_URL`), the Environment UI is empty or incomplete — paste the block from `dokploy.compose.env.example` and redeploy.
+If you see `required variable MINIO_ROOT_USER is missing a value` (or `POSTGRES_PASSWORD` / `REDIS_PASSWORD` / `MINIO_ROOT_PASSWORD`), the Environment UI is empty or incomplete — paste the block from `dokploy.compose.env.example` and redeploy.
 
 ## Checklist: interpolation vs runtime
 
@@ -19,28 +19,28 @@ If you see `required variable MINIO_ROOT_USER is missing a value` (or `POSTGRES_
 
 Compose uses `${VAR:?…}` — deploy **stops before containers start** if any are missing:
 
-| Variable              | Used by                                                |
-| --------------------- | ------------------------------------------------------ |
-| `POSTGRES_PASSWORD`   | `postgres`                                             |
-| `REDIS_PASSWORD`      | `redis`, composed `REDIS_URL` for api/worker           |
-| `MINIO_ROOT_USER`     | `minio`, `minio-init`, api/worker                      |
-| `MINIO_ROOT_PASSWORD` | `minio`, `minio-init`, api/worker                      |
-| `DATABASE_URL`        | `migrate`, `api`, `worker` (`:?` required)             |
-| `DIRECT_URL`          | preferred for `migrate` (falls back to `DATABASE_URL`) |
+| Variable              | Used by                                      |
+| --------------------- | -------------------------------------------- |
+| `POSTGRES_PASSWORD`   | `postgres`, migrate/api/worker URL builder   |
+| `REDIS_PASSWORD`      | `redis`, composed `REDIS_URL` for api/worker |
+| `MINIO_ROOT_USER`     | `minio`, `minio-init`, api/worker            |
+| `MINIO_ROOT_PASSWORD` | `minio`, `minio-init`, api/worker            |
 
 Safe defaults already in compose (no need to set unless overriding): `POSTGRES_USER`, `POSTGRES_DB`, `MINIO_BUCKET`.
 
+`DATABASE_URL` / `DIRECT_URL` are **optional** for in-compose Postgres. Entrypoints build them from `POSTGRES_*` (URL-encoded password). Set them only for an **external** database (hostname ≠ `postgres`).
+
 ### B — Mandatory for healthy app runtime / web build
 
-| Variable                                                    | Where                                               |
-| ----------------------------------------------------------- | --------------------------------------------------- |
-| `DATABASE_URL` / `DIRECT_URL`                               | host **`postgres`**, password = `POSTGRES_PASSWORD` |
-| `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`                 | api (+ web server if used)                          |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `NEXT_PUBLIC_API_URL`  | **web build args**                                  |
-| `CLERK_AUTHORIZED_PARTIES`, `CORS_ORIGIN`, `APP_URL`        | production domains                                  |
-| `BOOTSTRAP_ADMIN_CLERK_USER_IDS`                            | first production admin Clerk `user_…` id(s)         |
-| `DEMAND_NOTICE_PRINT_SECRET`                                | api                                                 |
-| `STORAGE_PROVIDER=minio`, `MINIO_BUCKET` / `STORAGE_BUCKET` | api/worker (endpoint overridden by compose)         |
+| Variable                                                    | Where                                         |
+| ----------------------------------------------------------- | --------------------------------------------- |
+| `POSTGRES_PASSWORD`                                         | single source of truth for in-compose DB auth |
+| `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`                 | api (+ web server if used)                    |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `NEXT_PUBLIC_API_URL`  | **web build args**                            |
+| `CLERK_AUTHORIZED_PARTIES`, `CORS_ORIGIN`, `APP_URL`        | production domains                            |
+| `BOOTSTRAP_ADMIN_CLERK_USER_IDS`                            | first production admin Clerk `user_…` id(s)   |
+| `DEMAND_NOTICE_PRINT_SECRET`                                | api                                           |
+| `STORAGE_PROVIDER=minio`, `MINIO_BUCKET` / `STORAGE_BUCKET` | api/worker (endpoint overridden by compose)   |
 
 `CLERK_SECRET_KEY` is server-only. Never expose it through a `NEXT_PUBLIC_*`
 name. `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, and the
@@ -54,9 +54,6 @@ POSTGRES_PASSWORD=REPLACE_ME_POSTGRES_PASSWORD
 REDIS_PASSWORD=REPLACE_ME_REDIS_PASSWORD_URL_SAFE
 MINIO_ROOT_USER=REPLACE_ME_MINIO_USER
 MINIO_ROOT_PASSWORD=REPLACE_ME_MINIO_PASSWORD
-
-DATABASE_URL=postgresql://postgres:REPLACE_ME_POSTGRES_PASSWORD@postgres:5432/survey?schema=public
-DIRECT_URL=postgresql://postgres:REPLACE_ME_POSTGRES_PASSWORD@postgres:5432/survey?schema=public
 
 NEXT_PUBLIC_API_URL=https://backend.sdvedutech.in
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_live_REPLACE_ME
@@ -81,16 +78,29 @@ Use a URL-safe `REDIS_PASSWORD` (avoid `@`, `:`, `/`). Do **not** set `REDIS_URL
 application container variable. Restrict access because its artifacts contain
 production data.
 
+## Prisma P1000 / password authentication failed
+
+**Root cause:** Postgres rejected the login used by `prisma migrate deploy`. With dual secrets (`POSTGRES_PASSWORD` + a hand-pasted `DATABASE_URL`), those passwords often drift. Changing Dokploy env after the first volume init does **not** change the role password inside the volume (`pg_isready` still succeeds).
+
+**Fix in this stack:** migrate/api/worker entrypoints build `DATABASE_URL` from `POSTGRES_*` with URL-encoding (`scripts/docker/resolve-database-url.mjs`). Set `POSTGRES_PASSWORD` once.
+
+**If auth still fails after deploy:**
+
+1. Confirm migrate logs show host `postgres` and user/db matching `POSTGRES_USER` / `POSTGRES_DB`.
+2. Volume lock — either `ALTER USER … PASSWORD '…'` inside the postgres container to match `POSTGRES_PASSWORD`, or recreate the postgres volume (destroys data) and redeploy.
+3. Set `DEBUG_STARTUP=true` on migrate for artifact/env-key diagnostics (never prints secrets).
+
 ## Required (full table)
 
 | Variable                            | Example / source                                                                                                                                                                                    |
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `NODE_ENV`                          | `production`                                                                                                                                                                                        |
 | `POSTGRES_USER`                     | `postgres` (optional; default)                                                                                                                                                                      |
-| `POSTGRES_PASSWORD`                 | Strong password (must match URLs below) — **required**                                                                                                                                              |
+| `POSTGRES_PASSWORD`                 | Strong password — **required** (entrypoints build `DATABASE_URL` from this)                                                                                                                         |
 | `POSTGRES_DB`                       | `survey` (optional; default)                                                                                                                                                                        |
-| `DATABASE_URL`                      | `postgresql://postgres:PASS@postgres:5432/survey?schema=public`                                                                                                                                     |
-| `DIRECT_URL`                        | Same as `DATABASE_URL` for migrate                                                                                                                                                                  |
+| `DATABASE_URL`                      | Optional; only for **external** Postgres (host ≠ `postgres`)                                                                                                                                        |
+| `DIRECT_URL`                        | Optional; same as `DATABASE_URL` when using external DB                                                                                                                                             |
+| `DEBUG_STARTUP`                     | `true` to print migrate filesystem/env-key diagnostics                                                                                                                                              |
 | `REDIS_PASSWORD`                    | Strong URL-safe password — **required**. Do **not** also set `REDIS_URL` in Dokploy Environment.                                                                                                    |
 | `REDIS_URL`                         | **Compose-only** for api/worker: `redis://:${REDIS_PASSWORD}@redis:6379` (overrides env_file). Never paste a static `REDIS_URL` into Dokploy UI — a mismatched password causes Redis auth failures. |
 | `STORAGE_PROVIDER`                  | `minio`                                                                                                                                                                                             |

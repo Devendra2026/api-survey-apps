@@ -8,7 +8,7 @@ FROM node:${NODE_VERSION}-bookworm-slim AS base
 # ARG before FROM is not in stage scope — redeclare for corepack.
 ARG PNPM_VERSION
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl wget \
+  && apt-get install -y --no-install-recommends bash ca-certificates curl wget \
   && rm -rf /var/lib/apt/lists/* \
   && corepack enable \
   && corepack prepare pnpm@${PNPM_VERSION} --activate
@@ -45,13 +45,23 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
 # Portable production tree (prod deps + injected workspace packages).
 FROM builder AS deploy
 ENV HUSKY=0
+# Root scripts/ are outside turbo prune out/full — copy from prepare (full tree).
+COPY --from=prepare /app/scripts/docker/resolve-database-url.mjs /tmp/resolve-database-url.mjs
+COPY --from=prepare /app/apps/worker/docker-entrypoint.sh /tmp/docker-entrypoint.sh
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
   pnpm --filter worker deploy --prod --legacy /deploy \
-  && mkdir -p /deploy/apps/worker /deploy/packages/database/src \
+  && mkdir -p /deploy/apps/worker /deploy/packages/database/src /deploy/scripts/docker \
   && cp -r /app/apps/worker/dist /deploy/apps/worker/dist \
+  && cp /tmp/docker-entrypoint.sh /deploy/apps/worker/docker-entrypoint.sh \
+  && cp /tmp/resolve-database-url.mjs /deploy/scripts/docker/resolve-database-url.mjs \
+  && test -f /deploy/apps/worker/docker-entrypoint.sh \
+  && test -f /deploy/scripts/docker/resolve-database-url.mjs \
   && if [ -d /app/packages/database/dist ]; then cp -r /app/packages/database/dist /deploy/packages/database/dist; fi \
   && if [ -d /app/packages/database/src/generated ]; then cp -r /app/packages/database/src/generated /deploy/packages/database/src/generated; fi \
-  && cp /app/packages/database/package.json /deploy/packages/database/package.json
+  && cp /app/packages/database/package.json /deploy/packages/database/package.json \
+  && chmod +x /deploy/apps/worker/docker-entrypoint.sh \
+  && POSTGRES_PASSWORD=build-check POSTGRES_HOST=localhost \
+  node /deploy/scripts/docker/resolve-database-url.mjs >/dev/null
 
 FROM node:${NODE_VERSION}-bookworm-slim AS runner
 WORKDIR /app
@@ -62,6 +72,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/home/worker/.cache/ms-playwright
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
+  bash \
   ca-certificates curl wget \
   libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libdbus-1-3 \
   libxkbcommon0 libatspi2.0-0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
@@ -79,4 +90,5 @@ USER worker
 HEALTHCHECK --interval=20s --timeout=5s --start-period=90s --retries=5 \
   CMD wget -qO- http://127.0.0.1:4001/live || exit 1
 
+ENTRYPOINT ["bash", "/app/apps/worker/docker-entrypoint.sh"]
 CMD ["node", "apps/worker/dist/main.js"]

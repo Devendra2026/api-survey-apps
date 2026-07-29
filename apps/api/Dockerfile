@@ -52,12 +52,18 @@ FROM builder AS deploy
 ENV HUSKY=0
 ENV DATABASE_URL=postgresql://postgres:postgres@localhost:5432/survey?schema=public
 ENV DIRECT_URL=postgresql://postgres:postgres@localhost:5432/survey?schema=public
+# Root scripts/ are outside turbo prune out/full — copy from prepare (full tree).
+COPY --from=prepare /app/scripts/docker/resolve-database-url.mjs /tmp/resolve-database-url.mjs
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
   pnpm --filter api deploy --prod --legacy /deploy \
-  && mkdir -p /deploy/apps/api /deploy/packages/database/src \
+  && mkdir -p /deploy/apps/api /deploy/packages/database/src /deploy/scripts/docker \
   && cp -r /app/apps/api/dist /deploy/apps/api/dist \
   && cp /app/apps/api/docker-entrypoint.sh /deploy/apps/api/docker-entrypoint.sh \
   && cp /app/apps/api/docker-entrypoint.migrate.sh /deploy/apps/api/docker-entrypoint.migrate.sh \
+  && cp /tmp/resolve-database-url.mjs /deploy/scripts/docker/resolve-database-url.mjs \
+  && test -f /app/apps/api/docker-entrypoint.sh \
+  && test -f /app/apps/api/docker-entrypoint.migrate.sh \
+  && test -f /deploy/scripts/docker/resolve-database-url.mjs \
   && test -f /app/packages/database/prisma/schema.prisma \
   && test -d /app/packages/database/prisma/migrations \
   && test -f /app/packages/database/prisma.config.ts \
@@ -91,13 +97,18 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
   && mkdir -p /deploy/node_modules/.bin \
   && printf '%s\n' '#!/bin/sh' 'exec node /app/node_modules/prisma/build/index.js "$@"' > /deploy/node_modules/.bin/prisma \
   && chmod +x /deploy/node_modules/.bin/prisma /deploy/apps/api/docker-entrypoint.sh /deploy/apps/api/docker-entrypoint.migrate.sh \
+  && test -x /deploy/apps/api/docker-entrypoint.sh \
+  && test -x /deploy/apps/api/docker-entrypoint.migrate.sh \
+  && test -f /deploy/scripts/docker/resolve-database-url.mjs \
   && test -f /deploy/packages/database/prisma/schema.prisma \
   && test -d /deploy/packages/database/prisma/migrations \
   && test -f /deploy/packages/database/prisma.config.ts \
   && ( test -f /deploy/packages/database/src/generated/prisma/client.js \
   || test -f /deploy/packages/database/src/generated/prisma/client.ts ) \
   && cd /deploy/packages/database \
-  && node /deploy/node_modules/prisma/build/index.js -v
+  && node /deploy/node_modules/prisma/build/index.js -v \
+  && POSTGRES_PASSWORD=build-check POSTGRES_HOST=localhost \
+  node /deploy/scripts/docker/resolve-database-url.mjs >/dev/null
 
 FROM node:${NODE_VERSION}-bookworm-slim AS runner
 WORKDIR /app
@@ -124,5 +135,5 @@ USER nestjs
 HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=5 \
   CMD wget -qO- http://127.0.0.1:4000/live || exit 1
 
-ENTRYPOINT ["sh", "/app/apps/api/docker-entrypoint.sh"]
+ENTRYPOINT ["bash", "/app/apps/api/docker-entrypoint.sh"]
 CMD ["node", "apps/api/dist/main.js"]

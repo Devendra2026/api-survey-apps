@@ -29,6 +29,7 @@ import {
   DEFAULT_ETL_BATCH_SIZE,
   DEFAULT_ETL_MAX_RETRIES,
   DEFAULT_MAX_IMAGE_BYTES,
+  ETL_MIGRATABLE_STATUSES,
   extensionFromMime,
   isFinalAttempt,
   isPermanentFailure,
@@ -420,12 +421,17 @@ export class EtlOrchestratorService {
 
   async listBatchIds(cursor: string | null, batchSize = DEFAULT_ETL_BATCH_SIZE) {
     const extractor = this.createExtractor()
-    // Production migration: only submitted surveys (drafts lack ward/assessment fields)
-    return extractor.listSurveyIds({ cursor, numItems: batchSize, status: "submitted" })
+    // Everything except drafts: drafts lack ward/assessment fields, while
+    // approved and rejected surveys are finished records that must be imported.
+    return extractor.listSurveyIds({
+      cursor,
+      numItems: batchSize,
+      statuses: ETL_MIGRATABLE_STATUSES,
+    })
   }
 
   async countConvexSurveys() {
-    return this.createExtractor().countSurveys()
+    return this.createExtractor().countSurveys(ETL_MIGRATABLE_STATUSES)
   }
 
   async buildTransformContext(): Promise<TransformContext> {

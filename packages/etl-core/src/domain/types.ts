@@ -2,6 +2,25 @@
 export const PHOTO_SLOTS = ["front", "inside", "side", "document"] as const
 export type PhotoSlot = (typeof PHOTO_SLOTS)[number]
 
+/** Mirrors the `surveyStatus` union in the Convex schema. */
+export const CONVEX_SURVEY_STATUSES = ["draft", "submitted", "approved", "rejected"] as const
+export type ConvexSurveyStatus = (typeof CONVEX_SURVEY_STATUSES)[number]
+
+/**
+ * Statuses pulled from Convex into Postgres. Must stay in step with
+ * `ETL_MIGRATABLE_STATUSES` in the Convex backend.
+ *
+ * Only `draft` is withheld — a draft has no ward or assessment year yet, so it
+ * cannot be mapped. Approved and rejected surveys are finished records and were
+ * previously dropped by a `status: "submitted"` filter, which left the pipeline
+ * green while their rows never arrived.
+ */
+export const ETL_MIGRATABLE_STATUSES = [
+  "submitted",
+  "approved",
+  "rejected",
+] as const satisfies readonly ConvexSurveyStatus[]
+
 export type MigrationStatus = "PENDING" | "IN_PROGRESS" | "COMPLETED" | "SKIPPED" | "FAILED"
 
 export type EtlStage = "EXTRACT" | "TRANSFORM" | "DOWNLOAD" | "UPLOAD" | "LOAD" | "VALIDATE" | "SKIP"

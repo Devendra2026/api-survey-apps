@@ -72,6 +72,17 @@ Auth: uses `ETL_DEV_CLERK_USER_ID` or first `BOOTSTRAP_ADMIN_CLERK_USER_IDS` as 
 | GET    | `/etl/report?jobId=`    | Job stats                      |
 | GET    | `/etl/jobs`             | Recent jobs                    |
 
+## What gets imported
+
+Surveys with status `submitted`, `approved`, or `rejected`. Drafts are the only
+exclusion: they have no ward or assessment year yet, so they cannot be mapped.
+
+The set lives in `ETL_MIGRATABLE_STATUSES` and is defined twice — once in
+`packages/etl-core/src/domain/types.ts` here, once in `convex/etl/queries.ts` in
+the Convex backend. They must match. `/etl/validate` counts the same statuses on
+both sides, so `deltaSurveys` should settle at `0`; a lasting non-zero delta
+means rows are genuinely missing rather than merely filtered out.
+
 ## Shared secret
 
 The worker sends `X-ETL-Secret`; Convex compares it to its own `ETL_SECRET`. Both

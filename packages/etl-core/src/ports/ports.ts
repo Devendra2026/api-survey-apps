@@ -9,11 +9,12 @@ export interface ConvexExtractorPort {
     cursor: string | null
     numItems: number
     status?: string
+    statuses?: readonly string[]
   }): Promise<ListSurveyIdsResult>
 
   getSurveyBundles(ids: string[]): Promise<ConvexSurveyBundle[]>
 
-  countSurveys(): Promise<number>
+  countSurveys(statuses?: readonly string[]): Promise<number>
 }
 
 export interface ObjectStoragePort {

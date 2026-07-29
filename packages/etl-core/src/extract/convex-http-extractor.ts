@@ -36,8 +36,13 @@ export class ConvexHttpExtractor implements ConvexExtractorPort {
     cursor: string | null
     numItems: number
     status?: string
+    statuses?: readonly string[]
   }): Promise<ListSurveyIdsResult> {
-    return this.post<ListSurveyIdsResult>("/etl/list-survey-ids", input)
+    const { statuses, ...rest } = input
+    return this.post<ListSurveyIdsResult>("/etl/list-survey-ids", {
+      ...rest,
+      ...(statuses?.length ? { statuses: [...statuses] } : {}),
+    })
   }
 
   async getSurveyBundles(ids: string[]): Promise<ConvexSurveyBundle[]> {
@@ -47,8 +52,12 @@ export class ConvexHttpExtractor implements ConvexExtractorPort {
     return result.bundles
   }
 
-  async countSurveys(): Promise<number> {
-    const result = await this.post<{ count: number }>("/etl/count-surveys", {})
+  /** Pass the same statuses used to list, or the delta against Postgres is meaningless. */
+  async countSurveys(statuses?: readonly string[]): Promise<number> {
+    const result = await this.post<{ count: number }>(
+      "/etl/count-surveys",
+      statuses?.length ? { statuses: [...statuses] } : {}
+    )
     return result.count
   }
 

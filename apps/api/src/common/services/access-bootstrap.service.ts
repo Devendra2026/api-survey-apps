@@ -1,11 +1,10 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common"
-import { seedPermissionsAndRoles } from "@workspace/database"
+import { seedPermissionsAndRoles, seedReferenceCatalogs } from "@workspace/database"
 import { PrismaService } from "../../prisma/prisma.service.js"
 
 /**
- * On API boot: ensure RBAC catalog exists.
- * Admin promotion happens on login (RoleProvisioningService) so the signed-in
- * Clerk user is the one who receives ADMIN — not a ghost row from env alone.
+ * On API boot: ensure RBAC + reference catalogs exist (idempotent upserts).
+ * Admin promotion happens on login (RoleProvisioningService).
  */
 @Injectable()
 export class AccessBootstrapService implements OnModuleInit {
@@ -18,14 +17,24 @@ export class AccessBootstrapService implements OnModuleInit {
       where: { name: "ADMIN" },
       select: { id: true, _count: { select: { permissions: true } } },
     })
-    const wasMissing = !adminBefore || adminBefore._count.permissions === 0
+    const wasMissingRbac = !adminBefore || adminBefore._count.permissions === 0
+
+    const referenceCountBefore = await this.prisma.db.referenceCategory.count()
 
     await seedPermissionsAndRoles(this.prisma.db)
+    await seedReferenceCatalogs(this.prisma.db)
 
-    if (wasMissing) {
+    if (wasMissingRbac) {
       this.logger.log("RBAC catalog was missing — seeded permissions and roles on startup")
     } else {
       this.logger.log("RBAC catalog verified on startup")
+    }
+
+    const referenceCountAfter = await this.prisma.db.referenceCategory.count()
+    if (referenceCountBefore === 0) {
+      this.logger.log(`Reference catalogs were missing — seeded ${referenceCountAfter} categories on startup`)
+    } else {
+      this.logger.log(`Reference catalogs verified on startup (${referenceCountAfter} categories)`)
     }
   }
 }

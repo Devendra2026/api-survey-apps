@@ -146,6 +146,8 @@ production data.
 
 `migrate` runs **`prisma migrate deploy` only**. Roles, permissions, reference catalogs, and sample geo are **not** applied by the migrate one-shot.
 
+After API deploy, **RBAC + reference catalogs** are also upserted automatically on API startup (`AccessBootstrapService`). Geography (states/ULBs/wards) still needs a one-time catalog seed (or Master Data import).
+
 After the first successful migrate on an empty database (from a host that can reach Postgres, e.g. tunnel/VPN or `docker compose exec` on the Dokploy host):
 
 ```bash

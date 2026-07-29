@@ -4,6 +4,7 @@ export { ensureAccessBootstrap } from "./ensure-access-bootstrap.js"
 export type { AccessBootstrapResult } from "./ensure-access-bootstrap.js"
 export { seedPermissionsAndRoles } from "./rbac-catalog.js"
 export type { RoleMap } from "./rbac-catalog.js"
+export { seedReferenceCatalogs } from "./reference-catalogs-seed.js"
 export { promoteClerkUserToAdmin, promoteUserToAdmin } from "./role-promotion.js"
 export type { AdminPromotionResult } from "./role-promotion.js"
 

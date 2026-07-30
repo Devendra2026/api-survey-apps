@@ -1,3 +1,4 @@
+import { resolvePrimaryOwnerName } from "../common/utils/primary-owner.util.js"
 import type { AuditHistoryDto, OwnerDto, SurveyDetailsDto, SurveyPhotoDto } from "./dto/survey-view.dto.js"
 
 type DecimalLike = { toString(): string } | number | string | null | undefined
@@ -198,7 +199,7 @@ export function mapSurveyToDetailsDto(survey: SurveyForView): SurveyDetailsDto {
     ulbName: survey.ulb?.name ?? "—",
     wardNo: survey.ward?.wardNumber ?? survey.wardNumber ?? "—",
     parcelNo: dash(survey.parcelNumber),
-    ownerName: dash(survey.respondentName),
+    ownerName: dash(resolvePrimaryOwnerName(survey.coOwners, survey.respondentName)),
     status: displayStatus(survey.surveyStatus, survey.qcStatus),
     surveyStatus: survey.surveyStatus,
     qcStatus: survey.qcStatus,

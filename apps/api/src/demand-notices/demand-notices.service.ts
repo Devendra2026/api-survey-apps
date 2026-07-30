@@ -4,6 +4,7 @@ import type { AssessmentYear, PhotoType, Prisma } from "@workspace/database"
 import { QcStatus } from "@workspace/database"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
+import { resolvePrimaryOwnerName } from "../common/utils/primary-owner.util.js"
 import { buildTenantWhere, resolveTenantScope } from "../common/utils/tenant-scope.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import { StorageService } from "../storage/storage.service.js"
@@ -258,7 +259,7 @@ export class DemandNoticesService {
     opts?: { skipPhotos?: boolean }
   ): Promise<DemandNoticeDocumentDto> {
     const primaryOwner = survey.coOwners[0]
-    const ownerName = primaryOwner?.name?.trim() || survey.respondentName?.trim() || "—"
+    const ownerName = resolvePrimaryOwnerName(survey.coOwners, survey.respondentName) ?? "—"
     const fatherName = primaryOwner?.fatherOrHusbandName?.trim() || "—"
     const mobileNo = primaryOwner?.mobile?.trim() || survey.mobileNumber?.trim() || "—"
     const address = [survey.houseDoorNo, survey.locality, survey.colony, survey.city, survey.pinCode]

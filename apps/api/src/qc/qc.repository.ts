@@ -4,6 +4,8 @@ import { formatPropertyId, padParcelNo } from "@workspace/validation"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { WardCatalogService } from "../common/services/ward-catalog.service.js"
 import { getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
+import { parcelNumberVariants } from "../common/utils/parcel-search.util.js"
+import { resolvePrimaryOwnerName } from "../common/utils/primary-owner.util.js"
 import {
   addSurveyRowToBuckets,
   emptyBucketTotals,
@@ -94,6 +96,7 @@ export class QcRepository {
     const scope = resolveTenantScope(user.tenantRoles)
     const tenantWhere = buildTenantWhere(scope)
     const search = query.search?.trim()
+    const parcelVariants = search ? parcelNumberVariants(search) : []
 
     return {
       deletedAt: null,
@@ -108,9 +111,11 @@ export class QcRepository {
               { propertyId: { contains: search, mode: "insensitive" } },
               { respondentName: { contains: search, mode: "insensitive" } },
               { parcelNumber: { contains: search, mode: "insensitive" } },
+              ...(parcelVariants.length ? [{ parcelNumber: { in: parcelVariants } }] : []),
               { wardNumber: { contains: search, mode: "insensitive" } },
               { assignedTo: { fullName: { contains: search, mode: "insensitive" } } },
               { createdBy: { fullName: { contains: search, mode: "insensitive" } } },
+              { coOwners: { some: { name: { contains: search, mode: "insensitive" } } } },
             ],
           }
         : {}),
@@ -219,6 +224,7 @@ export class QcRepository {
           ward: { select: { id: true, wardName: true, wardNumber: true } },
           ulb: { select: { id: true, name: true } },
           district: { select: { id: true, name: true } },
+          coOwners: { select: { name: true }, orderBy: { ownerIndex: "asc" }, take: 1 },
         },
       }),
       this.prisma.db.survey.count({ where }),
@@ -236,7 +242,7 @@ export class QcRepository {
       wardNumber: row.ward?.wardNumber ?? row.wardNumber ?? "—",
       parcelNumber: row.parcelNumber ?? "—",
       propertyUse: row.propertyUse,
-      ownerName: row.respondentName?.trim() || "—",
+      ownerName: resolvePrimaryOwnerName(row.coOwners, row.respondentName) ?? "—",
       mobile: row.mobileNumber?.trim() || "—",
       date: formatRegistryDate(row.submittedAt ?? row.approvedAt ?? row.createdAt),
       createdAt: row.createdAt.toISOString(),

@@ -396,30 +396,16 @@ export function QcReviewSections({
         </div>
       </GlassSection>
 
-      <GlassSection title="Owner & Household" subtitle="Respondent and co-owners from the mobile survey.">
+      <GlassSection
+        title="Owner & Household"
+        subtitle="Respondent and co-owners from the mobile survey — read-only during QC."
+      >
         <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <EditableField label="Respondent Name" editMode={editMode} display={survey.respondentName}>
-            <Input value={draft.respondentName ?? ""} onChange={(e) => setField("respondentName", e.target.value)} />
-          </EditableField>
-          <EditableField label="Mobile Number" editMode={editMode} display={survey.mobileNumber}>
-            <Input value={draft.mobileNumber ?? ""} onChange={(e) => setField("mobileNumber", e.target.value)} />
-          </EditableField>
-          <EditableField label="Family Size" editMode={editMode} display={survey.familySize ?? "—"}>
-            <Input
-              type="number"
-              value={draft.familySize ?? ""}
-              onChange={(e) => setField("familySize", e.target.value === "" ? null : Number(e.target.value))}
-            />
-          </EditableField>
-          <EditableField label="Relationship" editMode={editMode} display={survey.relationshipWithOwner}>
-            <Input
-              value={draft.relationshipWithOwner ?? ""}
-              onChange={(e) => setField("relationshipWithOwner", e.target.value)}
-            />
-          </EditableField>
-          <EditableField label="Alt Mobile" editMode={editMode} display={survey.altMobile}>
-            <Input value={draft.alternateMobile ?? ""} onChange={(e) => setField("alternateMobile", e.target.value)} />
-          </EditableField>
+          <SurveyViewField label="Respondent Name" value={survey.respondentName} />
+          <SurveyViewField label="Mobile Number" value={survey.mobileNumber} />
+          <SurveyViewField label="Family Size" value={survey.familySize ?? "—"} />
+          <SurveyViewField label="Relationship" value={survey.relationshipWithOwner} />
+          <SurveyViewField label="Alt Mobile" value={survey.altMobile} />
           <SurveyViewField label="Father / Husband Name" value={survey.fatherHusbandName} />
         </div>
         <GlassTable columns={ownerColumns} data={survey.owners} empty="No co-owner records." />

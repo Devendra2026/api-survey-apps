@@ -1,14 +1,15 @@
 "use client"
 
-import { FormField } from "@/components/forms/form-field"
 import { PermissionMatrix, rolePermissionIdSet } from "@/components/admin/permission-matrix"
 import {
   allotmentsComplete,
+  AllotmentSummaryList,
   emptyAllotment,
   toAllotmentPayload,
   UserAllotmentsEditor,
   type AllotmentDraft,
 } from "@/components/admin/user-allotments-editor"
+import { FormField } from "@/components/forms/form-field"
 import { useAssignTenantRole, useDistricts, usePermissionsCatalog, useRoles, useStates, useUlbs } from "@/hooks/use-api"
 import { getApiErrorMessage } from "@/lib/api/client"
 import { ASSIGNABLE_ROLES, roleDisplayName, type AuthenticatedProfile } from "@/lib/api/types"
@@ -101,14 +102,13 @@ export function UserOnboardWizard({
   const geographySummary = () => {
     if (forbidGeo) return "Global"
     if (needsGeo) {
-      return (
-        allotments
-          .filter((a) => a.ulbId && a.wardId)
-          .map((a, i) => `Pair ${i + 1}`)
-          .join(", ") || "—"
-      )
+      const n = allotments.filter((a) => a.ulbId && a.wardId).length
+      return n ? `${n} ward allotment${n === 1 ? "" : "s"}` : "—"
     }
-    if (needsUlbOnly) return ulbId ? "ULB scoped" : "Unset"
+    if (needsUlbOnly) {
+      const ulbName = ulbs?.items.find((u) => u.id === ulbId)?.name
+      return ulbName ?? (ulbId ? "ULB scoped" : "Unset")
+    }
     return "Optional / unset"
   }
 
@@ -313,16 +313,7 @@ export function UserOnboardWizard({
                 <span className="text-muted-foreground">Geography · </span>
                 {geographySummary()}
               </p>
-              {needsGeo ? (
-                <ul className="mt-2 list-inside list-disc text-muted-foreground">
-                  {allotments.map((a, i) => (
-                    <li key={a.key}>
-                      Allotment {i + 1}: {a.stateId ? "State" : "—"} → {a.districtId ? "District" : "—"} →{" "}
-                      {a.ulbId ? "ULB" : "—"} → {a.wardId ? "Ward" : "—"}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
+              {needsGeo ? <AllotmentSummaryList allotments={allotments} /> : null}
             </div>
           ) : null}
         </div>

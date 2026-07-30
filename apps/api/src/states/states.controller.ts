@@ -2,11 +2,13 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from "@nestj
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger"
 import { PERMISSIONS } from "../common/constants/permissions.js"
 import { CurrentUser } from "../common/decorators/current-user.decorator.js"
-import { RequirePermission } from "../common/decorators/require-permission.decorator.js"
+import { RequireAnyPermission, RequirePermission } from "../common/decorators/require-permission.decorator.js"
 import { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { CreateStateDto, UpdateStateDto } from "./dto/geo.dto.js"
 import { StatesService } from "./states.service.js"
+
+const GEO_READ = [PERMISSIONS.SETTINGS_VIEW, PERMISSIONS.ROLE_ASSIGN, PERMISSIONS.SURVEY_VIEW] as const
 
 @ApiTags("states")
 @ApiBearerAuth()
@@ -15,13 +17,13 @@ export class StatesController {
   constructor(private readonly statesService: StatesService) {}
 
   @Get()
-  @RequirePermission(PERMISSIONS.SETTINGS_VIEW)
+  @RequireAnyPermission(...GEO_READ)
   findAll(@Query() query: PaginationQueryDto, @CurrentUser() user: AuthenticatedUser) {
     return this.statesService.findAll(query, user)
   }
 
   @Get(":id")
-  @RequirePermission(PERMISSIONS.SETTINGS_VIEW)
+  @RequireAnyPermission(...GEO_READ)
   findOne(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.statesService.findById(id, user)
   }

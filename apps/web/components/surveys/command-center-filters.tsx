@@ -8,12 +8,8 @@ import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@workspace/ui/components/popover"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
-import { CalendarDays, RotateCcw } from "lucide-react"
+import { CalendarDays, Loader2, RotateCcw } from "lucide-react"
 import { useEffect, useMemo, useRef } from "react"
-
-const DEFAULT_DISTRICT_NAME = "Baghpat"
-const DEFAULT_ULB_HINT = "aminagar"
-const DEFAULT_WARD_NUMBERS = new Set(["05", "5"])
 
 function monthBounds(offsetMonths: number): { dateFrom: string; dateTo: string; month: string } {
   const now = new Date()
@@ -35,6 +31,34 @@ function formatDisplayDate(value?: string) {
   return `${d}/${m}/${y}`
 }
 
+function GeoSelectHint({
+  isLoading,
+  isError,
+  empty,
+  emptyMessage,
+}: {
+  isLoading?: boolean
+  isError?: boolean
+  empty?: boolean
+  emptyMessage?: string
+}) {
+  if (isLoading) {
+    return (
+      <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
+        <Loader2 className="size-3 animate-spin" aria-hidden />
+        Loading…
+      </p>
+    )
+  }
+  if (isError) {
+    return <p className="text-[11px] text-destructive">Failed to load. Check access and retry.</p>
+  }
+  if (empty) {
+    return <p className="text-[11px] text-muted-foreground">{emptyMessage}</p>
+  }
+  return null
+}
+
 export function CommandCenterFiltersPanel({
   filters,
   onChange,
@@ -46,17 +70,17 @@ export function CommandCenterFiltersPanel({
   stateId: string
   onStateChange: (stateId: string) => void
 }) {
-  const { data: states } = useStates({ limit: 100 })
-  const { data: districts } = useDistricts(stateId || undefined)
-  const { data: ulbs } = useUlbs(filters.districtId)
-  const { data: wards } = useWards(filters.ulbId)
+  const { data: states, isLoading: statesLoading, isError: statesError } = useStates({ limit: 100 })
+  const { data: districts, isLoading: districtsLoading, isError: districtsError } = useDistricts(stateId || undefined)
+  const { data: ulbs, isLoading: ulbsLoading, isError: ulbsError } = useUlbs(filters.districtId)
+  const { data: wards, isLoading: wardsLoading, isError: wardsError } = useWards(filters.ulbId)
 
   const districtItems = useMemo(() => districts?.items ?? [], [districts?.items])
   const ulbItems = useMemo(() => ulbs?.items ?? [], [ulbs?.items])
   const wardItems = useMemo(() => wards?.items ?? [], [wards?.items])
   const stateItems = useMemo(() => states?.items ?? [], [states?.items])
 
-  const defaultsApplied = useRef({ state: false, district: false, ulb: false, ward: false })
+  const defaultsApplied = useRef({ state: false })
 
   useEffect(() => {
     if (defaultsApplied.current.state || stateId || !stateItems.length) return
@@ -66,33 +90,6 @@ export function CommandCenterFiltersPanel({
       onStateChange(first.id)
     }
   }, [stateId, stateItems, onStateChange])
-
-  useEffect(() => {
-    if (defaultsApplied.current.district || filters.districtId || !districtItems.length) return
-    const match = districtItems.find((d) => d.name.toLowerCase().includes(DEFAULT_DISTRICT_NAME.toLowerCase()))
-    if (match) {
-      defaultsApplied.current.district = true
-      onChange({ ...filters, districtId: match.id, ulbId: undefined, wardId: undefined })
-    }
-  }, [districtItems, filters, onChange])
-
-  useEffect(() => {
-    if (defaultsApplied.current.ulb || !filters.districtId || filters.ulbId || !ulbItems.length) return
-    const match = ulbItems.find((u) => u.name.toLowerCase().includes(DEFAULT_ULB_HINT))
-    if (match) {
-      defaultsApplied.current.ulb = true
-      onChange({ ...filters, ulbId: match.id, wardId: undefined })
-    }
-  }, [ulbItems, filters, onChange])
-
-  useEffect(() => {
-    if (defaultsApplied.current.ward || !filters.ulbId || filters.wardId || !wardItems.length) return
-    const match = wardItems.find((w) => DEFAULT_WARD_NUMBERS.has(String(w.wardNumber)))
-    if (match) {
-      defaultsApplied.current.ward = true
-      onChange({ ...filters, wardId: match.id })
-    }
-  }, [wardItems, filters, onChange])
 
   const patch = (partial: Partial<CommandCenterFilters>) => onChange({ ...filters, ...partial })
 
@@ -106,7 +103,7 @@ export function CommandCenterFiltersPanel({
   )
 
   const reset = () => {
-    defaultsApplied.current = { state: true, district: false, ulb: false, ward: false }
+    defaultsApplied.current = { state: true }
     onChange({
       surveyStatus: "any",
       districtId: undefined,
@@ -168,7 +165,7 @@ export function CommandCenterFiltersPanel({
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">State</Label>
             <Select value={stateId || ""} onValueChange={onStateChange}>
-              <SelectTrigger className="h-9 border-slate-200 dark:border-slate-800">
+              <SelectTrigger className="h-9 cursor-pointer border-slate-200 dark:border-slate-800">
                 <SelectValue placeholder="Select state" />
               </SelectTrigger>
               <SelectContent>
@@ -179,6 +176,12 @@ export function CommandCenterFiltersPanel({
                 ))}
               </SelectContent>
             </Select>
+            <GeoSelectHint
+              isLoading={statesLoading}
+              isError={statesError}
+              empty={!statesLoading && !statesError && stateItems.length === 0}
+              emptyMessage="No states available."
+            />
           </div>
 
           <div className="space-y-1.5">
@@ -186,8 +189,6 @@ export function CommandCenterFiltersPanel({
             <Select
               value={filters.districtId || ""}
               onValueChange={(districtId) => {
-                defaultsApplied.current.ulb = false
-                defaultsApplied.current.ward = false
                 onChange({
                   ...filters,
                   districtId,
@@ -197,8 +198,8 @@ export function CommandCenterFiltersPanel({
               }}
               disabled={!stateId}
             >
-              <SelectTrigger className="h-9 border-slate-200 dark:border-slate-800">
-                <SelectValue placeholder={DEFAULT_DISTRICT_NAME} />
+              <SelectTrigger className="h-9 cursor-pointer border-slate-200 dark:border-slate-800">
+                <SelectValue placeholder="Select district" />
               </SelectTrigger>
               <SelectContent>
                 {districtItems.map((d) => (
@@ -208,6 +209,14 @@ export function CommandCenterFiltersPanel({
                 ))}
               </SelectContent>
             </Select>
+            {stateId ? (
+              <GeoSelectHint
+                isLoading={districtsLoading}
+                isError={districtsError}
+                empty={!districtsLoading && !districtsError && districtItems.length === 0}
+                emptyMessage="No districts for this state."
+              />
+            ) : null}
           </div>
 
           <div className="space-y-1.5">
@@ -215,13 +224,12 @@ export function CommandCenterFiltersPanel({
             <Select
               value={filters.ulbId || ""}
               onValueChange={(ulbId) => {
-                defaultsApplied.current.ward = false
                 onChange({ ...filters, ulbId, wardId: undefined })
               }}
               disabled={!filters.districtId}
             >
-              <SelectTrigger className="h-9 border-slate-200 dark:border-slate-800">
-                <SelectValue placeholder="Town Panchayat Aminagar Sarai" />
+              <SelectTrigger className="h-9 cursor-pointer border-slate-200 dark:border-slate-800">
+                <SelectValue placeholder="Select municipality" />
               </SelectTrigger>
               <SelectContent>
                 {ulbItems.map((u) => (
@@ -231,6 +239,14 @@ export function CommandCenterFiltersPanel({
                 ))}
               </SelectContent>
             </Select>
+            {filters.districtId ? (
+              <GeoSelectHint
+                isLoading={ulbsLoading}
+                isError={ulbsError}
+                empty={!ulbsLoading && !ulbsError && ulbItems.length === 0}
+                emptyMessage="No ULBs for this district."
+              />
+            ) : null}
           </div>
 
           <div className="space-y-1.5">
@@ -240,8 +256,8 @@ export function CommandCenterFiltersPanel({
               onValueChange={(value) => patch({ wardId: value === "all" ? undefined : value })}
               disabled={!filters.ulbId}
             >
-              <SelectTrigger className="h-9 border-slate-200 dark:border-slate-800">
-                <SelectValue placeholder="Ward 05" />
+              <SelectTrigger className="h-9 cursor-pointer border-slate-200 dark:border-slate-800">
+                <SelectValue placeholder="All wards" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All wards</SelectItem>
@@ -252,12 +268,22 @@ export function CommandCenterFiltersPanel({
                 ))}
               </SelectContent>
             </Select>
+            {filters.ulbId ? (
+              <GeoSelectHint
+                isLoading={wardsLoading}
+                isError={wardsError}
+                empty={!wardsLoading && !wardsError && wardItems.length === 0}
+                emptyMessage="No wards for this ULB."
+              />
+            ) : (
+              <p className="text-[11px] text-muted-foreground">Select a ULB to list wards.</p>
+            )}
           </div>
 
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Survey Status</Label>
             <Select value={filters.surveyStatus || "any"} onValueChange={(surveyStatus) => patch({ surveyStatus })}>
-              <SelectTrigger className="h-9 border-slate-200 dark:border-slate-800">
+              <SelectTrigger className="h-9 cursor-pointer border-slate-200 dark:border-slate-800">
                 <SelectValue placeholder="Any status" />
               </SelectTrigger>
               <SelectContent>

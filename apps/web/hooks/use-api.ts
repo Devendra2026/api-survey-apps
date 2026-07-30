@@ -528,7 +528,7 @@ export function useUlbs(districtId?: string) {
 export function useWards(ulbId?: string) {
   return useQuery({
     queryKey: ["wards", ulbId],
-    queryFn: () => apiGetPaginated<GeoWard>(`/wards?ulbId=${ulbId}&limit=200`),
+    queryFn: () => apiGetPaginated<GeoWard>(`/wards?ulbId=${ulbId}&limit=100`),
     enabled: Boolean(ulbId),
   })
 }

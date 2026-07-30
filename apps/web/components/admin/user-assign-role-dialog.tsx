@@ -1,7 +1,5 @@
 "use client"
 
-import { activeAssignments, primaryAssignment } from "@/components/admin/user-badges"
-import { FormField } from "@/components/forms/form-field"
 import {
   allotmentsComplete,
   emptyAllotment,
@@ -9,6 +7,8 @@ import {
   UserAllotmentsEditor,
   type AllotmentDraft,
 } from "@/components/admin/user-allotments-editor"
+import { activeAssignments, primaryAssignment } from "@/components/admin/user-badges"
+import { FormField } from "@/components/forms/form-field"
 import { useAssignTenantRole, useDistricts, useRoles, useStates, useUlbs } from "@/hooks/use-api"
 import { getApiErrorMessage } from "@/lib/api/client"
 import {
@@ -156,7 +156,7 @@ export function UserAssignRoleDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-lg">
+      <DialogContent className="gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-2xl">
         <DialogHeader className="space-y-1.5 border-b px-6 py-5 text-left">
           <DialogTitle>{mode === "location" ? "Assign location" : "Assign role"}</DialogTitle>
           <DialogDescription>

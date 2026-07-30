@@ -1,6 +1,7 @@
-import { Injectable } from "@nestjs/common"
+import { ForbiddenException, Injectable } from "@nestjs/common"
 import type { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
+import { userHasAdminRole } from "../common/utils/tenant-scope.util.js"
 import type { CreateWardDto, UpdateWardDto } from "../states/dto/geo.dto.js"
 import { WardsRepository } from "./wards.repository.js"
 
@@ -25,6 +26,9 @@ export class WardsService {
   }
 
   delete(id: string, user: AuthenticatedUser) {
+    if (!userHasAdminRole(user)) {
+      throw new ForbiddenException("Only Admin users can delete wards")
+    }
     return this.wardsRepository.delete(id, user)
   }
 }

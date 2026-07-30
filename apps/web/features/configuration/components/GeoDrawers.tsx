@@ -24,6 +24,7 @@ function GeoDrawerShell({
   children,
   saving,
   onSubmit,
+  footerStart,
 }: {
   open: boolean
   onOpenChange: (o: boolean) => void
@@ -32,6 +33,7 @@ function GeoDrawerShell({
   children: React.ReactNode
   saving?: boolean
   onSubmit: () => void
+  footerStart?: React.ReactNode
 }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -48,13 +50,16 @@ function GeoDrawerShell({
           }}
         >
           {children}
-          <SheetFooter>
-            <Button type="button" variant="outline" className="cursor-pointer" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" className="cursor-pointer" disabled={saving}>
-              {saving ? "Saving…" : "Save"}
-            </Button>
+          <SheetFooter className="flex-row flex-wrap gap-2 sm:justify-between">
+            <div className="flex flex-1 flex-wrap gap-2">{footerStart}</div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" className="cursor-pointer" onClick={() => onOpenChange(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" className="cursor-pointer" disabled={saving}>
+                {saving ? "Saving…" : "Save"}
+              </Button>
+            </div>
           </SheetFooter>
         </form>
       </SheetContent>
@@ -236,6 +241,9 @@ export function WardDrawer({
   initial,
   saving,
   onSubmit,
+  canDelete,
+  onDelete,
+  deleting,
 }: {
   open: boolean
   onOpenChange: (o: boolean) => void
@@ -243,6 +251,9 @@ export function WardDrawer({
   initial?: { wardNumber: string; wardName: string }
   saving?: boolean
   onSubmit: (values: { wardNumber: string; wardName: string }) => void
+  canDelete?: boolean
+  onDelete?: () => void
+  deleting?: boolean
 }) {
   const [wardNumber, setWardNumber] = useState("")
   const [wardName, setWardName] = useState("")
@@ -259,8 +270,21 @@ export function WardDrawer({
       onOpenChange={onOpenChange}
       title={mode === "create" ? "Create Ward" : "Edit Ward"}
       description="Ward within the selected ULB"
-      saving={saving}
+      saving={saving || deleting}
       onSubmit={() => onSubmit({ wardNumber, wardName })}
+      footerStart={
+        mode === "edit" && canDelete && onDelete ? (
+          <Button
+            type="button"
+            variant="destructive"
+            className="cursor-pointer"
+            disabled={saving || deleting}
+            onClick={() => onDelete()}
+          >
+            {deleting ? "Deleting…" : "Delete Ward"}
+          </Button>
+        ) : undefined
+      }
     >
       <div className="space-y-2">
         <Label htmlFor="ward-number">Ward number</Label>

@@ -1,10 +1,11 @@
 "use client"
 
+import { useDistricts, useStates, useUlbs, useWards } from "@/hooks/use-api"
+import { formatWardOptionLabel } from "@/lib/format-ward-label"
+import { Badge } from "@workspace/ui/components/badge"
 import { Label } from "@workspace/ui/components/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
-import { useDistricts, useStates, useUlbs, useWards } from "@/hooks/use-api"
 import { useReferenceEntries } from "../hooks/use-configuration"
-import { Badge } from "@workspace/ui/components/badge"
 
 export function WardNavigator({
   stateId,
@@ -122,7 +123,7 @@ export function WardNavigator({
           <SelectContent>
             {wards?.items.map((w) => (
               <SelectItem key={w.id} value={w.id}>
-                {w.wardNumber} — {w.wardName}
+                {formatWardOptionLabel(w)}
               </SelectItem>
             ))}
           </SelectContent>

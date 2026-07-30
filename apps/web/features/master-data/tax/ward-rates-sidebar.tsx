@@ -1,6 +1,7 @@
 "use client"
 
 import type { GeoWard } from "@/lib/api/types"
+import { formatWardOptionLabel } from "@/lib/format-ward-label"
 import { Input } from "@workspace/ui/components/input"
 import { cn } from "@workspace/ui/lib/utils"
 import { Search } from "lucide-react"
@@ -54,7 +55,7 @@ export function WardRatesSidebar({
                   )}
                 >
                   <span className={cn("min-w-0 truncate", active ? "font-semibold" : "font-medium")}>
-                    Ward {w.wardNumber} — {w.wardName}
+                    {formatWardOptionLabel(w)}
                   </span>
                   {active ? (
                     <span className="shrink-0 rounded-md bg-white/20 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-white uppercase">

@@ -1,6 +1,7 @@
 "use client"
 
 import { useDashboardSummary, useDistricts, useStates, useUlbs, useUsers, useWards } from "@/hooks/use-api"
+import { formatWardOptionLabel } from "@/lib/format-ward-label"
 import { useAuthStore } from "@/stores/app-store"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
@@ -176,7 +177,7 @@ export function SurveyRegistryFilters({
             <SelectItem value="all">All wards</SelectItem>
             {(wards?.items ?? []).map((ward) => (
               <SelectItem key={ward.id} value={ward.id}>
-                {ward.wardName || `Ward ${ward.wardNumber}`}
+                {formatWardOptionLabel(ward)}
               </SelectItem>
             ))}
           </SelectContent>

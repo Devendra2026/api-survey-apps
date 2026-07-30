@@ -4,10 +4,17 @@ import { QcReviewActionBar } from "@/components/qc/qc-review-action-bar"
 import { QcReviewSections } from "@/components/qc/qc-review-sections"
 import { EmptyState } from "@/components/shared/page-elements"
 import { SurveyViewSkeleton } from "@/components/surveys/survey-view-skeleton"
-import { useQcSurveyActions, useQcSurveyAuditHistory, useQcSurveyDetail } from "@/hooks/use-api"
-import { getApiErrorMessage } from "@/lib/api/client"
-import type { QcSurveyDetail, QcSurveyEditable } from "@/lib/api/types"
+import {
+  useQcQueueNeighbors,
+  useQcSurveyActions,
+  useQcSurveyAuditHistory,
+  useQcSurveyDetail,
+  useWards,
+} from "@/hooks/use-api"
+import { apiGet, getApiErrorMessage } from "@/lib/api/client"
+import type { QcQueueParcel, QcSurveyDetail, QcSurveyEditable } from "@/lib/api/types"
 import { useAuthStore } from "@/stores/app-store"
+import { useQcWorkingContext } from "@/stores/qc-working-context"
 import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -29,16 +36,28 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
   const canApprove = hasPermission("survey:approve")
   const canDelete = hasPermission("survey:delete")
 
+  const activeWardId = useQcWorkingContext((s) => s.activeWardId)
+  const activeUlbId = useQcWorkingContext((s) => s.activeUlbId)
+  const setActiveWard = useQcWorkingContext((s) => s.setActiveWard)
+
   const detailQuery = useQcSurveyDetail(surveyId, Boolean(canApprove))
   const auditQuery = useQcSurveyAuditHistory(surveyId, Boolean(canApprove) && Boolean(surveyId))
   const actions = useQcSurveyActions()
 
   const survey = detailQuery.data
+  const effectiveWardId = activeWardId || survey?.editable.wardId || null
+  const neighborsQuery = useQcQueueNeighbors(effectiveWardId, survey?.id, Boolean(canApprove) && Boolean(survey?.id))
+
   const [editMode, setEditMode] = useState(false)
   const [draft, setDraft] = useState<QcSurveyEditable | null>(() => survey?.editable ?? null)
   const [draftSurveyId, setDraftSurveyId] = useState<string | null>(() => survey?.id ?? null)
   const [reopenOpen, setReopenOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [wardSwitchId, setWardSwitchId] = useState<string | null>(null)
+  const [wardSwitchPending, setWardSwitchPending] = useState(false)
+
+  const switchUlbId = activeUlbId || survey?.editable.ulbId
+  const { data: switchWards } = useWards(wardSwitchId ? switchUlbId || undefined : undefined)
 
   // Sync draft when survey loads or the URL/id changes (including prefetched cache hits).
   if (survey?.editable && (draft === null || draftSurveyId !== survey.id)) {
@@ -50,6 +69,13 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
     setDraftSurveyId(null)
     if (editMode) setEditMode(false)
   }
+
+  // Seed working context from the loaded survey when empty.
+  useEffect(() => {
+    if (!survey?.editable.wardId || !survey.editable.ulbId) return
+    if (activeWardId) return
+    setActiveWard({ wardId: survey.editable.wardId, ulbId: survey.editable.ulbId })
+  }, [survey?.editable.wardId, survey?.editable.ulbId, activeWardId, setActiveWard])
 
   // Keep draft floors in sync when floor CRUD refreshes QC detail during edit.
   useEffect(() => {
@@ -82,6 +108,44 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
     router.replace(`/qc/review/${encodeURIComponent(survey.id)}`)
   }, [router, survey?.id, surveyId])
 
+  const goToNeighbor = (id: string | null | undefined) => {
+    if (!id) return
+    router.push(`/qc/review/${encodeURIComponent(id)}`)
+  }
+
+  const advanceAfterComplete = async () => {
+    const nextId = neighborsQuery.data?.nextId
+    if (nextId) {
+      goToNeighbor(nextId)
+      return
+    }
+    toast.message("No more pending parcels in this ward")
+    router.push("/qc/registry")
+  }
+
+  const confirmWardSwitch = async () => {
+    if (!wardSwitchId || !switchUlbId) return
+    setWardSwitchPending(true)
+    try {
+      const target = (switchWards?.items ?? []).find((w) => w.id === wardSwitchId)
+      const ulbId = switchUlbId
+      setActiveWard({ wardId: wardSwitchId, ulbId })
+      const first = await apiGet<QcQueueParcel | null>(`/qc/queue/first?wardId=${encodeURIComponent(wardSwitchId)}`)
+      setWardSwitchId(null)
+      if (first?.id) {
+        router.push(`/qc/review/${encodeURIComponent(first.id)}`)
+      } else {
+        toast.message(`No pending parcels in ${target ? "the selected ward" : "this ward"}`)
+        router.push("/qc/registry")
+      }
+      void queryClient.invalidateQueries({ queryKey: ["qc", "queue"] })
+    } catch (error) {
+      toast.error(getApiErrorMessage(error))
+    } finally {
+      setWardSwitchPending(false)
+    }
+  }
+
   if (!canApprove) {
     return (
       <EmptyState
@@ -105,7 +169,11 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
   }
 
   const pending =
-    actions.reopen.isPending || actions.approve.isPending || actions.remove.isPending || actions.correct.isPending
+    actions.reopen.isPending ||
+    actions.approve.isPending ||
+    actions.remove.isPending ||
+    actions.correct.isPending ||
+    wardSwitchPending
 
   const startEdit = () => {
     setDraft(survey.editable)
@@ -194,11 +262,22 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
         editMode={editMode}
         pending={pending}
         canDelete={canDelete}
+        activeWardId={effectiveWardId}
+        activeUlbId={activeUlbId || survey.editable.ulbId}
+        prevId={neighborsQuery.data?.prevId ?? null}
+        nextId={neighborsQuery.data?.nextId ?? null}
+        onActiveWardChange={(wardId) => {
+          if (wardId === effectiveWardId) return
+          setWardSwitchId(wardId)
+        }}
+        onPrev={() => goToNeighbor(neighborsQuery.data?.prevId)}
+        onNext={() => goToNeighbor(neighborsQuery.data?.nextId)}
         onReopen={() => setReopenOpen(true)}
         onApprove={async () => {
           try {
             await actions.approve.mutateAsync(survey.id)
             toast.success("Survey approved")
+            await advanceAfterComplete()
           } catch (error) {
             toast.error(getApiErrorMessage(error))
           }
@@ -216,6 +295,30 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
         draft={draft}
         onDraftChange={setDraft}
       />
+
+      <Dialog open={Boolean(wardSwitchId)} onOpenChange={(open) => !open && setWardSwitchId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Switch active ward</DialogTitle>
+            <DialogDescription>
+              Switching ward will redirect to the first parcel of the selected ward. Proceed?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="cursor-pointer"
+              disabled={wardSwitchPending}
+              onClick={() => setWardSwitchId(null)}
+            >
+              Cancel
+            </Button>
+            <Button className="cursor-pointer" disabled={wardSwitchPending} onClick={() => void confirmWardSwitch()}>
+              {wardSwitchPending ? "Switching…" : "Proceed"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={reopenOpen} onOpenChange={setReopenOpen}>
         <DialogContent>

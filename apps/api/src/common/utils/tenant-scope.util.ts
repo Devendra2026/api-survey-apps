@@ -87,6 +87,11 @@ export function userHasPermissionInTenant(user: AuthenticatedUser, permission: s
   )
 }
 
+/** True when the user has any active tenant role named ADMIN. */
+export function userHasAdminRole(user: AuthenticatedUser): boolean {
+  return user.tenantRoles.some((role) => role.isActive && role.roleName === "ADMIN")
+}
+
 export function userHasAnyPermissionInTenant(user: AuthenticatedUser, permissions: string[], geo: TenantGeo): boolean {
   return permissions.some((p) => userHasPermissionInTenant(user, p, geo))
 }

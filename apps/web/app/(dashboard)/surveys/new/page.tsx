@@ -4,6 +4,7 @@ import { FormField } from "@/components/forms/form-field"
 import { PageHeader } from "@/components/shared/page-elements"
 import { useDistricts, useStates, useSurveyMutations, useUlbs, useWards } from "@/hooks/use-api"
 import { getApiErrorMessage } from "@/lib/api/client"
+import { formatWardOptionLabel } from "@/lib/format-ward-label"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Button } from "@workspace/ui/components/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@workspace/ui/components/card"
@@ -155,7 +156,7 @@ export default function NewSurveyPage() {
                 <SelectContent>
                   {wards?.items.map((w) => (
                     <SelectItem key={w.id} value={w.id}>
-                      {w.wardNumber} — {w.wardName}
+                      {formatWardOptionLabel(w)}
                     </SelectItem>
                   ))}
                 </SelectContent>

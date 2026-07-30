@@ -1,3 +1,4 @@
+import { describe, expect, it } from "@jest/globals"
 import type { TenantRoleAssignment } from "../interfaces/authenticated-user.interface.js"
 import {
   assignmentCoversGeo,
@@ -5,6 +6,7 @@ import {
   canAccessTenant,
   canGrantRole,
   resolveTenantScope,
+  userHasAdminRole,
   userHasPermissionInTenant,
 } from "./tenant-scope.util.js"
 
@@ -47,6 +49,18 @@ describe("tenant-scope.util", () => {
   })
 
   it("does not leak admin permission across tenant scopes", () => {
+    const qcRoleWardA = baseRole({
+      id: "a",
+      roleName: "QC_SUPERVISOR",
+      permissions: ["survey:approve", "survey:view"],
+      wardId: "ward-a",
+    })
+    const surveyorRoleWardB = baseRole({
+      id: "b",
+      roleName: "SURVEYOR",
+      permissions: ["survey:view"],
+      wardId: "ward-b",
+    })
     const user = {
       id: "u1",
       clerkUserId: "c1",
@@ -55,26 +69,13 @@ describe("tenant-scope.util", () => {
       phone: null,
       isActive: true,
       permissions: ["survey:approve", "survey:view"],
-      tenantRoles: [
-        baseRole({
-          id: "a",
-          roleName: "QC_SUPERVISOR",
-          permissions: ["survey:approve", "survey:view"],
-          wardId: "ward-a",
-        }),
-        baseRole({
-          id: "b",
-          roleName: "SURVEYOR",
-          permissions: ["survey:view"],
-          wardId: "ward-b",
-        }),
-      ],
+      tenantRoles: [qcRoleWardA, surveyorRoleWardB],
     }
 
     expect(userHasPermissionInTenant(user, "survey:approve", { wardId: "ward-a" })).toBe(true)
     expect(userHasPermissionInTenant(user, "survey:approve", { wardId: "ward-b" })).toBe(false)
     expect(userHasPermissionInTenant(user, "survey:view", { wardId: "ward-b" })).toBe(true)
-    expect(assignmentCoversGeo(user.tenantRoles[0], { wardId: "ward-b" })).toBe(false)
+    expect(assignmentCoversGeo(qcRoleWardA, { wardId: "ward-b" })).toBe(false)
   })
 
   it("enforces role grant ceilings", () => {
@@ -88,5 +89,30 @@ describe("tenant-scope.util", () => {
     expect(canGrantRole(["DEPT_ADMIN"], "DEPT_OPERATOR")).toBe(true)
     expect(canGrantRole(["DEPT_ADMIN"], "ADMIN")).toBe(false)
     expect(canGrantRole(["DEPT_CLERK"], "DEPT_OPERATOR")).toBe(false)
+  })
+
+  it("detects Admin role by active roleName", () => {
+    const adminUser = {
+      id: "u1",
+      clerkUserId: "c1",
+      email: "a@b.c",
+      fullName: "A",
+      phone: null,
+      isActive: true,
+      permissions: ["settings:manage"],
+      tenantRoles: [baseRole({ roleName: "ADMIN", permissions: ["settings:manage"] })],
+    }
+    const deptAdmin = {
+      ...adminUser,
+      tenantRoles: [baseRole({ roleName: "DEPT_ADMIN", permissions: ["settings:manage"] })],
+    }
+    const inactiveAdmin = {
+      ...adminUser,
+      tenantRoles: [baseRole({ roleName: "ADMIN", permissions: ["settings:manage"], isActive: false })],
+    }
+
+    expect(userHasAdminRole(adminUser)).toBe(true)
+    expect(userHasAdminRole(deptAdmin)).toBe(false)
+    expect(userHasAdminRole(inactiveAdmin)).toBe(false)
   })
 })

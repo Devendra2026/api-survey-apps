@@ -4,40 +4,55 @@ import { emptyQcScope, QcRegistryHeader, type QcRegistryScopeState } from "@/com
 import { QcRegistryTable } from "@/components/qc/qc-registry-table"
 import { EmptyState } from "@/components/shared/page-elements"
 import { useDistricts, useQcRegistry, useUlbs, useWards } from "@/hooks/use-api"
+import { useDebouncedValue } from "@/hooks/use-debounced-value"
 import type { QcRegistryTab } from "@/lib/api/types"
+import { formatWardOptionLabel } from "@/lib/format-ward-label"
 import { useAuthStore } from "@/stores/app-store"
+import { useQcWorkingContext } from "@/stores/qc-working-context"
 import { Skeleton } from "@workspace/ui/components/skeleton"
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 
 export default function QcReviewRegistryPage() {
   const hasPermission = useAuthStore((s) => s.hasPermission)
   const canApprove = hasPermission("survey:approve")
+  const activeWardId = useQcWorkingContext((s) => s.activeWardId)
+  const activeUlbId = useQcWorkingContext((s) => s.activeUlbId)
 
   const [scope, setScope] = useState<QcRegistryScopeState>(emptyQcScope)
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(50)
   const [search, setSearch] = useState("")
   const [tab, setTab] = useState<QcRegistryTab>("pendingApproved")
+  const debouncedSearch = useDebouncedValue(search, 400)
+
+  // Soft-default ward filter from QC working context (not a hard lock).
+  useEffect(() => {
+    if (!activeWardId || !activeUlbId) return
+    setScope((prev) => {
+      if (prev.wardId || prev.ulbId) return prev
+      return { ...prev, ulbId: activeUlbId, wardId: activeWardId }
+    })
+  }, [activeWardId, activeUlbId])
 
   const onScopeChange = useCallback((next: QcRegistryScopeState) => {
     setScope(next)
     setPage(1)
   }, [])
 
-  const filters = useMemo(
-    () => ({
+  const filters = useMemo(() => {
+    const wardScoped = Boolean(scope.wardId)
+    return {
       page,
       limit,
-      search: search || undefined,
+      search: debouncedSearch || undefined,
       status: tab,
       districtId: scope.districtId || undefined,
       ulbId: scope.ulbId || undefined,
       wardId: scope.wardId || undefined,
-      sortBy: "createdAt",
-      sortOrder: "desc" as const,
-    }),
-    [page, limit, search, tab, scope.districtId, scope.ulbId, scope.wardId]
-  )
+      sortBy: wardScoped ? "parcelNumber" : "createdAt",
+      sortOrder: (wardScoped ? "asc" : "desc") as "asc" | "desc",
+    }
+  }, [page, limit, debouncedSearch, tab, scope.districtId, scope.ulbId, scope.wardId])
 
   const registryQuery = useQcRegistry(filters, Boolean(canApprove))
 
@@ -50,7 +65,7 @@ export default function QcReviewRegistryPage() {
     const districtName = districts?.items?.find((d) => d.id === scope.districtId)?.name
     const ulbName = ulbs?.items?.find((u) => u.id === scope.ulbId)?.name
     const ward = wards?.items?.find((w) => w.id === scope.wardId)
-    const wardName = ward ? ward.wardName || `Ward ${ward.wardNumber}` : undefined
+    const wardName = ward ? formatWardOptionLabel(ward) : undefined
     return [districtName, ulbName, wardName].filter(Boolean).join(" - ")
   }, [registryQuery.data?.scope?.label, districts?.items, ulbs?.items, wards?.items, scope])
 

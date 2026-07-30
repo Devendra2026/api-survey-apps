@@ -7,11 +7,20 @@ import type { GeographyTreeNode } from "@/features/configuration/lib/types"
 import { useEtlStatus, useStartEtlIncremental } from "@/features/etl/hooks/use-etl-status"
 import { isEtlJobActive } from "@/features/etl/lib/types"
 import { computeGeoStats } from "@/features/master-data/lib/geo-stats"
-import { apiPatch, apiPost, getApiErrorMessage } from "@/lib/api/client"
+import { apiDelete, apiPatch, apiPost, getApiErrorMessage } from "@/lib/api/client"
+import { hasAdminRole } from "@/lib/format-ward-label"
 import { useAuthStore } from "@/stores/app-store"
 import { useQueryClient } from "@tanstack/react-query"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@workspace/ui/components/dialog"
 import { MapPin, Plus, RefreshCw } from "lucide-react"
 import Link from "next/link"
 import { useMemo, useState } from "react"
@@ -21,7 +30,9 @@ type DrawerKind = "state" | "district" | "ulb" | "ward" | null
 
 export function TenantsWardsPanel() {
   const hasPermission = useAuthStore((s) => s.hasPermission)
+  const tenantRoles = useAuthStore((s) => s.profile?.tenantRoles)
   const canManage = hasPermission("settings:manage") || hasPermission("role:assign")
+  const canDeleteWard = hasAdminRole(tenantRoles)
   const canEtl = hasPermission("etl:manage")
   const { data: tree = [], isLoading, refetch } = useGeographyTree()
   const { data: etlStatus } = useEtlStatus(canEtl)
@@ -31,6 +42,8 @@ export function TenantsWardsPanel() {
   const [drawer, setDrawer] = useState<DrawerKind>(null)
   const [drawerMode, setDrawerMode] = useState<"create" | "edit">("create")
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const qc = useQueryClient()
 
   const stats = useMemo(() => computeGeoStats(tree), [tree])
@@ -248,6 +261,9 @@ export function TenantsWardsPanel() {
             : undefined
         }
         saving={saving}
+        canDelete={canDeleteWard && drawerMode === "edit"}
+        deleting={deleting}
+        onDelete={() => setDeleteConfirmOpen(true)}
         onSubmit={async (values) => {
           setSaving(true)
           try {
@@ -264,6 +280,52 @@ export function TenantsWardsPanel() {
           }
         }}
       />
+
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete ward</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this ward? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              className="cursor-pointer"
+              disabled={deleting}
+              onClick={() => setDeleteConfirmOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              className="cursor-pointer"
+              disabled={deleting || !selected || selected.type !== "ward"}
+              onClick={async () => {
+                if (!selected || selected.type !== "ward") return
+                setDeleting(true)
+                try {
+                  await apiDelete(`/wards/${selected.id}`)
+                  toast.success("Ward deleted")
+                  setDeleteConfirmOpen(false)
+                  setDrawer(null)
+                  setSelected(null)
+                  await invalidate()
+                } catch (err) {
+                  toast.error(getApiErrorMessage(err))
+                } finally {
+                  setDeleting(false)
+                }
+              }}
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

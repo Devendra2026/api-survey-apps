@@ -8,6 +8,7 @@ import { SurveyRegistryToolbar } from "@/components/surveys/survey-registry-tool
 import { useDistricts, useRegistryData, useRegistryImportMutation, useUlbs, useWards } from "@/hooks/use-api"
 import { getApiErrorMessage } from "@/lib/api/client"
 import type { SurveyRegistryTab } from "@/lib/api/types"
+import { formatWardOptionLabel } from "@/lib/format-ward-label"
 import { exportRegistryToExcel, parseRegistryExcelFile } from "@/lib/survey-registry-xlsx"
 import { useAuthStore } from "@/stores/app-store"
 import { Skeleton } from "@workspace/ui/components/skeleton"
@@ -60,7 +61,7 @@ export default function SurveysPage() {
     const districtName = districts?.items?.find((d) => d.id === scope.districtId)?.name
     const ulbName = ulbs?.items?.find((u) => u.id === scope.ulbId)?.name
     const ward = wards?.items?.find((w) => w.id === scope.wardId)
-    const wardName = ward ? ward.wardName || `Ward ${ward.wardNumber}` : undefined
+    const wardName = ward ? formatWardOptionLabel(ward) : undefined
     return [districtName, ulbName, wardName].filter(Boolean).join(" - ")
   }, [registryQuery.data?.scope?.label, districts?.items, ulbs?.items, wards?.items, scope])
 

@@ -2,6 +2,7 @@
 
 import { useDistricts, useStates, useUlbs, useWards } from "@/hooks/use-api"
 import type { QcCommandCenterFilters } from "@/lib/api/types"
+import { formatWardOptionLabel } from "@/lib/format-ward-label"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { Calendar } from "@workspace/ui/components/calendar"
@@ -246,7 +247,7 @@ export function QcFilterPanel({
                 <SelectItem value="all">All wards</SelectItem>
                 {wardItems.map((w) => (
                   <SelectItem key={w.id} value={w.id}>
-                    {w.wardName || `Ward ${w.wardNumber}`}
+                    {formatWardOptionLabel(w)}
                   </SelectItem>
                 ))}
               </SelectContent>

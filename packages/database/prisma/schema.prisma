@@ -699,6 +699,7 @@ model Survey {
   @@index([wardId, surveyStatus])
   @@index([ulbId, qcStatus])
   @@index([wardId, qcStatus])
+  @@index([wardId, parcelNumber])
   @@index([createdById, createdAt])
   @@index([assignedToId, surveyStatus])
   @@index([surveyStatus, createdAt])

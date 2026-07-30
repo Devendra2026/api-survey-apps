@@ -431,6 +431,17 @@ export interface QcRegistryFilters {
   sortOrder?: "asc" | "desc"
 }
 
+export interface QcQueueParcel {
+  id: string
+  parcelNumber: string | null
+}
+
+export interface QcQueueNeighbors {
+  prevId: string | null
+  nextId: string | null
+  parcelNumber: string | null
+}
+
 export type SurveyRegistryTab = "all" | "draft" | "submitted" | "qcPending" | "qcApproved" | "rejected"
 
 export interface SurveyRegistryRecord {

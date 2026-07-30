@@ -4,6 +4,7 @@ import { PERMISSIONS } from "../common/constants/permissions.js"
 import { CurrentUser } from "../common/decorators/current-user.decorator.js"
 import { RequirePermission } from "../common/decorators/require-permission.decorator.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
+import { QcQueueFirstQueryDto, QcQueueNeighborsQueryDto } from "./dto/qc-queue.dto.js"
 import { QcRegistryQueryDto } from "./dto/qc-registry.dto.js"
 import { QcService } from "./qc.service.js"
 
@@ -18,5 +19,19 @@ export class QcRegistryController {
   @ApiOperation({ summary: "QC Review Registry list with pipeline tab counts" })
   listRegistry(@Query() query: QcRegistryQueryDto, @CurrentUser() user: AuthenticatedUser) {
     return this.qcService.listRegistry(query, user)
+  }
+
+  @Get("queue/first")
+  @RequirePermission(PERMISSIONS.SURVEY_APPROVE)
+  @ApiOperation({ summary: "First pending QC parcel in a ward (parcelNumber ASC)" })
+  findQueueFirst(@Query() query: QcQueueFirstQueryDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.qcService.findQueueFirst(query.wardId, user)
+  }
+
+  @Get("queue/neighbors")
+  @RequirePermission(PERMISSIONS.SURVEY_APPROVE)
+  @ApiOperation({ summary: "Previous/next pending QC parcels in active ward" })
+  findQueueNeighbors(@Query() query: QcQueueNeighborsQueryDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.qcService.findQueueNeighbors(query.wardId, query.surveyId, user)
   }
 }

@@ -1,6 +1,7 @@
 "use client"
 
 import { useDistricts, useStates, useUlbs, useWards } from "@/hooks/use-api"
+import { formatWardOptionLabel } from "@/lib/format-ward-label"
 import { Button } from "@workspace/ui/components/button"
 import { Card, CardContent } from "@workspace/ui/components/card"
 import {
@@ -207,7 +208,7 @@ export function QcRegistryHeader({
                   <SelectItem value="all">All wards</SelectItem>
                   {(wards?.items ?? []).map((w) => (
                     <SelectItem key={w.id} value={w.id}>
-                      {w.wardName || `Ward ${w.wardNumber}`}
+                      {formatWardOptionLabel(w)}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -1,6 +1,7 @@
 "use client"
 
 import { useDistricts, useStates, useUlbs, useWards } from "@/hooks/use-api"
+import { formatWardOptionLabel } from "@/lib/format-ward-label"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
@@ -236,7 +237,7 @@ export function ReportScopeFiltersPanel({
               <SelectItem value={ALL}>All wards</SelectItem>
               {wardItems.map((w) => (
                 <SelectItem key={w.id} value={w.id}>
-                  {w.wardName || `Ward ${w.wardNumber}`}
+                  {formatWardOptionLabel(w)}
                 </SelectItem>
               ))}
             </SelectContent>

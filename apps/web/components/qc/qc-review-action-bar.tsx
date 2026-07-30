@@ -6,11 +6,16 @@ import {
   statusBadgeClass,
   SurveyViewField,
 } from "@/components/surveys/survey-view-field"
+import { useWards } from "@/hooks/use-api"
 import type { QcSurveyDetail } from "@/lib/api/types"
+import { formatParcelDisplay } from "@/lib/format-parcel"
+import { formatWardOptionLabel } from "@/lib/format-ward-label"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
+import { Label } from "@workspace/ui/components/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
 import { cn } from "@workspace/ui/lib/utils"
-import { ArrowLeft, Check, Pencil, RotateCcw, Save, Trash2, X } from "lucide-react"
+import { ArrowLeft, Check, ChevronLeft, ChevronRight, Pencil, RotateCcw, Save, Trash2, X } from "lucide-react"
 import Link from "next/link"
 
 export function QcReviewActionBar({
@@ -18,6 +23,13 @@ export function QcReviewActionBar({
   editMode,
   pending,
   canDelete,
+  activeWardId,
+  activeUlbId,
+  prevId,
+  nextId,
+  onActiveWardChange,
+  onPrev,
+  onNext,
   onReopen,
   onApprove,
   onDelete,
@@ -29,6 +41,13 @@ export function QcReviewActionBar({
   editMode: boolean
   pending?: boolean
   canDelete: boolean
+  activeWardId: string | null
+  activeUlbId: string | null
+  prevId: string | null
+  nextId: string | null
+  onActiveWardChange: (wardId: string) => void
+  onPrev: () => void
+  onNext: () => void
   onReopen: () => void
   onApprove: () => void
   onDelete: () => void
@@ -41,6 +60,9 @@ export function QcReviewActionBar({
   const isRejected = survey.surveyStatus === "REJECTED" || survey.qcStatus === "REJECTED"
   const canEdit = isPendingQc && !editMode
   const locked = isApproved && !editMode
+
+  const ulbId = activeUlbId || survey.editable.ulbId
+  const { data: wards, isLoading: wardsLoading } = useWards(ulbId || undefined)
 
   return (
     <div className="mb-4 space-y-3">
@@ -64,6 +86,27 @@ export function QcReviewActionBar({
           </Button>
 
           <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="cursor-pointer"
+              disabled={pending || !prevId}
+              onClick={onPrev}
+            >
+              <ChevronLeft className="size-3.5" />
+              Previous
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="cursor-pointer"
+              disabled={pending || !nextId}
+              onClick={onNext}
+            >
+              Next
+              <ChevronRight className="size-3.5" />
+            </Button>
+
             {(isApproved || isRejected) && (
               <Button
                 size="sm"
@@ -130,6 +173,30 @@ export function QcReviewActionBar({
           </div>
         </div>
 
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div className="space-y-1.5 sm:max-w-md sm:min-w-64">
+            <Label htmlFor="qc-active-ward" className="text-xs font-medium text-muted-foreground">
+              Active Ward
+            </Label>
+            <Select
+              value={activeWardId || survey.editable.wardId || undefined}
+              onValueChange={onActiveWardChange}
+              disabled={pending || wardsLoading || !ulbId}
+            >
+              <SelectTrigger id="qc-active-ward" className="cursor-pointer bg-white/60 dark:bg-white/5">
+                <SelectValue placeholder={wardsLoading ? "Loading wards…" : "Select active ward"} />
+              </SelectTrigger>
+              <SelectContent>
+                {(wards?.items ?? []).map((w) => (
+                  <SelectItem key={w.id} value={w.id} className="cursor-pointer">
+                    {formatWardOptionLabel(w)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <Badge className="rounded-full border border-teal-400/30 bg-teal-600 px-3 py-1 text-[10px] font-semibold tracking-[0.14em] text-white uppercase">
             QC Review
@@ -163,7 +230,14 @@ export function QcReviewActionBar({
             <SurveyViewField label="Ward No" value={survey.wardNo} />
           </div>
           <div className={cn(glassInsetClass, "p-3")}>
-            <SurveyViewField label="Parcel No" value={survey.parcelNo} />
+            <SurveyViewField
+              label="Parcel No"
+              value={
+                <span className="font-mono text-xs">
+                  {formatParcelDisplay(survey.editable.parcelNumber ?? survey.parcelNo)}
+                </span>
+              }
+            />
           </div>
           <div className={cn(glassInsetClass, "col-span-2 p-3 xl:col-span-1")}>
             <SurveyViewField label="Owner Name" value={survey.ownerName} />

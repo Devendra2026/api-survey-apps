@@ -2,6 +2,7 @@
 
 import { useDistricts, useStates, useUlbs, useWards } from "@/hooks/use-api"
 import type { CommandCenterFilters } from "@/lib/api/types"
+import { formatWardOptionLabel } from "@/lib/format-ward-label"
 import { Button } from "@workspace/ui/components/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card"
 import { Input } from "@workspace/ui/components/input"
@@ -263,7 +264,7 @@ export function CommandCenterFiltersPanel({
                 <SelectItem value="all">All wards</SelectItem>
                 {wardItems.map((w) => (
                   <SelectItem key={w.id} value={w.id}>
-                    {w.wardName || `Ward ${w.wardNumber}`}
+                    {formatWardOptionLabel(w)}
                   </SelectItem>
                 ))}
               </SelectContent>

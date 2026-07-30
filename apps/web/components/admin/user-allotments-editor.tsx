@@ -3,6 +3,7 @@
 import { FormField } from "@/components/forms/form-field"
 import { useDistricts, useStates, useUlbs, useWards } from "@/hooks/use-api"
 import type { GeoWard } from "@/lib/api/types"
+import { formatWardOptionLabel } from "@/lib/format-ward-label"
 import { Button } from "@workspace/ui/components/button"
 import { Checkbox } from "@workspace/ui/components/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
@@ -54,7 +55,7 @@ export function toAllotmentPayload(rows: AllotmentDraft[]) {
 }
 
 function wardLabel(ward: Pick<GeoWard, "wardNumber" | "wardName">) {
-  return ward.wardName ? `Ward ${ward.wardNumber} · ${ward.wardName}` : `Ward ${ward.wardNumber}`
+  return formatWardOptionLabel(ward)
 }
 
 function rowsToGroups(rows: AllotmentDraft[]): CityGroup[] {

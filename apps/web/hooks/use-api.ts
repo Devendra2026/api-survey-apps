@@ -35,6 +35,8 @@ import type {
   PaginatedResult,
   QcCommandCenterFilters,
   QcMetrics,
+  QcQueueNeighbors,
+  QcQueueParcel,
   QcRegistryFilters,
   QcRegistryResponse,
   QcSurveyActionPayload,
@@ -251,6 +253,37 @@ export function useQcRegistry(filters: QcRegistryFilters, enabled = true) {
     queryKey: ["qc", "registry", filters],
     queryFn: () => apiGet<QcRegistryResponse>(`/qc/registry${toQcRegistryQuery(filters)}`),
     enabled: isLoaded && Boolean(isSignedIn) && canApprove && enabled,
+  })
+}
+
+export function useQcQueueFirst(wardId: string | null | undefined, enabled = true) {
+  const { isLoaded, isSignedIn } = useAuth()
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canApprove = hasPermission("survey:approve")
+
+  return useQuery({
+    queryKey: ["qc", "queue", "first", wardId],
+    queryFn: () => apiGet<QcQueueParcel | null>(`/qc/queue/first?wardId=${encodeURIComponent(wardId!)}`),
+    enabled: isLoaded && Boolean(isSignedIn) && canApprove && Boolean(wardId) && enabled,
+  })
+}
+
+export function useQcQueueNeighbors(
+  wardId: string | null | undefined,
+  surveyId: string | null | undefined,
+  enabled = true
+) {
+  const { isLoaded, isSignedIn } = useAuth()
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canApprove = hasPermission("survey:approve")
+
+  return useQuery({
+    queryKey: ["qc", "queue", "neighbors", wardId, surveyId],
+    queryFn: () =>
+      apiGet<QcQueueNeighbors>(
+        `/qc/queue/neighbors?wardId=${encodeURIComponent(wardId!)}&surveyId=${encodeURIComponent(surveyId!)}`
+      ),
+    enabled: isLoaded && Boolean(isSignedIn) && canApprove && Boolean(wardId) && Boolean(surveyId) && enabled,
   })
 }
 

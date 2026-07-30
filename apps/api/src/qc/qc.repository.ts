@@ -187,12 +187,14 @@ export class QcRepository {
       AND: [base, this.registryTabWhere(query.status)],
     }
 
-    const orderBy: Prisma.SurveyOrderByWithRelationInput =
+    const orderBy: Prisma.SurveyOrderByWithRelationInput[] =
       query.sortBy === "propertyId"
-        ? { propertyId: query.sortOrder === "asc" ? "asc" : "desc" }
+        ? [{ propertyId: query.sortOrder === "asc" ? "asc" : "desc" }]
         : query.sortBy === "surveyStatus"
-          ? { surveyStatus: query.sortOrder === "asc" ? "asc" : "desc" }
-          : { createdAt: query.sortOrder === "asc" ? "asc" : "desc" }
+          ? [{ surveyStatus: query.sortOrder === "asc" ? "asc" : "desc" }]
+          : query.sortBy === "parcelNumber"
+            ? [{ parcelNumber: { sort: query.sortOrder === "desc" ? "desc" : "asc", nulls: "last" } }, { id: "asc" }]
+            : [{ createdAt: query.sortOrder === "asc" ? "asc" : "desc" }]
 
     const [rows, total, counts, scope] = await Promise.all([
       this.prisma.db.survey.findMany({
@@ -233,6 +235,74 @@ export class QcRepository {
       ...toPaginatedResult(items, total, page, limit),
       counts,
       scope,
+    }
+  }
+
+  private pendingQueueWhere(user: AuthenticatedUser, wardId: string): Prisma.SurveyWhereInput {
+    const scope = resolveTenantScope(user.tenantRoles)
+    const tenantWhere = buildTenantWhere(scope)
+    return {
+      deletedAt: null,
+      wardId,
+      surveyStatus: "SUBMITTED",
+      qcStatus: "PENDING",
+      ...(tenantWhere ?? {}),
+    }
+  }
+
+  async findQueueFirst(user: AuthenticatedUser, wardId: string) {
+    const row = await this.prisma.db.survey.findFirst({
+      where: this.pendingQueueWhere(user, wardId),
+      select: { id: true, parcelNumber: true },
+      orderBy: [{ parcelNumber: { sort: "asc", nulls: "last" } }, { id: "asc" }],
+    })
+    return row
+  }
+
+  async findQueueNeighbors(user: AuthenticatedUser, wardId: string, surveyId: string) {
+    const scope = resolveTenantScope(user.tenantRoles)
+    const tenantWhere = buildTenantWhere(scope)
+
+    const current = await this.prisma.db.survey.findFirst({
+      where: { id: surveyId, deletedAt: null, ...(tenantWhere ?? {}) },
+      select: { id: true, parcelNumber: true, wardId: true },
+    })
+    if (!current) {
+      throw new NotFoundException(`Survey ${surveyId} not found`)
+    }
+    if (current.wardId !== wardId) {
+      throw new BadRequestException("Survey does not belong to the active ward")
+    }
+
+    const queue = await this.prisma.db.survey.findMany({
+      where: this.pendingQueueWhere(user, wardId),
+      select: { id: true, parcelNumber: true },
+      orderBy: [{ parcelNumber: { sort: "asc", nulls: "last" } }, { id: "asc" }],
+    })
+
+    const inQueueIdx = queue.findIndex((row) => row.id === surveyId)
+    if (inQueueIdx >= 0) {
+      return {
+        prevId: queue[inQueueIdx - 1]?.id ?? null,
+        nextId: queue[inQueueIdx + 1]?.id ?? null,
+        parcelNumber: current.parcelNumber,
+      }
+    }
+
+    // Current is no longer pending (e.g. just approved) — locate by sort key.
+    const compareKey = (parcelNumber: string | null, id: string) => {
+      const a = parcelNumber ?? "\uffff"
+      return `${a}\0${id}`
+    }
+    const currentKey = compareKey(current.parcelNumber, current.id)
+    let nextIdx = queue.findIndex((row) => compareKey(row.parcelNumber, row.id) > currentKey)
+    if (nextIdx < 0) nextIdx = queue.length
+    const prevIdx = nextIdx - 1
+
+    return {
+      prevId: prevIdx >= 0 ? (queue[prevIdx]?.id ?? null) : null,
+      nextId: nextIdx < queue.length ? (queue[nextIdx]?.id ?? null) : null,
+      parcelNumber: current.parcelNumber,
     }
   }
 

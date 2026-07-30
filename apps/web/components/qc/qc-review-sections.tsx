@@ -12,6 +12,7 @@ import {
 } from "@/components/surveys/survey-view-field"
 import { useDistricts, useStates, useUlbs, useUsers, useWards } from "@/hooks/use-api"
 import type { QcSurveyDetail, QcSurveyEditable, SurveyAuditHistoryItem, SurveyOwnerRow } from "@/lib/api/types"
+import { formatWardOptionLabel } from "@/lib/format-ward-label"
 import { useAuthStore } from "@/stores/app-store"
 import type { ColumnDef } from "@tanstack/react-table"
 import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table"
@@ -331,7 +332,7 @@ export function QcReviewSections({
               <SelectContent>
                 {wardItems.map((w) => (
                   <SelectItem key={w.id} value={w.id}>
-                    {w.wardNumber} — {w.wardName}
+                    {formatWardOptionLabel(w)}
                   </SelectItem>
                 ))}
               </SelectContent>

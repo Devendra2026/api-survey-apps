@@ -25,10 +25,10 @@ const userWithRoles = (tenantRoles: TenantRoleAssignment[]): AuthenticatedUser =
     id: "u1",
     permissions: [],
     tenantRoles,
-  }) as AuthenticatedUser
+  }) as unknown as AuthenticatedUser
 
 describe("WardCatalogService.listScopedWards", () => {
-  let findMany: jest.Mock<() => Promise<typeof catalog>>
+  let findMany: jest.Mock<(args: unknown) => Promise<typeof catalog>>
   let findUnique: jest.Mock<() => Promise<unknown>>
   let service: WardCatalogService
 
@@ -43,7 +43,7 @@ describe("WardCatalogService.listScopedWards", () => {
     expect(findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { ulbId: "ulb-1", status: "ACTIVE", deletedAt: null },
-      }) as never
+      })
     )
   })
 

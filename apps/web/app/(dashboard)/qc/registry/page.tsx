@@ -5,18 +5,21 @@ import { QcRegistryTable } from "@/components/qc/qc-registry-table"
 import { EmptyState } from "@/components/shared/page-elements"
 import { useDistricts, useQcRegistry, useUlbs, useWards } from "@/hooks/use-api"
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
+import { useHydrateGeoScopeFromSearchParams } from "@/hooks/use-hydrate-geo-scope"
 import type { QcRegistryTab } from "@/lib/api/types"
 import { formatWardOptionLabel } from "@/lib/format-ward-label"
+import { isQcRegistryTab } from "@/lib/ward-action-links"
 import { useAuthStore } from "@/stores/app-store"
 import { useQcWorkingContext } from "@/stores/qc-working-context"
 import { Skeleton } from "@workspace/ui/components/skeleton"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 
-export default function QcReviewRegistryPage() {
+function QcReviewRegistryPageInner() {
   const hasPermission = useAuthStore((s) => s.hasPermission)
   const canApprove = hasPermission("survey:approve")
   const activeWardId = useQcWorkingContext((s) => s.activeWardId)
   const activeUlbId = useQcWorkingContext((s) => s.activeUlbId)
+  const setActiveWard = useQcWorkingContext((s) => s.setActiveWard)
 
   const [scope, setScope] = useState<QcRegistryScopeState>(emptyQcScope)
   const [page, setPage] = useState(1)
@@ -24,6 +27,27 @@ export default function QcReviewRegistryPage() {
   const [search, setSearch] = useState("")
   const [tab, setTab] = useState<QcRegistryTab>("pendingApproved")
   const debouncedSearch = useDebouncedValue(search, 400)
+
+  useHydrateGeoScopeFromSearchParams(
+    useCallback(
+      (hydrated) => {
+        setScope((prev) => ({
+          stateId: hydrated.stateId ?? prev.stateId,
+          districtId: hydrated.districtId ?? prev.districtId,
+          ulbId: hydrated.ulbId ?? prev.ulbId,
+          wardId: hydrated.wardId ?? prev.wardId,
+        }))
+        if (hydrated.status && isQcRegistryTab(hydrated.status)) {
+          setTab(hydrated.status)
+        }
+        if (hydrated.wardId && hydrated.ulbId) {
+          setActiveWard({ wardId: hydrated.wardId, ulbId: hydrated.ulbId })
+        }
+        setPage(1)
+      },
+      [setActiveWard]
+    )
+  )
 
   // Soft-default ward filter from QC working context (not a hard lock).
   useEffect(() => {
@@ -117,5 +141,20 @@ export default function QcReviewRegistryPage() {
         />
       )}
     </div>
+  )
+}
+
+export default function QcReviewRegistryPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
+          <Skeleton className="h-24 w-full rounded-xl" />
+          <Skeleton className="h-72 w-full rounded-xl" />
+        </div>
+      }
+    >
+      <QcReviewRegistryPageInner />
+    </Suspense>
   )
 }

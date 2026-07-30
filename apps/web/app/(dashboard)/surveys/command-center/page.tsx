@@ -83,6 +83,7 @@ export default function CommandCenterPage() {
         wards={wardsQuery.data ?? []}
         isLoading={Boolean(filters.ulbId) && wardsQuery.isLoading}
         hasUlbSelected={Boolean(filters.ulbId)}
+        ulbId={filters.ulbId}
       />
     </div>
   )

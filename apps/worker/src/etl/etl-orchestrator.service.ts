@@ -386,7 +386,7 @@ export class EtlOrchestratorService {
     }
 
     const wards = await this.prisma.db.ward.findMany({
-      where: { ulbId: ulb.id },
+      where: { ulbId: ulb.id, deletedAt: null },
       select: { id: true, wardNumber: true },
     })
     const wantNum = Number.parseInt(wardNo, 10)
@@ -402,7 +402,7 @@ export class EtlOrchestratorService {
 
     for (const wardNumber of variants) {
       const already = await this.prisma.db.ward.findFirst({
-        where: { ulbId: ulb.id, wardNumber },
+        where: { ulbId: ulb.id, wardNumber, deletedAt: null },
         select: { id: true },
       })
       if (already) continue

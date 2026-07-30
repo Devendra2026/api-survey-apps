@@ -149,7 +149,10 @@ export interface GeoLookupDb {
     } | null>
   }
   ward: {
-    findFirst: (args: { where: { ulbId?: string; wardNumber: { in: string[] } }; include?: { ulb: true } }) => Promise<{
+    findFirst: (args: {
+      where: { ulbId?: string; wardNumber: { in: string[] }; deletedAt?: null }
+      include?: { ulb: true }
+    }) => Promise<{
       id: string
       wardNumber: string
       ulbId: string
@@ -219,12 +222,12 @@ export async function resolveImportGeo(
   }
 
   const ward = await db.ward.findFirst({
-    where: { ulbId: ulb.id, wardNumber: { in: wardCandidates } },
+    where: { ulbId: ulb.id, wardNumber: { in: wardCandidates }, deletedAt: null },
   })
 
   if (!ward) {
     const elsewhere = await db.ward.findFirst({
-      where: { wardNumber: { in: wardCandidates } },
+      where: { wardNumber: { in: wardCandidates }, deletedAt: null },
       include: { ulb: true },
     })
     if (elsewhere?.ulb && elsewhere.ulbId !== ulb.id) {

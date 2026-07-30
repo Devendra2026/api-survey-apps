@@ -1,17 +1,28 @@
 import { Injectable } from "@nestjs/common"
 import type { Prisma, QcStatus, SurveyStatus } from "@workspace/database"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
+import { WardCatalogService } from "../common/services/ward-catalog.service.js"
+import {
+  addSurveyRowToBuckets,
+  emptyBucketTotals,
+  percentOf,
+  tallySurveyBuckets,
+  type SurveyBucketTotals,
+} from "../common/utils/survey-bucket.util.js"
 import { buildTenantWhere, resolveTenantScope } from "../common/utils/tenant-scope.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import type { CommandCenterFiltersDto } from "./dto/command-center-filters.dto.js"
 
 const SURVEY_STATUSES = new Set(["DRAFT", "IN_PROGRESS", "SUBMITTED", "APPROVED", "REJECTED", "REOPENED"])
 
-const QC_STATUSES = new Set(["PENDING", "APPROVED", "REJECTED", "RETURNED"])
+const QC_STATUSES = new Set(["PENDING", "APPROVED", "REJECTED"])
 
 @Injectable()
 export class CommandCenterRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly wardCatalog: WardCatalogService
+  ) {}
 
   private resolveFilters(filters: CommandCenterFiltersDto) {
     const districtId = filters.districtId || filters.district
@@ -74,15 +85,9 @@ export class CommandCenterRepository {
     const now = new Date()
     const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
 
-    const [totalProperties, byStatus, byQc, submittedToday, editedToday, returned] = await Promise.all([
-      this.prisma.db.survey.count({ where }),
+    const [statusMatrix, submittedToday, editedToday] = await Promise.all([
       this.prisma.db.survey.groupBy({
-        by: ["surveyStatus"],
-        where,
-        _count: { _all: true },
-      }),
-      this.prisma.db.survey.groupBy({
-        by: ["qcStatus"],
+        by: ["surveyStatus", "qcStatus"],
         where,
         _count: { _all: true },
       }),
@@ -92,36 +97,31 @@ export class CommandCenterRepository {
       this.prisma.db.survey.count({
         where: {
           ...where,
-          surveyStatus: "DRAFT",
+          surveyStatus: { in: ["DRAFT", "IN_PROGRESS", "REOPENED"] },
           updatedAt: { gte: startOfToday },
         },
       }),
-      this.prisma.db.survey.count({
-        where: { ...where, surveyStatus: "REJECTED" },
-      }),
     ])
 
-    const statusMap = Object.fromEntries(byStatus.map((r) => [r.surveyStatus, r._count._all]))
-    const qcMap = Object.fromEntries(byQc.map((r) => [r.qcStatus, r._count._all]))
+    const buckets = tallySurveyBuckets(statusMatrix)
 
-    const draftSurveys = statusMap.DRAFT ?? 0
-    const submittedSurveys = statusMap.SUBMITTED ?? 0
-    const qcApproved = (statusMap.APPROVED ?? 0) || (qcMap.APPROVED ?? 0)
-    const awaitingQc = submittedSurveys
-    const avgFieldCompletionPct =
-      totalProperties > 0 ? Math.round(((qcApproved + submittedSurveys) / totalProperties) * 100) : 0
+    // Cards partition the total: drafts (incl. rework) + submitted + approved + returned.
+    const draftSurveys = buckets.fieldDraft + buckets.rework
+    const submittedSurveys = buckets.pendingQc
+    const qcApproved = buckets.approved
+    const fieldCompleted = buckets.pendingQc + buckets.approved
 
     return {
-      totalProperties,
+      totalProperties: buckets.total,
       draftSurveys,
       submittedSurveys,
       qcApproved,
       approvedCompleted: qcApproved,
-      avgFieldCompletionPct,
+      avgFieldCompletionPct: percentOf(fieldCompleted, buckets.total),
       submittedToday,
       editedToday,
-      awaitingQc,
-      returned,
+      awaitingQc: submittedSurveys,
+      returned: buckets.returned,
     }
   }
 
@@ -130,42 +130,7 @@ export class CommandCenterRepository {
     // Require municipality (ULB) for populated ward grid — empty state otherwise
     if (!f.ulbId) return []
 
-    const scope = resolveTenantScope(user.tenantRoles)
-    const catalog = await this.prisma.db.ward.findMany({
-      where: { ulbId: f.ulbId, status: "ACTIVE" },
-      select: { id: true, wardName: true, wardNumber: true, ulbId: true },
-      orderBy: { wardNumber: "asc" },
-    })
-
-    if (catalog.length === 0) return []
-
-    const ulb = await this.prisma.db.ulb.findUnique({
-      where: { id: f.ulbId },
-      select: { id: true, districtId: true, district: { select: { stateId: true } } },
-    })
-    if (!ulb) return []
-
-    // Scope filter: ward-scoped users see only their wards in this ULB;
-    // broader scopes see all ACTIVE wards they can access under the ULB.
-    let wards = catalog
-    if (!scope.isGlobal) {
-      const catalogIds = new Set(catalog.map((w) => w.id))
-      if (scope.wardIds.length) {
-        wards = catalog.filter((w) => scope.wardIds.includes(w.id))
-      } else {
-        const canSeeUlb =
-          scope.ulbIds.includes(f.ulbId) ||
-          scope.districtIds.includes(ulb.districtId) ||
-          scope.stateIds.includes(ulb.district.stateId)
-        if (!canSeeUlb) return []
-      }
-      // If ward-scoped but none of their wards are in this ULB, empty
-      if (scope.wardIds.length && wards.length === 0) {
-        const anyInCatalog = scope.wardIds.some((id) => catalogIds.has(id))
-        if (!anyInCatalog) return []
-      }
-    }
-
+    const wards = await this.wardCatalog.listScopedWards(user, f.ulbId)
     if (wards.length === 0) return []
 
     const where = this.buildWhere(user, filters)
@@ -173,7 +138,7 @@ export class CommandCenterRepository {
 
     const [statusRows, surveyorRows] = await Promise.all([
       this.prisma.db.survey.groupBy({
-        by: ["wardId", "surveyStatus"],
+        by: ["wardId", "surveyStatus", "qcStatus"],
         where: { ...where, wardId: { in: wardIdList } },
         _count: { _all: true },
       }),
@@ -184,49 +149,37 @@ export class CommandCenterRepository {
       }),
     ])
 
-    const byWard = new Map<
-      string,
-      { totalProperties: number; draft: number; submitted: number; qcApproved: number; surveyorIds: Set<string> }
-    >()
-
+    const bucketsByWard = new Map<string, SurveyBucketTotals>()
+    const surveyorsByWard = new Map<string, Set<string>>()
     for (const ward of wards) {
-      byWard.set(ward.id, {
-        totalProperties: 0,
-        draft: 0,
-        submitted: 0,
-        qcApproved: 0,
-        surveyorIds: new Set<string>(),
-      })
+      bucketsByWard.set(ward.id, emptyBucketTotals())
+      surveyorsByWard.set(ward.id, new Set<string>())
     }
 
     for (const row of statusRows) {
-      const current = byWard.get(row.wardId)
+      const current = bucketsByWard.get(row.wardId)
       if (!current) continue
-      current.totalProperties += row._count._all
-      if (row.surveyStatus === "DRAFT") current.draft += row._count._all
-      if (row.surveyStatus === "SUBMITTED") current.submitted += row._count._all
-      if (row.surveyStatus === "APPROVED") current.qcApproved += row._count._all
+      addSurveyRowToBuckets(current, row)
     }
 
     for (const row of surveyorRows) {
-      const current = byWard.get(row.wardId)
-      if (!current) continue
-      current.surveyorIds.add(row.createdById)
+      surveyorsByWard.get(row.wardId)?.add(row.createdById)
     }
 
     return wards.map((ward) => {
-      const stats = byWard.get(ward.id)!
+      const buckets = bucketsByWard.get(ward.id) ?? emptyBucketTotals()
       const label = ward.wardName?.trim()
       return {
         wardId: ward.id,
         wardName: label || `Ward ${ward.wardNumber}`,
         wardNumber: ward.wardNumber,
-        totalProperties: stats.totalProperties,
-        draft: stats.draft,
-        submitted: stats.submitted,
-        qcApproved: stats.qcApproved,
-        completed: stats.qcApproved,
-        activeSurveyors: stats.surveyorIds.size,
+        totalProperties: buckets.total,
+        draft: buckets.fieldDraft + buckets.rework,
+        submitted: buckets.pendingQc,
+        qcApproved: buckets.approved,
+        completed: buckets.approved,
+        returned: buckets.returned,
+        activeSurveyors: surveyorsByWard.get(ward.id)?.size ?? 0,
       }
     })
   }

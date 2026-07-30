@@ -85,9 +85,12 @@ export function QcFilterPanel({
     }
   }, [stateId, stateItems, onStateChange])
 
+  // Preferred names are a convenience only — always fall back to the first option so a
+  // ULB is selected and the ward grid has something to render.
   useEffect(() => {
     if (defaultsApplied.current.district || filters.districtId || !districtItems.length) return
-    const match = districtItems.find((d) => d.name.toLowerCase().includes(DEFAULT_DISTRICT_NAME.toLowerCase()))
+    const match =
+      districtItems.find((d) => d.name.toLowerCase().includes(DEFAULT_DISTRICT_NAME.toLowerCase())) ?? districtItems[0]
     if (match) {
       defaultsApplied.current.district = true
       onChange({ ...filters, districtId: match.id, ulbId: undefined, wardId: undefined })
@@ -98,7 +101,8 @@ export function QcFilterPanel({
     if (defaultsApplied.current.ulb || !filters.districtId || filters.ulbId || !ulbItems.length) return
     const match =
       ulbItems.find((u) => u.name.toLowerCase().includes(DEFAULT_ULB_HINT)) ??
-      ulbItems.find((u) => u.name.toLowerCase().includes("municipal"))
+      ulbItems.find((u) => u.name.toLowerCase().includes("municipal")) ??
+      ulbItems[0]
     if (match) {
       defaultsApplied.current.ulb = true
       onChange({ ...filters, ulbId: match.id, wardId: undefined })

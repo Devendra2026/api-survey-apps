@@ -322,11 +322,15 @@ export interface CommandCenterWard {
   wardName: string
   wardNumber: string
   totalProperties: number
+  /** Field drafts, including surveys reopened for rework */
   draft: number
+  /** Submitted and awaiting QC verification */
   submitted: number
   qcApproved: number
   /** Alias for completed/approved metric */
   completed?: number
+  /** Returned by QC, not yet reopened */
+  returned?: number
   activeSurveyors: number
 }
 
@@ -375,6 +379,11 @@ export interface QcWard {
   fieldDrafts: number
   qcPending: number
   qcApproved: number
+  /** Returned by QC, awaiting surveyor rework */
+  qcReturned?: number
+  /** Reopened by the surveyor and back in the field */
+  fieldRework?: number
+  /** Alias of qcPending — drives the "Start QC" queue count */
   pending: number
 }
 

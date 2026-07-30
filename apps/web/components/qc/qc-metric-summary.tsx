@@ -25,7 +25,8 @@ const cards: Array<{
     icon: Clock3,
     iconTone: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
     value: (m) => formatNum(m.pendingQc),
-    subtext: (m) => `${formatNum(m.pendingQcRemaining)} remaining · ${formatNum(m.submittedTotal)} submitted total`,
+    subtext: (m) =>
+      `${formatNum(m.pendingQcRemaining)} not yet approved · ${formatNum(m.submittedTotal)} submitted total`,
   },
   {
     id: "approvedQc",

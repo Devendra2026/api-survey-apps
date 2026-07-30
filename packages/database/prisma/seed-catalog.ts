@@ -1,5 +1,5 @@
 import { PrismaClient, UlbType } from "../src/generated/prisma/client.js"
-import { seedPermissionsAndRoles, type RoleMap } from "../src/rbac-catalog.js"
+import { seedPermissionsAndRoles } from "../src/rbac-catalog.js"
 import { seedReferenceCatalogs } from "./seed-reference-catalogs.js"
 
 // -----------------------------------------------------------------------------
@@ -54,39 +54,23 @@ async function seedGeography(db: PrismaClient): Promise<Geography> {
     },
   })
 
-  const ward1 = await db.ward.upsert({
-    where: {
-      ulbId_wardNumber: {
-        ulbId: ulb.id,
-        wardNumber: "1",
-      },
-    },
-    create: {
-      ulbId: ulb.id,
-      wardNumber: "1",
-      wardName: "Ward 1 - Etah",
-    },
-    update: {
-      wardName: "Ward 1 - Etah",
-    },
-  })
+  const upsertActiveWard = async (wardNumber: string, wardName: string) => {
+    const existing = await db.ward.findFirst({
+      where: { ulbId: ulb.id, wardNumber, deletedAt: null },
+    })
+    if (existing) {
+      return db.ward.update({
+        where: { id: existing.id },
+        data: { wardName },
+      })
+    }
+    return db.ward.create({
+      data: { ulbId: ulb.id, wardNumber, wardName },
+    })
+  }
 
-  const ward2 = await db.ward.upsert({
-    where: {
-      ulbId_wardNumber: {
-        ulbId: ulb.id,
-        wardNumber: "2",
-      },
-    },
-    create: {
-      ulbId: ulb.id,
-      wardNumber: "2",
-      wardName: "Ward 2 - Etah",
-    },
-    update: {
-      wardName: "Ward 2 - Etah",
-    },
-  })
+  const ward1 = await upsertActiveWard("1", "Ward 1 - Etah")
+  const ward2 = await upsertActiveWard("2", "Ward 2 - Etah")
 
   console.log("Seeded geography: Uttar Pradesh → Etah → Etah Municipal Corporation → wards 1, 2")
 

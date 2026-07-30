@@ -313,6 +313,8 @@ model Ulb {
 }
 
 /// Ward within a ULB.
+/// Soft-deleted via deletedAt. Active uniqueness of (ulbId, wardNumber) is enforced by a
+/// partial unique index in SQL (WHERE deletedAt IS NULL) — not expressible as @@unique in Prisma.
 model Ward {
   id         String          @id @default(cuid())
   ulbId      String
@@ -322,15 +324,16 @@ model Ward {
   updatedBy  String?
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
+  deletedAt  DateTime?
 
   ulb             Ulb              @relation(fields: [ulbId], references: [id], onDelete: Restrict)
   surveys         Survey[]
   userTenantRoles UserTenantRole[]
   taxConfigs      TaxConfig[]
 
-  @@unique([ulbId, wardNumber])
   @@index([ulbId])
   @@index([status])
+  @@index([deletedAt])
   @@map("wards")
 }
 

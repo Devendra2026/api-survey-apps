@@ -6,16 +6,17 @@ import { emptyScope, SurveyRegistryHeader, type RegistryScopeState } from "@/com
 import { SurveyRegistryTable } from "@/components/surveys/survey-registry-table"
 import { SurveyRegistryToolbar } from "@/components/surveys/survey-registry-toolbar"
 import { useDistricts, useRegistryData, useRegistryImportMutation, useUlbs, useWards } from "@/hooks/use-api"
+import { useHydrateGeoScopeFromSearchParams } from "@/hooks/use-hydrate-geo-scope"
 import { getApiErrorMessage } from "@/lib/api/client"
 import type { SurveyRegistryTab } from "@/lib/api/types"
 import { formatWardOptionLabel } from "@/lib/format-ward-label"
 import { exportRegistryToExcel, parseRegistryExcelFile } from "@/lib/survey-registry-xlsx"
 import { useAuthStore } from "@/stores/app-store"
 import { Skeleton } from "@workspace/ui/components/skeleton"
-import { useCallback, useMemo, useState } from "react"
+import { Suspense, useCallback, useMemo, useState } from "react"
 import { toast } from "sonner"
 
-export default function SurveysPage() {
+function SurveysPageInner() {
   const hasPermission = useAuthStore((s) => s.hasPermission)
   const canView = hasPermission("survey:view")
   const canImport = hasPermission("survey:create")
@@ -28,6 +29,18 @@ export default function SurveysPage() {
   const [search, setSearch] = useState("")
   const [tab, setTab] = useState<SurveyRegistryTab>("all")
   const [reassignOpen, setReassignOpen] = useState(false)
+
+  useHydrateGeoScopeFromSearchParams(
+    useCallback((hydrated) => {
+      setScope((prev) => ({
+        stateId: hydrated.stateId ?? prev.stateId,
+        districtId: hydrated.districtId ?? prev.districtId,
+        ulbId: hydrated.ulbId ?? prev.ulbId,
+        wardId: hydrated.wardId ?? prev.wardId,
+      }))
+      setPage(1)
+    }, [])
+  )
 
   const onScopeChange = useCallback((next: RegistryScopeState) => {
     setScope(next)
@@ -152,5 +165,20 @@ export default function SurveysPage() {
         wardId={scope.wardId || undefined}
       />
     </div>
+  )
+}
+
+export default function SurveysPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
+          <Skeleton className="h-24 w-full rounded-xl" />
+          <Skeleton className="h-72 w-full rounded-xl" />
+        </div>
+      }
+    >
+      <SurveysPageInner />
+    </Suspense>
   )
 }

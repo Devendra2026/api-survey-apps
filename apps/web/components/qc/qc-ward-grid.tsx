@@ -1,13 +1,12 @@
 "use client"
 
+import { WardCardActions } from "@/components/shared/ward-card-actions"
 import type { QcPipelineStage, QcWard } from "@/lib/api/types"
 import { Badge } from "@workspace/ui/components/badge"
-import { Button } from "@workspace/ui/components/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@workspace/ui/components/card"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { cn } from "@workspace/ui/lib/utils"
-import { CheckCircle2, FileEdit, FolderOpen, Home, Play, Send } from "lucide-react"
-import Link from "next/link"
+import { CheckCircle2, FileEdit, FolderOpen, Home, Send } from "lucide-react"
 import type { ReactNode } from "react"
 
 function formatNum(n: number) {
@@ -15,11 +14,22 @@ function formatNum(n: number) {
 }
 
 function matchesStage(ward: QcWard, stage: QcPipelineStage | null): boolean {
-  if (!stage) return true
-  if (stage === "pending" || stage === "inReview") return ward.qcPending > 0
-  if (stage === "approved") return ward.qcApproved > 0
-  if (stage === "returned") return ward.totalProperty > ward.fieldDrafts + ward.qcPending + ward.qcApproved
-  return true
+  switch (stage) {
+    case null:
+      return true
+    case "pending":
+      return ward.qcPending > 0
+    case "inReview":
+      return (ward.fieldRework ?? 0) > 0
+    case "approved":
+      return ward.qcApproved > 0
+    case "returned":
+      return (ward.qcReturned ?? 0) > 0
+    default: {
+      const exhaustive: never = stage
+      return exhaustive
+    }
+  }
 }
 
 function wardTitle(ward: QcWard) {
@@ -34,11 +44,13 @@ export function QcWardGrid({
   isLoading,
   hasUlbSelected,
   activeStage,
+  ulbId,
 }: {
   wards: QcWard[]
   isLoading?: boolean
   hasUlbSelected: boolean
   activeStage: QcPipelineStage | null
+  ulbId?: string
 }) {
   const filtered = wards.filter((w) => matchesStage(w, activeStage))
 
@@ -131,17 +143,7 @@ export function QcWardGrid({
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Button
-                    asChild
-                    className="h-9 w-full cursor-pointer bg-linear-to-r from-teal-600 to-cyan-600 text-white hover:from-teal-700 hover:to-cyan-700"
-                  >
-                    <Link href={`/qc/registry?wardId=${ward.wardId}`}>
-                      <Play className="size-3.5" />
-                      Start QC ({formatNum(ward.pending)} pending)
-                    </Link>
-                  </Button>
-                </div>
+                {ulbId ? <WardCardActions ids={{ wardId: ward.wardId, ulbId }} pendingCount={ward.pending} /> : null}
               </CardContent>
             </Card>
           ))}

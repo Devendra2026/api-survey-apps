@@ -15,6 +15,11 @@ function approvedValue(k: CommandCenterKpis) {
   return k.approvedCompleted ?? k.qcApproved
 }
 
+function approvedShare(k: CommandCenterKpis) {
+  if (k.totalProperties <= 0) return 0
+  return Math.round((approvedValue(k) / k.totalProperties) * 100)
+}
+
 const metrics: Array<{
   id: string
   label: string
@@ -45,7 +50,7 @@ const metrics: Array<{
     icon: Send,
     iconTone: "bg-indigo-500/10 text-indigo-500",
     value: (k) => k.submittedSurveys,
-    subtext: (k) => `${formatNum(k.awaitingQc)} awaiting verification`,
+    subtext: (k) => `awaiting QC · ${formatNum(k.returned)} returned for rework`,
   },
   {
     id: "approvedCompleted",
@@ -53,7 +58,7 @@ const metrics: Array<{
     icon: CheckCircle2,
     iconTone: "bg-emerald-500/10 text-emerald-500",
     value: approvedValue,
-    subtext: () => "Sync complete",
+    subtext: (k) => `${approvedShare(k)}% of all properties`,
   },
 ]
 

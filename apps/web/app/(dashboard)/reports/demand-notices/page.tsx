@@ -3,6 +3,7 @@
 import { DemandNoticeDocumentView } from "@/components/demand-notice/demand-notice-document"
 import { ReportScopeFiltersPanel, type ReportScopeState } from "@/components/reports/report-scope-filters"
 import { useReferenceEntries } from "@/features/configuration/hooks/use-configuration"
+import { useHydrateGeoScopeFromSearchParams } from "@/hooks/use-hydrate-geo-scope"
 import { apiGet, apiPost } from "@/lib/api/client"
 import type { DemandNoticeDocument, DemandNoticeRegisterRow } from "@/lib/demand-notice/types"
 import { formatInr } from "@/lib/demand-notice/types"
@@ -22,7 +23,7 @@ import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@workspace/ui/components/table"
 import { ArrowLeft, Eye, FileDown, Loader2, Printer, X } from "lucide-react"
 import Link from "next/link"
-import { useMemo, useState } from "react"
+import { Suspense, useCallback, useMemo, useState } from "react"
 import { toast } from "sonner"
 
 type ListResponse = {
@@ -32,12 +33,40 @@ type ListResponse = {
 }
 
 export default function DemandNoticesPanelPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-4">
+          <Skeleton className="h-24 w-full rounded-xl" />
+          <Skeleton className="h-72 w-full rounded-xl" />
+        </div>
+      }
+    >
+      <DemandNoticesPanelPageInner />
+    </Suspense>
+  )
+}
+
+function DemandNoticesPanelPageInner() {
   const hasExport = useAuthStore((s) => s.hasPermission("report:export"))
   const [scope, setScope] = useState<ReportScopeState>({})
   const [assessmentYearId, setAssessmentYearId] = useState<string>("")
   const [page, setPage] = useState(1)
   const [previewId, setPreviewId] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
+
+  useHydrateGeoScopeFromSearchParams(
+    useCallback((hydrated) => {
+      setScope((prev) => ({
+        ...prev,
+        stateId: hydrated.stateId ?? prev.stateId,
+        districtId: hydrated.districtId ?? prev.districtId,
+        ulbId: hydrated.ulbId ?? prev.ulbId,
+        wardId: hydrated.wardId ?? prev.wardId,
+      }))
+      setPage(1)
+    }, [])
+  )
 
   const { data: years } = useReferenceEntries("ASSESSMENT_YEAR", { limit: 50 })
   const yearItems = years?.items ?? []

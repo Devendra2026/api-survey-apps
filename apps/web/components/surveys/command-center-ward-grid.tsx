@@ -1,5 +1,6 @@
 "use client"
 
+import { WardCardActions } from "@/components/shared/ward-card-actions"
 import type { CommandCenterWard } from "@/lib/api/types"
 import { Badge } from "@workspace/ui/components/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@workspace/ui/components/card"
@@ -19,10 +20,12 @@ export function CommandCenterWardGrid({
   wards,
   isLoading,
   hasUlbSelected,
+  ulbId,
 }: {
   wards: CommandCenterWard[]
   isLoading?: boolean
   hasUlbSelected: boolean
+  ulbId?: string
 }) {
   return (
     <section className="space-y-4">
@@ -48,6 +51,7 @@ export function CommandCenterWardGrid({
                 <Skeleton className="h-4 w-full" />
                 <Skeleton className="h-4 w-full" />
                 <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-9 w-full rounded-lg" />
               </CardContent>
             </Card>
           ))}
@@ -125,6 +129,12 @@ export function CommandCenterWardGrid({
                     {formatNum(completedValue(ward))}
                   </Badge>
                 </div>
+
+                {ulbId ? (
+                  <div className="pt-1">
+                    <WardCardActions ids={{ wardId: ward.wardId, ulbId }} pendingCount={ward.submitted} />
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
           ))}

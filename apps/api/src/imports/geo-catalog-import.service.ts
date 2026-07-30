@@ -192,17 +192,24 @@ export class GeoCatalogImportService {
           ulbsUpserted += 1
         }
 
-        await this.prisma.db.ward.upsert({
-          where: {
-            ulbId_wardNumber: { ulbId, wardNumber },
-          },
-          create: {
-            ulbId,
-            wardNumber,
-            wardName: wardName!,
-          },
-          update: { wardName: wardName! },
+        const activeWard = await this.prisma.db.ward.findFirst({
+          where: { ulbId, wardNumber, deletedAt: null },
+          select: { id: true },
         })
+        if (activeWard) {
+          await this.prisma.db.ward.update({
+            where: { id: activeWard.id },
+            data: { wardName: wardName! },
+          })
+        } else {
+          await this.prisma.db.ward.create({
+            data: {
+              ulbId,
+              wardNumber,
+              wardName: wardName!,
+            },
+          })
+        }
         wardsUpserted += 1
       } catch (err) {
         errors.push({

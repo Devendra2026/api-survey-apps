@@ -28,6 +28,20 @@ import { toast } from "sonner"
 
 type DrawerKind = "state" | "district" | "ulb" | "ward" | null
 
+const WARD_NAME_CONFLICT = "A ward with this name already exists. Please use a different name."
+
+function collectSiblingWardNames(tree: GeographyTreeNode[], ulbId: string, excludeWardId?: string): string[] {
+  for (const state of tree) {
+    for (const district of state.children ?? []) {
+      for (const ulb of district.children ?? []) {
+        if (ulb.id !== ulbId) continue
+        return (ulb.children ?? []).filter((w) => w.type === "ward" && w.id !== excludeWardId).map((w) => w.name)
+      }
+    }
+  }
+  return []
+}
+
 export function TenantsWardsPanel() {
   const hasPermission = useAuthStore((s) => s.hasPermission)
   const tenantRoles = useAuthStore((s) => s.profile?.tenantRoles)
@@ -44,10 +58,22 @@ export function TenantsWardsPanel() {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [wardNameError, setWardNameError] = useState<string | null>(null)
   const qc = useQueryClient()
 
   const stats = useMemo(() => computeGeoStats(tree), [tree])
   const etlBusy = isEtlJobActive(etlStatus?.activeJob?.status) || startIncremental.isPending
+
+  const siblingWardNames = useMemo(() => {
+    if (drawer !== "ward") return []
+    if (drawerMode === "create" && parent?.type === "ulb") {
+      return collectSiblingWardNames(tree, parent.id)
+    }
+    if (drawerMode === "edit" && selected?.type === "ward" && selected.parentId) {
+      return collectSiblingWardNames(tree, selected.parentId, selected.id)
+    }
+    return []
+  }, [drawer, drawerMode, parent, selected, tree])
 
   const invalidate = async () => {
     await qc.invalidateQueries({ queryKey: ["configuration", "geography-tree"] })
@@ -72,6 +98,7 @@ export function TenantsWardsPanel() {
     setParent(null)
     setSelected(node)
     setDrawerMode("edit")
+    setWardNameError(null)
     setDrawer(node.type)
   }
 
@@ -80,8 +107,28 @@ export function TenantsWardsPanel() {
     setSelected(null)
     setParent(parentNode)
     setDrawerMode("create")
+    setWardNameError(null)
     setDrawer(kind)
   }
+
+  const confirmDeleteWard = async () => {
+    if (!selected || selected.type !== "ward" || deleting) return
+    setDeleting(true)
+    try {
+      await apiDelete(`/wards/${selected.id}`)
+      toast.success("Ward deleted")
+      setDeleteConfirmOpen(false)
+      setDrawer(null)
+      setSelected(null)
+      await invalidate()
+    } catch (err) {
+      toast.error(getApiErrorMessage(err))
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const deleteWardLabel = selected?.type === "ward" ? selected.name?.trim() || selected.wardNumber || "Ward" : "Ward"
 
   const firstState = tree.find((n) => n.type === "state") ?? null
 
@@ -253,7 +300,12 @@ export function TenantsWardsPanel() {
       />
       <WardDrawer
         open={drawer === "ward"}
-        onOpenChange={(o) => !o && setDrawer(null)}
+        onOpenChange={(o) => {
+          if (!o) {
+            setDrawer(null)
+            setWardNameError(null)
+          }
+        }}
         mode={drawerMode}
         initial={
           drawerMode === "edit" && selected?.type === "ward"
@@ -264,8 +316,13 @@ export function TenantsWardsPanel() {
         canDelete={canDeleteWard && drawerMode === "edit"}
         deleting={deleting}
         onDelete={() => setDeleteConfirmOpen(true)}
+        existingWardNames={siblingWardNames}
+        excludeWardName={drawerMode === "edit" && selected?.type === "ward" ? selected.name : undefined}
+        nameError={wardNameError}
+        onNameErrorChange={setWardNameError}
         onSubmit={async (values) => {
           setSaving(true)
+          setWardNameError(null)
           try {
             if (drawerMode === "create" && parent?.type === "ulb") {
               await apiPost("/wards", { ...values, ulbId: parent.id })
@@ -274,7 +331,11 @@ export function TenantsWardsPanel() {
             setDrawer(null)
             await invalidate()
           } catch (err) {
-            toast.error(err instanceof Error ? err.message : "Save failed")
+            const message = getApiErrorMessage(err)
+            if (message.toLowerCase().includes("already exists") && message.toLowerCase().includes("name")) {
+              setWardNameError(WARD_NAME_CONFLICT)
+            }
+            toast.error(message)
           } finally {
             setSaving(false)
           }
@@ -282,11 +343,21 @@ export function TenantsWardsPanel() {
       />
 
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <DialogContent>
+        <DialogContent
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" || deleting) return
+            const target = event.target as HTMLElement | null
+            if (target?.closest("button")) return
+            event.preventDefault()
+            void confirmDeleteWard()
+          }}
+        >
           <DialogHeader>
-            <DialogTitle>Delete ward</DialogTitle>
+            <DialogTitle>Delete Ward: {deleteWardLabel}</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete this ward? This action cannot be undone.
+              Are you sure you want to delete this ward? This action is permanent and cannot be undone. The ward will be
+              removed from active lists. Associated data (tenants, records, etc.) will remain linked but this ward will
+              no longer be available for new work.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -304,22 +375,7 @@ export function TenantsWardsPanel() {
               variant="destructive"
               className="cursor-pointer"
               disabled={deleting || !selected || selected.type !== "ward"}
-              onClick={async () => {
-                if (!selected || selected.type !== "ward") return
-                setDeleting(true)
-                try {
-                  await apiDelete(`/wards/${selected.id}`)
-                  toast.success("Ward deleted")
-                  setDeleteConfirmOpen(false)
-                  setDrawer(null)
-                  setSelected(null)
-                  await invalidate()
-                } catch (err) {
-                  toast.error(getApiErrorMessage(err))
-                } finally {
-                  setDeleting(false)
-                }
-              }}
+              onClick={() => void confirmDeleteWard()}
             >
               {deleting ? "Deleting…" : "Delete"}
             </Button>

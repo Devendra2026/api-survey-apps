@@ -34,11 +34,19 @@ export async function seedGeoCatalogExample(db: PrismaClient) {
       },
     }))
 
-  await db.ward.upsert({
-    where: { ulbId_wardNumber: { ulbId: ulb.id, wardNumber: "5" } },
-    create: { ulbId: ulb.id, wardNumber: "5", wardName: "Ward 5" },
-    update: { wardName: "Ward 5" },
+  const existingWard = await db.ward.findFirst({
+    where: { ulbId: ulb.id, wardNumber: "5", deletedAt: null },
   })
+  if (existingWard) {
+    await db.ward.update({
+      where: { id: existingWard.id },
+      data: { wardName: "Ward 5" },
+    })
+  } else {
+    await db.ward.create({
+      data: { ulbId: ulb.id, wardNumber: "5", wardName: "Ward 5" },
+    })
+  }
 
   return { state, district, ulb }
 }

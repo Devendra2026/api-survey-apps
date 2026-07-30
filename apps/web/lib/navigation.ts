@@ -73,6 +73,13 @@ export const appNav: NavItem[] = [
         description: "Search, filter, and manage surveys",
       },
       {
+        title: "QC Command Center",
+        href: "/qc/command-center",
+        icon: ClipboardCheck,
+        permission: "survey:approve",
+        description: "Ward-wise QC queues and quick actions",
+      },
+      {
         title: "QC Review",
         href: "/qc/registry",
         icon: ClipboardCheck,

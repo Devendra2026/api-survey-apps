@@ -244,6 +244,10 @@ export function WardDrawer({
   canDelete,
   onDelete,
   deleting,
+  existingWardNames = [],
+  excludeWardName,
+  nameError,
+  onNameErrorChange,
 }: {
   open: boolean
   onOpenChange: (o: boolean) => void
@@ -254,6 +258,12 @@ export function WardDrawer({
   canDelete?: boolean
   onDelete?: () => void
   deleting?: boolean
+  /** Active ward names in the same ULB (for client-side duplicate check). */
+  existingWardNames?: string[]
+  /** When editing, the current ward name is allowed. */
+  excludeWardName?: string
+  nameError?: string | null
+  onNameErrorChange?: (error: string | null) => void
 }) {
   const [wardNumber, setWardNumber] = useState("")
   const [wardName, setWardName] = useState("")
@@ -264,6 +274,20 @@ export function WardDrawer({
     }
   }, [open, initial])
 
+  const duplicateNameMessage = "A ward with this name already exists. Please use a different name."
+
+  const isDuplicateName = (name: string) => {
+    const normalized = name.trim().toLowerCase()
+    if (!normalized) return false
+    const excluded = excludeWardName?.trim().toLowerCase()
+    return existingWardNames.some((existing) => {
+      const value = existing.trim().toLowerCase()
+      if (!value) return false
+      if (excluded && value === excluded) return false
+      return value === normalized
+    })
+  }
+
   return (
     <GeoDrawerShell
       open={open}
@@ -271,7 +295,14 @@ export function WardDrawer({
       title={mode === "create" ? "Create Ward" : "Edit Ward"}
       description="Ward within the selected ULB"
       saving={saving || deleting}
-      onSubmit={() => onSubmit({ wardNumber, wardName })}
+      onSubmit={() => {
+        if (isDuplicateName(wardName)) {
+          onNameErrorChange?.(duplicateNameMessage)
+          return
+        }
+        onNameErrorChange?.(null)
+        onSubmit({ wardNumber, wardName })
+      }}
       footerStart={
         mode === "edit" && canDelete && onDelete ? (
           <Button
@@ -292,7 +323,22 @@ export function WardDrawer({
       </div>
       <div className="space-y-2">
         <Label htmlFor="ward-name">Ward name</Label>
-        <Input id="ward-name" value={wardName} onChange={(e) => setWardName(e.target.value)} required />
+        <Input
+          id="ward-name"
+          value={wardName}
+          onChange={(e) => {
+            setWardName(e.target.value)
+            if (nameError) onNameErrorChange?.(null)
+          }}
+          required
+          aria-invalid={Boolean(nameError)}
+          aria-describedby={nameError ? "ward-name-error" : undefined}
+        />
+        {nameError ? (
+          <p id="ward-name-error" className="text-sm text-destructive" role="alert">
+            {nameError}
+          </p>
+        ) : null}
       </div>
     </GeoDrawerShell>
   )

@@ -3,6 +3,7 @@
 import { ReportScopeFiltersPanel, type ReportScopeState } from "@/components/reports/report-scope-filters"
 import { EmptyState } from "@/components/shared/page-elements"
 import { exportReport, useCommandCenterKPIs, useDashboardSummary, useUlbs } from "@/hooks/use-api"
+import { useHydrateGeoScopeFromSearchParams } from "@/hooks/use-hydrate-geo-scope"
 import type { CommandCenterFilters } from "@/lib/api/types"
 import {
   downloadFromUrl,
@@ -32,7 +33,7 @@ import {
   Users,
 } from "lucide-react"
 import Link from "next/link"
-import { useCallback, useMemo, useState, type ReactNode } from "react"
+import { Suspense, useCallback, useMemo, useState, type ReactNode } from "react"
 import { toast } from "sonner"
 
 const SAVED_REPORTS = [
@@ -105,10 +106,37 @@ function ReportActionCard({
 }
 
 export default function ReportsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-4">
+          <Skeleton className="h-24 w-full rounded-xl" />
+          <Skeleton className="h-48 w-full rounded-xl" />
+        </div>
+      }
+    >
+      <ReportsPageInner />
+    </Suspense>
+  )
+}
+
+function ReportsPageInner() {
   const hasPermission = useAuthStore((s) => s.hasPermission)
   const { getToken } = useAuth()
   const [filters, setFilters] = useState<ReportScopeState>({})
   const [exporting, setExporting] = useState<string | null>(null)
+
+  useHydrateGeoScopeFromSearchParams(
+    useCallback((hydrated) => {
+      setFilters((prev) => ({
+        ...prev,
+        stateId: hydrated.stateId ?? prev.stateId,
+        districtId: hydrated.districtId ?? prev.districtId,
+        ulbId: hydrated.ulbId ?? prev.ulbId,
+        wardId: hydrated.wardId ?? prev.wardId,
+      }))
+    }, [])
+  )
 
   const onFiltersChange = useCallback((next: ReportScopeState) => {
     setFilters(next)

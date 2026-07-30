@@ -46,7 +46,8 @@ describe("QcRepository queue first/neighbors", () => {
         survey: { findFirst, findMany },
       },
     }
-    repo = new QcRepository(prisma as never)
+    const wardCatalog = { listScopedWards: jest.fn<() => Promise<unknown[]>>(() => Promise.resolve([])) }
+    repo = new QcRepository(prisma as never, wardCatalog as never)
   })
 
   it("returns first pending parcel ordered by parcelNumber ASC", async () => {

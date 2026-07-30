@@ -18,8 +18,14 @@ export class ConfigurationGeographyService {
             ulbs: {
               orderBy: { name: "asc" },
               include: {
-                _count: { select: { wards: true, surveys: true } },
+                _count: {
+                  select: {
+                    wards: { where: { deletedAt: null } },
+                    surveys: true,
+                  },
+                },
                 wards: {
+                  where: { deletedAt: null },
                   orderBy: { wardNumber: "asc" },
                   include: {
                     _count: { select: { surveys: true, taxConfigs: true } },

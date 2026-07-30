@@ -566,6 +566,22 @@ export function useWards(ulbId?: string) {
   })
 }
 
+export function useUlb(ulbId?: string) {
+  return useQuery({
+    queryKey: ["ulb", ulbId],
+    queryFn: () => apiGet<GeoUlb>(`/ulbs/${ulbId}`),
+    enabled: Boolean(ulbId),
+  })
+}
+
+export function useDistrict(districtId?: string) {
+  return useQuery({
+    queryKey: ["district", districtId],
+    queryFn: () => apiGet<GeoDistrict>(`/districts/${districtId}`),
+    enabled: Boolean(districtId),
+  })
+}
+
 export function useNotifications(page = 1) {
   const { isLoaded, isSignedIn } = useAuth()
   const profile = useAuthStore((s) => s.profile)

@@ -2,7 +2,15 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { OwnershipType, type CoOwner, type Prisma } from "@workspace/database"
 import { formatPropertyId, padParcelNo } from "@workspace/validation"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
+import { WardCatalogService } from "../common/services/ward-catalog.service.js"
 import { getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
+import {
+  addSurveyRowToBuckets,
+  emptyBucketTotals,
+  percentOf,
+  tallySurveyBuckets,
+  type SurveyBucketTotals,
+} from "../common/utils/survey-bucket.util.js"
 import { buildTenantWhere, resolveTenantScope } from "../common/utils/tenant-scope.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import type { QcFiltersDto } from "./dto/qc-filters.dto.js"
@@ -31,7 +39,10 @@ function displayQcStatus(surveyStatus: string, qcStatus?: string | null) {
 
 @Injectable()
 export class QcRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly wardCatalog: WardCatalogService
+  ) {}
 
   private resolveFilters(filters: QcFiltersDto) {
     const districtId = filters.districtId || filters.district
@@ -311,49 +322,39 @@ export class QcRepository {
     const now = new Date()
     const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
 
-    const [pending, inReview, approved, returned, submittedTotal, fieldDrafts, draftsSubmittedToday] =
-      await Promise.all([
-        this.prisma.db.survey.count({
-          where: { ...where, surveyStatus: "SUBMITTED", qcStatus: "PENDING" },
-        }),
-        this.prisma.db.survey.count({
-          where: { ...where, surveyStatus: "REOPENED" },
-        }),
-        this.prisma.db.survey.count({
-          where: { ...where, qcStatus: "APPROVED" },
-        }),
-        this.prisma.db.survey.count({
-          where: { ...where, surveyStatus: "REJECTED" },
-        }),
-        this.prisma.db.survey.count({
-          where: { ...where, submittedAt: { not: null } },
-        }),
-        this.prisma.db.survey.count({
-          where: { ...where, surveyStatus: "DRAFT" },
-        }),
-        this.prisma.db.survey.count({
-          where: { ...where, submittedAt: { gte: startOfToday } },
-        }),
-      ])
+    const [statusMatrix, submittedTotal, draftsSubmittedToday] = await Promise.all([
+      this.prisma.db.survey.groupBy({
+        by: ["surveyStatus", "qcStatus"],
+        where,
+        _count: { _all: true },
+      }),
+      this.prisma.db.survey.count({
+        where: { ...where, submittedAt: { not: null } },
+      }),
+      this.prisma.db.survey.count({
+        where: { ...where, submittedAt: { gte: startOfToday } },
+      }),
+    ])
 
-    const pendingQcRemaining = pending + inReview
-    const queueTotal = pending + inReview + approved
-    const qcProgressPct = queueTotal > 0 ? Math.round((approved / queueTotal) * 100) : 0
+    const buckets = tallySurveyBuckets(statusMatrix)
+
+    // Pipeline stages are disjoint: awaiting QC → returned → back in field (rework) → approved.
+    const queueTotal = buckets.pendingQc + buckets.rework + buckets.approved + buckets.returned
 
     return {
       pipeline: {
-        pending,
-        inReview,
-        approved,
-        returned,
+        pending: buckets.pendingQc,
+        inReview: buckets.rework,
+        approved: buckets.approved,
+        returned: buckets.returned,
       },
-      pendingQc: pending,
-      pendingQcRemaining,
+      pendingQc: buckets.pendingQc,
+      pendingQcRemaining: buckets.pendingQc + buckets.rework + buckets.returned,
       submittedTotal,
-      approvedQc: approved,
+      approvedQc: buckets.approved,
       queueTotal,
-      qcProgressPct,
-      fieldDrafts,
+      qcProgressPct: percentOf(buckets.approved, queueTotal),
+      fieldDrafts: buckets.fieldDraft,
       draftsSubmittedToday,
     }
   }
@@ -362,43 +363,28 @@ export class QcRepository {
     const f = this.resolveFilters(filters)
     if (!f.ulbId) return []
 
-    const where = this.buildWhere(user, filters)
+    const wards = await this.wardCatalog.listScopedWards(user, f.ulbId)
+    if (wards.length === 0) return []
 
+    const where = this.buildWhere(user, filters)
     const statusRows = await this.prisma.db.survey.groupBy({
-      by: ["wardId", "surveyStatus"],
-      where,
+      by: ["wardId", "surveyStatus", "qcStatus"],
+      where: { ...where, wardId: { in: wards.map((ward) => ward.id) } },
       _count: { _all: true },
     })
 
-    const byWard = new Map<
-      string,
-      { totalProperty: number; fieldDrafts: number; qcPending: number; qcApproved: number }
-    >()
-
+    const bucketsByWard = new Map<string, SurveyBucketTotals>()
+    for (const ward of wards) {
+      bucketsByWard.set(ward.id, emptyBucketTotals())
+    }
     for (const row of statusRows) {
-      const current = byWard.get(row.wardId) ?? {
-        totalProperty: 0,
-        fieldDrafts: 0,
-        qcPending: 0,
-        qcApproved: 0,
-      }
-      current.totalProperty += row._count._all
-      if (row.surveyStatus === "DRAFT") current.fieldDrafts += row._count._all
-      if (row.surveyStatus === "SUBMITTED") current.qcPending += row._count._all
-      if (row.surveyStatus === "APPROVED") current.qcApproved += row._count._all
-      byWard.set(row.wardId, current)
+      const current = bucketsByWard.get(row.wardId)
+      if (!current) continue
+      addSurveyRowToBuckets(current, row)
     }
 
-    if (byWard.size === 0) return []
-
-    const wards = await this.prisma.db.ward.findMany({
-      where: { id: { in: [...byWard.keys()] } },
-      select: { id: true, wardName: true, wardNumber: true },
-      orderBy: { wardNumber: "asc" },
-    })
-
     return wards.map((ward) => {
-      const stats = byWard.get(ward.id)!
+      const buckets = bucketsByWard.get(ward.id) ?? emptyBucketTotals()
       const name = ward.wardName?.trim() || `Ward ${ward.wardNumber}`
       const padded = String(ward.wardNumber).padStart(2, "0")
       return {
@@ -406,11 +392,13 @@ export class QcRepository {
         wardName: name,
         wardNumber: ward.wardNumber,
         label: `Ward No. ${padded} — ${name.startsWith("Ward") ? name.replace(/^Ward\s*/i, "").trim() || name : name}`,
-        totalProperty: stats.totalProperty,
-        fieldDrafts: stats.fieldDrafts,
-        qcPending: stats.qcPending,
-        qcApproved: stats.qcApproved,
-        pending: stats.qcPending,
+        totalProperty: buckets.total,
+        fieldDrafts: buckets.fieldDraft,
+        qcPending: buckets.pendingQc,
+        qcApproved: buckets.approved,
+        qcReturned: buckets.returned,
+        fieldRework: buckets.rework,
+        pending: buckets.pendingQc,
       }
     })
   }

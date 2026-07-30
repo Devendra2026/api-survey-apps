@@ -5,7 +5,7 @@ import { Card, CardContent } from "@workspace/ui/components/card"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { cn } from "@workspace/ui/lib/utils"
 import type { LucideIcon } from "lucide-react"
-import { CheckCircle2, Clock3, Eye, RotateCcw } from "lucide-react"
+import { CheckCircle2, Clock3, RotateCcw, Wrench } from "lucide-react"
 
 function formatNum(n: number) {
   return new Intl.NumberFormat("en-IN").format(n)
@@ -29,8 +29,8 @@ const stages: Array<{
   },
   {
     id: "inReview",
-    label: "IN REVIEW",
-    icon: Eye,
+    label: "IN REWORK",
+    icon: Wrench,
     tone: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
     activeTone: "border-blue-400/60 bg-blue-500/10 ring-1 ring-blue-400/40",
     value: (m) => m.pipeline.inReview,

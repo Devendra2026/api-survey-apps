@@ -266,7 +266,7 @@ describe("QcRepository.getWards", () => {
 
   function makeWardsRepo() {
     const listScopedWards = jest.fn().mockResolvedValue(catalogWards as never)
-    const groupBy = jest.fn().mockResolvedValue([])
+    const groupBy = jest.fn().mockResolvedValue([] as never)
     const prisma = {
       db: {
         survey: { groupBy },

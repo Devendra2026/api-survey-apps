@@ -23,6 +23,9 @@ export function QcReviewActionBar({
   editMode,
   pending,
   canDelete,
+  propertyIdDisplay,
+  parcelDisplay,
+  wardNoDisplay,
   activeWardId,
   activeUlbId,
   prevId,
@@ -41,6 +44,9 @@ export function QcReviewActionBar({
   editMode: boolean
   pending?: boolean
   canDelete: boolean
+  propertyIdDisplay?: string
+  parcelDisplay?: string
+  wardNoDisplay?: string
   activeWardId: string | null
   activeUlbId: string | null
   prevId: string | null
@@ -220,21 +226,21 @@ export function QcReviewActionBar({
           <div className={cn(glassInsetClass, "p-3")}>
             <SurveyViewField
               label="Property ID"
-              value={<span className="font-mono text-xs">{survey.propertyId}</span>}
+              value={<span className="font-mono text-xs">{propertyIdDisplay ?? survey.propertyId}</span>}
             />
           </div>
           <div className={cn(glassInsetClass, "p-3")}>
             <SurveyViewField label="ULB Name" value={survey.ulbName} />
           </div>
           <div className={cn(glassInsetClass, "p-3")}>
-            <SurveyViewField label="Ward No" value={survey.wardNo} />
+            <SurveyViewField label="Ward No" value={wardNoDisplay ?? survey.wardNo} />
           </div>
           <div className={cn(glassInsetClass, "p-3")}>
             <SurveyViewField
               label="Parcel No"
               value={
                 <span className="font-mono text-xs">
-                  {formatParcelDisplay(survey.editable.parcelNumber ?? survey.parcelNo)}
+                  {formatParcelDisplay(parcelDisplay ?? survey.editable.parcelNumber ?? survey.parcelNo)}
                 </span>
               }
             />

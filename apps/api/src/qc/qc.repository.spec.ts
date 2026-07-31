@@ -234,3 +234,73 @@ describe("QcRepository.qcCorrectSurvey", () => {
     ).rejects.toThrow(/already exists/)
   })
 })
+
+describe("QcRepository.getWards", () => {
+  const user = {
+    id: "u1",
+    clerkUserId: "c1",
+    email: "qc@test.com",
+    fullName: "QC",
+    phone: null,
+    isActive: true,
+    permissions: ["survey:approve"],
+    tenantRoles: [
+      {
+        id: "tr1",
+        roleId: "r1",
+        roleName: "QC_SUPERVISOR",
+        permissions: ["survey:approve"],
+        stateId: null,
+        districtId: null,
+        ulbId: null,
+        wardId: null,
+        isActive: true,
+      },
+    ],
+  }
+
+  const catalogWards = [
+    { id: "ward-1", wardName: "Ward 1", wardNumber: "001" },
+    { id: "ward-2", wardName: "Ward 2", wardNumber: "002" },
+  ]
+
+  function makeWardsRepo() {
+    const listScopedWards = jest.fn().mockResolvedValue(catalogWards as never)
+    const groupBy = jest.fn().mockResolvedValue([])
+    const prisma = {
+      db: {
+        survey: { groupBy },
+      },
+    }
+    const repo = new QcRepository(prisma as never, { listScopedWards } as never)
+    return { repo, listScopedWards, groupBy }
+  }
+
+  it("returns all scoped wards when wardId is omitted", async () => {
+    const { repo, listScopedWards } = makeWardsRepo()
+    const result = await repo.getWards(user, { ulbId: "ulb-1" })
+    expect(listScopedWards).toHaveBeenCalledWith(user, "ulb-1")
+    expect(result).toHaveLength(2)
+    expect(result.map((w) => w.wardId)).toEqual(["ward-1", "ward-2"])
+  })
+
+  it("returns only the selected ward when wardId is set", async () => {
+    const { repo, groupBy } = makeWardsRepo()
+    const result = await repo.getWards(user, { ulbId: "ulb-1", wardId: "ward-2" })
+    expect(result).toHaveLength(1)
+    expect(result[0]?.wardId).toBe("ward-2")
+    expect(groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          wardId: { in: ["ward-2"] },
+        }),
+      })
+    )
+  })
+
+  it("returns empty list when ulbId is missing", async () => {
+    const { repo, listScopedWards } = makeWardsRepo()
+    await expect(repo.getWards(user as never, {})).resolves.toEqual([])
+    expect(listScopedWards).not.toHaveBeenCalled()
+  })
+})

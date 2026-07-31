@@ -369,7 +369,10 @@ export class QcRepository {
     const f = this.resolveFilters(filters)
     if (!f.ulbId) return []
 
-    const wards = await this.wardCatalog.listScopedWards(user, f.ulbId)
+    let wards = await this.wardCatalog.listScopedWards(user, f.ulbId)
+    if (f.wardId) {
+      wards = wards.filter((ward) => ward.id === f.wardId)
+    }
     if (wards.length === 0) return []
 
     const where = this.buildWhere(user, filters)

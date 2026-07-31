@@ -25,8 +25,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@workspace/ui/components/dialog"
+import { formatPropertyId, parsePropertyId } from "@workspace/validation"
 import { useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
 export function QcReviewDetail({ surveyId }: { surveyId: string }) {
@@ -58,6 +59,8 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
 
   const switchUlbId = activeUlbId || survey?.editable.ulbId
   const { data: switchWards } = useWards(wardSwitchId ? switchUlbId || undefined : undefined)
+  const draftUlbId = draft?.ulbId || survey?.editable.ulbId
+  const { data: draftWards } = useWards(editMode ? draftUlbId || undefined : undefined)
 
   // Sync draft when survey loads or the URL/id changes (including prefetched cache hits).
   if (survey?.editable && (draft === null || draftSurveyId !== survey.id)) {
@@ -107,6 +110,22 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
     if (survey.id === surveyId) return
     router.replace(`/qc/review/${encodeURIComponent(survey.id)}`)
   }, [router, survey?.id, surveyId])
+
+  const previewPropertyId = useMemo(() => {
+    if (!editMode || !draft || !survey) return survey?.propertyId ?? ""
+    const parsed = parsePropertyId(survey.propertyId)
+    const selectedWard = (draftWards?.items ?? []).find((w) => w.id === draft.wardId)
+    const ulbCode = parsed?.ulbCode ?? ""
+    const wardNo = selectedWard?.wardNumber ?? parsed?.wardNo ?? survey.wardNo ?? ""
+    const formatted = formatPropertyId({
+      ulbCode,
+      wardNo,
+      parcelNo: draft.parcelNumber ?? "",
+      unitNo: draft.unitSubNo ?? "",
+      propertyUse: draft.propertyUse ?? "",
+    })
+    return formatted ?? survey.propertyId
+  }, [draft, draftWards?.items, editMode, survey])
 
   const goToNeighbor = (id: string | null | undefined) => {
     if (!id) return
@@ -186,6 +205,10 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
   }
 
   const saveCorrection = async () => {
+    if (draft.ownershipType === "JOINT" && draft.coOwners.length === 0) {
+      toast.error("JOINT ownership requires at least one co-owner")
+      return
+    }
     try {
       const updated = await actions.correct.mutateAsync({
         id: survey.id,
@@ -195,6 +218,12 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
           ulbId: draft.ulbId,
           wardId: draft.wardId,
           assignedToId: draft.assignedToId,
+          respondentName: draft.respondentName,
+          mobileNumber: draft.mobileNumber,
+          alternateMobile: draft.alternateMobile,
+          relationshipWithOwner: draft.relationshipWithOwner,
+          familySize: draft.familySize,
+          fatherHusbandName: draft.fatherHusbandName,
           houseDoorNo: draft.houseDoorNo,
           colony: draft.colony,
           locality: draft.locality,
@@ -230,6 +259,13 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
             constructionType: f.constructionType,
             areaSqFt: f.areaSqFt,
           })),
+          coOwners: draft.coOwners.map((o) => ({
+            id: o.id,
+            name: o.name,
+            fatherOrHusbandName: o.fatherOrHusbandName,
+            mobile: o.mobile,
+            alternateMobile: o.alternateMobile,
+          })),
         },
       })
       if (updated && typeof updated === "object" && "id" in updated && "editable" in updated) {
@@ -257,6 +293,13 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
         editMode={editMode}
         pending={pending}
         canDelete={canDelete}
+        propertyIdDisplay={previewPropertyId}
+        parcelDisplay={editMode ? (draft.parcelNumber ?? survey.parcelNo) : survey.parcelNo}
+        wardNoDisplay={
+          editMode
+            ? ((draftWards?.items ?? []).find((w) => w.id === draft.wardId)?.wardNumber ?? survey.wardNo)
+            : survey.wardNo
+        }
         activeWardId={effectiveWardId}
         activeUlbId={activeUlbId || survey.editable.ulbId}
         prevId={neighborsQuery.data?.prevId ?? null}

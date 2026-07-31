@@ -639,6 +639,14 @@ export interface QcSurveyFloorEditable {
   position: number
 }
 
+export interface QcSurveyCoOwnerEditable {
+  id?: string
+  name: string
+  fatherOrHusbandName: string | null
+  mobile: string | null
+  alternateMobile: string | null
+}
+
 export interface QcSurveyEditable {
   stateId: string
   districtId: string
@@ -650,6 +658,7 @@ export interface QcSurveyEditable {
   alternateMobile: string | null
   relationshipWithOwner: string | null
   familySize: number | null
+  fatherHusbandName: string | null
   houseDoorNo: string | null
   colony: string | null
   locality: string | null
@@ -678,6 +687,7 @@ export interface QcSurveyEditable {
   latitude: number | null
   longitude: number | null
   floors: QcSurveyFloorEditable[]
+  coOwners: QcSurveyCoOwnerEditable[]
 }
 
 export interface QcSurveyDetail extends SurveyDetails {
@@ -689,7 +699,7 @@ export type QcSurveyAction = "reopen" | "approve" | "delete" | "correct" | "reje
 export interface QcSurveyActionPayload {
   action: QcSurveyAction
   qcRemarks?: string
-  patch?: Partial<Omit<QcSurveyEditable, "floors">> & {
+  patch?: Partial<Omit<QcSurveyEditable, "floors" | "coOwners">> & {
     floors?: Array<{
       id?: string
       floorPosition: string
@@ -697,6 +707,13 @@ export interface QcSurveyActionPayload {
       usageFactor?: string | null
       constructionType?: string | null
       areaSqFt?: number | null
+    }>
+    coOwners?: Array<{
+      id?: string
+      name: string
+      fatherOrHusbandName?: string | null
+      mobile?: string | null
+      alternateMobile?: string | null
     }>
   }
 }

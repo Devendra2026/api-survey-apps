@@ -18,19 +18,6 @@ import { useEffect, useMemo, useRef, useState } from "react"
 const DEFAULT_DISTRICT_NAME = "Etah"
 const DEFAULT_ULB_HINT = "etah"
 
-function monthBounds(offsetMonths: number): { dateFrom: string; dateTo: string; month: string } {
-  const now = new Date()
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offsetMonths, 1))
-  const end = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0))
-  const y = start.getUTCFullYear()
-  const m = String(start.getUTCMonth() + 1).padStart(2, "0")
-  return {
-    month: `${y}-${m}`,
-    dateFrom: `${y}-${m}-01`,
-    dateTo: `${y}-${m}-${String(end.getUTCDate()).padStart(2, "0")}`,
-  }
-}
-
 function formatDisplayDate(value?: string) {
   if (!value) return "Select"
   const parsed = parse(value, "yyyy-MM-dd", new Date())
@@ -111,15 +98,6 @@ export function QcFilterPanel({
 
   const patch = (partial: Partial<QcCommandCenterFilters>) => onChange({ ...filters, ...partial })
 
-  const quickRanges = useMemo(
-    () => [
-      { label: "This month", ...monthBounds(0) },
-      { label: "Last month", ...monthBounds(-1) },
-      { label: "2 months back", ...monthBounds(-2) },
-    ],
-    []
-  )
-
   const activeCount = countActiveFilters(filters)
 
   const reset = () => {
@@ -161,24 +139,6 @@ export function QcFilterPanel({
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {quickRanges.map((range) => (
-              <Button
-                key={range.label}
-                type="button"
-                variant="outline"
-                size="sm"
-                className="cursor-pointer border-slate-200 dark:border-slate-800"
-                onClick={() =>
-                  patch({
-                    month: range.month,
-                    dateFrom: range.dateFrom,
-                    dateTo: range.dateTo,
-                  })
-                }
-              >
-                {range.label}
-              </Button>
-            ))}
             <Button type="button" variant="ghost" size="sm" className="cursor-pointer gap-1.5" onClick={reset}>
               <RotateCcw className="size-3.5" />
               Reset
@@ -188,7 +148,8 @@ export function QcFilterPanel({
       </CardHeader>
 
       <CardContent className="pt-4">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        {/* proper alignment for the filters */}
+        <div className="grid w-full grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">District</Label>
             <Select
@@ -204,7 +165,7 @@ export function QcFilterPanel({
               }}
               disabled={!stateId}
             >
-              <SelectTrigger className="h-9 border-slate-200 dark:border-slate-800">
+              <SelectTrigger className="h-9 w-full border-slate-200 dark:border-slate-800">
                 <SelectValue placeholder={DEFAULT_DISTRICT_NAME} />
               </SelectTrigger>
               <SelectContent>
@@ -217,14 +178,14 @@ export function QcFilterPanel({
             </Select>
           </div>
 
-          <div className="space-y-1.5">
+          <div className="w-full space-y-1.5">
             <Label className="text-xs text-muted-foreground">ULB</Label>
             <Select
               value={filters.ulbId || ""}
               onValueChange={(ulbId) => onChange({ ...filters, ulbId, wardId: undefined })}
               disabled={!filters.districtId}
             >
-              <SelectTrigger className="h-9 border-slate-200 dark:border-slate-800">
+              <SelectTrigger className="h-9 w-full border-slate-200 dark:border-slate-800">
                 <SelectValue placeholder="Municipal Council Etah" />
               </SelectTrigger>
               <SelectContent>
@@ -244,7 +205,7 @@ export function QcFilterPanel({
               onValueChange={(value) => patch({ wardId: value === "all" ? undefined : value })}
               disabled={!filters.ulbId}
             >
-              <SelectTrigger className="h-9 border-slate-200 dark:border-slate-800">
+              <SelectTrigger className="h-9 w-full border-slate-200 dark:border-slate-800">
                 <SelectValue placeholder="All wards" />
               </SelectTrigger>
               <SelectContent>

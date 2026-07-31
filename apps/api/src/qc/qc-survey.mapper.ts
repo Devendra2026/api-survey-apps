@@ -18,6 +18,14 @@ export type QcSurveyFloorEditable = {
   position: number
 }
 
+export type QcSurveyCoOwnerEditable = {
+  id?: string
+  name: string
+  fatherOrHusbandName: string | null
+  mobile: string | null
+  alternateMobile: string | null
+}
+
 export type QcSurveyEditable = {
   stateId: string
   districtId: string
@@ -29,6 +37,7 @@ export type QcSurveyEditable = {
   alternateMobile: string | null
   relationshipWithOwner: string | null
   familySize: number | null
+  fatherHusbandName: string | null
   houseDoorNo: string | null
   colony: string | null
   locality: string | null
@@ -57,6 +66,7 @@ export type QcSurveyEditable = {
   latitude: number | null
   longitude: number | null
   floors: QcSurveyFloorEditable[]
+  coOwners: QcSurveyCoOwnerEditable[]
 }
 
 export type QcSurveyDetailDto = SurveyDetailsDto & {
@@ -112,6 +122,14 @@ type SurveyForEditable = {
     areaSqFt: DecimalLike
     position: number
   }>
+  coOwners?: Array<{
+    id: string
+    name: string
+    fatherOrHusbandName: string | null
+    mobile: string | null
+    alternateMobile: string | null
+    ownerIndex: number
+  }>
 }
 
 export function mapQcEditable(survey: SurveyForEditable): QcSurveyEditable {
@@ -127,6 +145,16 @@ export function mapQcEditable(survey: SurveyForEditable): QcSurveyEditable {
       position: floor.position,
     }))
 
+  const coOwners = [...(survey.coOwners ?? [])]
+    .sort((a, b) => a.ownerIndex - b.ownerIndex)
+    .map((owner) => ({
+      id: owner.id,
+      name: owner.name,
+      fatherOrHusbandName: owner.fatherOrHusbandName,
+      mobile: owner.mobile,
+      alternateMobile: owner.alternateMobile,
+    }))
+
   return {
     stateId: survey.stateId,
     districtId: survey.districtId,
@@ -138,6 +166,7 @@ export function mapQcEditable(survey: SurveyForEditable): QcSurveyEditable {
     alternateMobile: survey.alternateMobile,
     relationshipWithOwner: survey.relationshipWithOwner,
     familySize: survey.familySize,
+    fatherHusbandName: coOwners[0]?.fatherOrHusbandName ?? null,
     houseDoorNo: survey.houseDoorNo,
     colony: survey.colony,
     locality: survey.locality,
@@ -166,5 +195,6 @@ export function mapQcEditable(survey: SurveyForEditable): QcSurveyEditable {
     latitude: toNumber(survey.latitude),
     longitude: toNumber(survey.longitude),
     floors,
+    coOwners,
   }
 }

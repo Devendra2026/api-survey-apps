@@ -1,7 +1,7 @@
 "use client"
 
 import { WardCardActions } from "@/components/shared/ward-card-actions"
-import type { QcPipelineStage, QcWard } from "@/lib/api/types"
+import type { QcWard } from "@/lib/api/types"
 import { Badge } from "@workspace/ui/components/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@workspace/ui/components/card"
 import { Skeleton } from "@workspace/ui/components/skeleton"
@@ -11,25 +11,6 @@ import type { ReactNode } from "react"
 
 function formatNum(n: number) {
   return new Intl.NumberFormat("en-IN").format(n)
-}
-
-function matchesStage(ward: QcWard, stage: QcPipelineStage | null): boolean {
-  switch (stage) {
-    case null:
-      return true
-    case "pending":
-      return ward.qcPending > 0
-    case "inReview":
-      return (ward.fieldRework ?? 0) > 0
-    case "approved":
-      return ward.qcApproved > 0
-    case "returned":
-      return (ward.qcReturned ?? 0) > 0
-    default: {
-      const exhaustive: never = stage
-      return exhaustive
-    }
-  }
 }
 
 function wardTitle(ward: QcWard) {
@@ -43,17 +24,13 @@ export function QcWardGrid({
   wards,
   isLoading,
   hasUlbSelected,
-  activeStage,
   ulbId,
 }: {
   wards: QcWard[]
   isLoading?: boolean
   hasUlbSelected: boolean
-  activeStage: QcPipelineStage | null
   ulbId?: string
 }) {
-  const filtered = wards.filter((w) => matchesStage(w, activeStage))
-
   return (
     <section className="space-y-4">
       <div>
@@ -85,7 +62,7 @@ export function QcWardGrid({
             </Card>
           ))}
         </div>
-      ) : !hasUlbSelected || filtered.length === 0 ? (
+      ) : !hasUlbSelected || wards.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-card/80 px-6 py-16 text-center backdrop-blur dark:border-slate-800">
           <span className="relative mb-4 flex size-16 items-center justify-center rounded-2xl bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
             <span className="absolute inset-0 animate-ping rounded-2xl bg-teal-500/10" />
@@ -94,13 +71,13 @@ export function QcWardGrid({
           <p className="text-base font-semibold text-foreground">No ward QC data</p>
           <p className="mt-1 max-w-md text-sm text-muted-foreground">
             {hasUlbSelected
-              ? "No wards match the selected pipeline stage. Clear the stage filter or adjust Smart Filters."
-              : "Select a municipality in Smart Filters to see ward-wise QC review cards."}
+              ? "No wards match the current filters. Adjust district, ULB, or ward selection."
+              : "Select a municipality in Filter Control Panel to see ward-wise QC review cards."}
           </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {filtered.map((ward) => (
+          {wards.map((ward) => (
             <Card
               key={ward.wardId}
               className={cn(

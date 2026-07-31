@@ -1,9 +1,0 @@
-.env.example
-CHANGELOG.md
-deploy/env/api.env.example
-deploy/env/dokploy.compose.env.example
-deploy/env/web.env.example
-docs/ops/dokploy-env.md
-docs/ops/go-live.md
-docs/superpowers/migrations/2026-07-29-production-upgrade-notes.md
-docs/superpowers/reports/2026-07-29-production-upgrade-report.md

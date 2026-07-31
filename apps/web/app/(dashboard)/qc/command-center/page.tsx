@@ -2,11 +2,10 @@
 
 import { QcFilterPanel } from "@/components/qc/qc-filter-panel"
 import { QcMetricSummary } from "@/components/qc/qc-metric-summary"
-import { QcPipelineRow } from "@/components/qc/qc-pipeline-row"
 import { QcWardGrid } from "@/components/qc/qc-ward-grid"
 import { EmptyState } from "@/components/shared/page-elements"
 import { useQcMetrics, useQcWards } from "@/hooks/use-api"
-import type { QcCommandCenterFilters, QcPipelineStage } from "@/lib/api/types"
+import type { QcCommandCenterFilters } from "@/lib/api/types"
 import { useAuthStore } from "@/stores/app-store"
 import { Button } from "@workspace/ui/components/button"
 import { ClipboardCheck } from "lucide-react"
@@ -19,7 +18,6 @@ export default function QcCommandCenterPage() {
 
   const [stateId, setStateId] = useState("")
   const [filters, setFilters] = useState<QcCommandCenterFilters>({})
-  const [activeStage, setActiveStage] = useState<QcPipelineStage | null>(null)
 
   const onChange = useCallback((next: QcCommandCenterFilters) => setFilters(next), [])
   const onStateChange = useCallback((next: string) => {
@@ -68,18 +66,10 @@ export default function QcCommandCenterPage() {
 
       <QcMetricSummary metrics={metricsQuery.data} isLoading={metricsQuery.isLoading} />
 
-      <QcPipelineRow
-        metrics={metricsQuery.data}
-        isLoading={metricsQuery.isLoading}
-        activeStage={activeStage}
-        onStageChange={setActiveStage}
-      />
-
       <QcWardGrid
         wards={wardsQuery.data ?? []}
         isLoading={Boolean(filters.ulbId) && wardsQuery.isLoading}
         hasUlbSelected={Boolean(filters.ulbId)}
-        activeStage={activeStage}
         ulbId={filters.ulbId}
       />
     </div>

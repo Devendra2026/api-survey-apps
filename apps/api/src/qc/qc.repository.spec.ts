@@ -172,7 +172,7 @@ describe("QcRepository.qcCorrectSurvey", () => {
       surveyId,
       {
         coOwners: [{ name: "Co Owner", mobile: "9876543210" }],
-        floors: [{ floorPosition: "GROUND_FLOOR", areaSqFt: 120 }],
+        floors: [{ floorPosition: "GROUND_FLOOR", usageFactor: "RESIDENTIAL", areaSqFt: 120 }],
       },
       "user-1"
     )
@@ -230,8 +230,8 @@ describe("QcRepository.qcCorrectSurvey", () => {
       surveyId,
       {
         floors: [
-          { floorPosition: "GROUND_FLOOR", areaSqFt: 80 },
-          { floorPosition: "FIRST_FLOOR", areaSqFt: 40 },
+          { floorPosition: "GROUND_FLOOR", usageFactor: "RESIDENTIAL", areaSqFt: 80 },
+          { floorPosition: "FIRST_FLOOR", usageFactor: "COMMERCIAL", areaSqFt: 40 },
         ],
         coOwners: [{ name: "Co Owner" }],
       },

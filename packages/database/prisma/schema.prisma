@@ -737,12 +737,13 @@ model CoOwner {
 }
 
 /// Floor-level built-up detail for tax assessment (many per survey).
+/// Multiple usage rows are allowed on the same floor level (mixed-use).
 model Floor {
   id               String            @id @default(cuid())
   surveyId         String
   clientFloorId    String?
   floorPosition    FloorPosition
-  usageFactor      UsageFactor?
+  usageFactor      UsageFactor
   usageType        UsageType?
   constructionType ConstructionType?
   occupancy        String?
@@ -753,7 +754,7 @@ model Floor {
 
   survey Survey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
 
-  @@unique([surveyId, floorPosition])
+  @@unique([surveyId, floorPosition, usageFactor])
   @@index([surveyId])
   @@index([surveyId, clientFloorId])
   @@map("floors")

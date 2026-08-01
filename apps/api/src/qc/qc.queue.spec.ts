@@ -96,4 +96,18 @@ describe("QcRepository queue first/neighbors", () => {
     findFirst.mockResolvedValue(null as never)
     await expect(repo.findQueueNeighbors(user, wardId, "missing")).rejects.toThrow(NotFoundException)
   })
+
+  it("finds pending parcel by parcel number", async () => {
+    findFirst.mockResolvedValue(queue[1] as never)
+    await expect(repo.findQueueByParcel(user, wardId, "2")).resolves.toEqual(queue[1])
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          wardId,
+          surveyStatus: "SUBMITTED",
+          qcStatus: "PENDING",
+        }),
+      })
+    )
+  })
 })

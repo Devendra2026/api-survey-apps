@@ -11,7 +11,6 @@ import {
   canDeleteRole,
   canModifyPermissions,
   isDepartmentRole,
-  isFullyLockedSystemRole,
   isSystemRole,
 } from "@/components/admin/roles/system-role-policy"
 import { UserAssignRoleDialog } from "@/components/admin/user-assign-role-dialog"
@@ -254,9 +253,7 @@ function AdminRolesPage() {
 
   const canEditMatrix = canManage && !actorIsDeptOnly
 
-  const isEditingMatrix = Boolean(
-    selected && canEditMatrix && canModifyPermissions(selected.name) && !isFullyLockedSystemRole(selected.name)
-  )
+  const isEditingMatrix = Boolean(selected && canEditMatrix && canModifyPermissions(selected.name))
 
   const renderDetail = (key: string) => {
     if (!selected) return null
@@ -285,8 +282,24 @@ function AdminRolesPage() {
           setDeleteOpen(true)
         }}
         onStartEditPermissions={() => {
-          if (!canEditMatrix || isFullyLockedSystemRole(selected.name)) return
+          if (!canEditMatrix) return
           setTab("permissions")
+        }}
+        onSaveMetadata={async (values) => {
+          try {
+            await updateRole.mutateAsync({
+              id: selected.id,
+              body: {
+                description: values.description,
+                ...(values.name && values.name !== selected.name ? { name: values.name } : {}),
+              },
+            })
+            toast.success("Role details saved")
+            await refetch()
+          } catch (error) {
+            toast.error(getApiErrorMessage(error))
+            throw error
+          }
         }}
         roleUsers={roleUsers}
         roleUsersLoading={roleUsersLoading || detailLoading}

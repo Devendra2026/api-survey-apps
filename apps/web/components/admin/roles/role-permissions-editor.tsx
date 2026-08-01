@@ -1,7 +1,7 @@
 "use client"
 
 import { PermissionChangePreview } from "@/components/admin/roles/permission-change-preview"
-import { PermissionMatrixTable } from "@/components/admin/roles/permission-matrix-table"
+import { PermissionGroupsPanel } from "@/components/admin/roles/permission-groups-panel"
 import { RolePermissionSummary } from "@/components/admin/roles/role-permission-summary"
 import { RolesUnsavedBar } from "@/components/admin/roles/roles-unsaved-bar"
 import { useRolePermissionsEditor } from "@/hooks/use-role-permissions-editor"
@@ -57,19 +57,15 @@ export function RolePermissionsEditor({
             control={editor.form.control}
             name="permissionIds"
             render={({ field }) => (
-              <PermissionMatrixTable
+              <PermissionGroupsPanel
                 permissions={editor.catalog}
                 selectedIds={new Set(field.value ?? [])}
-                baselineIds={editor.baselineIds}
                 loading={!editor.editorReady}
                 readOnly={!editor.canEditMatrix}
-                protectedIds={editor.protectedIds}
                 onChange={
                   editor.canEditMatrix
                     ? (next) => {
-                        const merged = new Set(next)
-                        for (const id of editor.protectedIds) merged.add(id)
-                        field.onChange([...merged])
+                        field.onChange([...next])
                       }
                     : undefined
                 }

@@ -21,8 +21,7 @@ export function buildWardActionHref(action: WardAction, ids: WardActionIds): str
 
   switch (action) {
     case "startQc":
-      params.set("status", "pendingQc")
-      return `/qc/registry?${params.toString()}`
+      return `/qc/queue/start?${params.toString()}`
     case "registry":
       return `/surveys?${params.toString()}`
     case "demand":

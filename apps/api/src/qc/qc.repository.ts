@@ -329,6 +329,23 @@ export class QcRepository {
     }
   }
 
+  async findQueueByParcel(user: AuthenticatedUser, wardId: string, parcelNumber: string) {
+    const normalized = parcelNumber.trim()
+    if (!normalized) {
+      throw new BadRequestException("Parcel number is required")
+    }
+    const variants = parcelNumberVariants(normalized)
+    const row = await this.prisma.db.survey.findFirst({
+      where: {
+        ...this.pendingQueueWhere(user, wardId),
+        OR: [{ parcelNumber: { in: variants } }, { parcelNumber: normalized }],
+      },
+      select: { id: true, parcelNumber: true },
+      orderBy: [{ parcelNumber: { sort: "asc", nulls: "last" } }, { id: "asc" }],
+    })
+    return row
+  }
+
   async getMetrics(user: AuthenticatedUser, filters: QcFiltersDto) {
     const where = this.buildWhere(user, filters)
     const now = new Date()
@@ -872,9 +889,13 @@ export class QcRepository {
     floor: QcFloorInputDto,
     position: number
   ): Promise<string | null> {
+    if (!floor.usageFactor) {
+      throw new BadRequestException("Floor usage factor is required")
+    }
+
     const data = {
       usageType: floor.usageType ?? null,
-      usageFactor: floor.usageFactor ?? null,
+      usageFactor: floor.usageFactor,
       constructionType: floor.constructionType ?? null,
       areaSqFt: floor.areaSqFt ?? null,
       position,
@@ -896,9 +917,10 @@ export class QcRepository {
 
     const upserted = await tx.floor.upsert({
       where: {
-        surveyId_floorPosition: {
+        surveyId_floorPosition_usageFactor: {
           surveyId,
           floorPosition: floor.floorPosition,
+          usageFactor: floor.usageFactor,
         },
       },
       create: {

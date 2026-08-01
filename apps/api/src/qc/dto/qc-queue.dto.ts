@@ -17,6 +17,16 @@ export class QcQueueNeighborsQueryDto {
   surveyId!: string
 }
 
+export class QcQueueByParcelQueryDto {
+  @ApiProperty({ description: "Active ward id" })
+  @IsString()
+  wardId!: string
+
+  @ApiProperty({ description: "Parcel number to jump to" })
+  @IsString()
+  parcelNumber!: string
+}
+
 export class QcQueueParcelDto {
   @ApiProperty()
   id!: string

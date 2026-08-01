@@ -616,7 +616,7 @@ export class EtlOrchestratorService {
             create: survey.floors.map((f) => ({
               clientFloorId: f.clientFloorId,
               floorPosition: (asEnum(f.floorPosition, FloorPosition) as FloorPosition) ?? FloorPosition.GROUND_FLOOR,
-              usageFactor: asEnum(f.usageFactor, UsageFactor),
+              usageFactor: (asEnum(f.usageFactor, UsageFactor) as UsageFactor) ?? UsageFactor.RESIDENTIAL,
               usageType: asEnum(f.usageType, UsageType),
               constructionType: asEnum(f.constructionType, ConstructionType),
               occupancy: f.occupancy,

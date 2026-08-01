@@ -12,11 +12,13 @@ import { formatParcelDisplay } from "@/lib/format-parcel"
 import { formatWardOptionLabel } from "@/lib/format-ward-label"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
+import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
 import { cn } from "@workspace/ui/lib/utils"
-import { ArrowLeft, Check, ChevronLeft, ChevronRight, Pencil, RotateCcw, Save, Trash2, X } from "lucide-react"
+import { ArrowLeft, Check, ChevronLeft, ChevronRight, Pencil, RotateCcw, Save, Trash2, X, XCircle } from "lucide-react"
 import Link from "next/link"
+import { useMemo, useState } from "react"
 
 export function QcReviewActionBar({
   survey,
@@ -35,6 +37,8 @@ export function QcReviewActionBar({
   onNext,
   onReopen,
   onApprove,
+  onReject,
+  onParcelJump,
   onDelete,
   onEdit,
   onSave,
@@ -56,6 +60,8 @@ export function QcReviewActionBar({
   onNext: () => void
   onReopen: () => void
   onApprove: () => void
+  onReject: () => void
+  onParcelJump: (parcelNumber: string) => void | Promise<void>
   onDelete: () => void
   onEdit: () => void
   onSave: () => void
@@ -66,9 +72,23 @@ export function QcReviewActionBar({
   const isRejected = survey.surveyStatus === "REJECTED" || survey.qcStatus === "REJECTED"
   const canEdit = isPendingQc && !editMode
   const locked = isApproved && !editMode
+  const [parcelJump, setParcelJump] = useState("")
 
   const ulbId = activeUlbId || survey.editable.ulbId
   const { data: wards, isLoading: wardsLoading } = useWards(ulbId || undefined)
+
+  const activeWardLabel = useMemo(() => {
+    const wardId = activeWardId || survey.editable.wardId
+    const ward = (wards?.items ?? []).find((w) => w.id === wardId)
+    const wardPart = ward
+      ? `Ward ${ward.wardNumber}${ward.wardName ? ` (${ward.wardName})` : ""}`
+      : wardNoDisplay
+        ? `Ward ${wardNoDisplay}`
+        : null
+    const ulbPart = survey.ulbName?.trim() || null
+    if (ulbPart && wardPart) return `${ulbPart} – ${wardPart}`
+    return ulbPart ?? wardPart
+  }, [activeWardId, survey.editable.wardId, survey.ulbName, wards?.items, wardNoDisplay])
 
   return (
     <div className="mb-4 space-y-3">
@@ -151,15 +171,27 @@ export function QcReviewActionBar({
                   </Button>
                 ) : null}
                 {isPendingQc ? (
-                  <Button
-                    size="sm"
-                    className="cursor-pointer bg-emerald-600 text-white hover:bg-emerald-700"
-                    disabled={pending}
-                    onClick={onApprove}
-                  >
-                    <Check className="size-3.5" />
-                    Approve
-                  </Button>
+                  <>
+                    <Button
+                      size="sm"
+                      className="cursor-pointer bg-emerald-600 text-white hover:bg-emerald-700"
+                      disabled={pending}
+                      onClick={onApprove}
+                    >
+                      <Check className="size-3.5" />
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="cursor-pointer border-rose-300 text-rose-700 hover:bg-rose-50 dark:border-rose-900 dark:text-rose-300"
+                      disabled={pending}
+                      onClick={onReject}
+                    >
+                      <XCircle className="size-3.5" />
+                      Reject
+                    </Button>
+                  </>
                 ) : null}
               </>
             )}
@@ -179,11 +211,12 @@ export function QcReviewActionBar({
           </div>
         </div>
 
-        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div className="space-y-1.5 sm:max-w-md sm:min-w-64">
             <Label htmlFor="qc-active-ward" className="text-xs font-medium text-muted-foreground">
               Active Ward
             </Label>
+            {activeWardLabel ? <p className="text-sm font-medium text-foreground">{activeWardLabel}</p> : null}
             <Select
               value={activeWardId || survey.editable.wardId || undefined}
               onValueChange={onActiveWardChange}
@@ -201,6 +234,39 @@ export function QcReviewActionBar({
               </SelectContent>
             </Select>
           </div>
+
+          <form
+            className="flex w-full max-w-sm items-end gap-2"
+            onSubmit={(e) => {
+              e.preventDefault()
+              const value = parcelJump.trim()
+              if (!value) return
+              void onParcelJump(value)
+            }}
+          >
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <Label htmlFor="qc-parcel-jump" className="text-xs font-medium text-muted-foreground">
+                Go to parcel
+              </Label>
+              <Input
+                id="qc-parcel-jump"
+                value={parcelJump}
+                onChange={(e) => setParcelJump(e.target.value)}
+                placeholder="Parcel number"
+                className="h-9 bg-white/60 font-mono dark:bg-white/5"
+                disabled={pending || !activeWardId}
+              />
+            </div>
+            <Button
+              type="submit"
+              size="sm"
+              variant="outline"
+              className="h-9 cursor-pointer"
+              disabled={pending || !activeWardId}
+            >
+              Go
+            </Button>
+          </form>
         </div>
 
         <div className="mb-3 flex flex-wrap items-center gap-2">

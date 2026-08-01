@@ -10,12 +10,7 @@ import type {
   UpdateRoleDto,
 } from "./dto/role.dto.js"
 import { validateViewDependencies } from "./permission-dependency.js"
-import {
-  isFullyLockedSystemRole,
-  isSystemRole,
-  SYSTEM_ROLE_NAMES,
-  validatePermissionChange,
-} from "./system-role-policy.js"
+import { isSystemRole, SYSTEM_ROLE_NAMES, validatePermissionChange } from "./system-role-policy.js"
 
 export { SYSTEM_ROLE_NAMES }
 
@@ -125,10 +120,7 @@ export class RolesRepository {
   }
 
   async assignPermission(dto: AssignPermissionDto) {
-    const role = await this.findById(dto.roleId)
-    if (isFullyLockedSystemRole(role.name)) {
-      throw new BadRequestException("System role permissions cannot be modified")
-    }
+    await this.findById(dto.roleId)
     try {
       return await this.prisma.db.rolePermission.create({
         data: { roleId: dto.roleId, permissionId: dto.permissionId },
@@ -140,13 +132,7 @@ export class RolesRepository {
   }
 
   async removePermission(roleId: string, permissionId: string) {
-    const role = await this.findById(roleId)
-    if (isFullyLockedSystemRole(role.name)) {
-      throw new BadRequestException("System role permissions cannot be modified")
-    }
-    if (isSystemRole(role.name)) {
-      throw new BadRequestException("Cannot remove permissions from add-only system roles via granular API")
-    }
+    await this.findById(roleId)
     try {
       return await this.prisma.db.rolePermission.delete({
         where: { roleId_permissionId: { roleId, permissionId } },
@@ -158,8 +144,7 @@ export class RolesRepository {
 
   /**
    * Replace role permissions with a validated set inside a single transaction,
-   * including security audit. Fully locked system roles reject all changes;
-   * add-only system roles must retain their seeded baseline.
+   * including security audit. All roles (including system) accept full edits.
    */
   async setPermissions(roleId: string, dto: SetRolePermissionsDto, actor: SecurityAuditActor) {
     const before = await this.findById(roleId)

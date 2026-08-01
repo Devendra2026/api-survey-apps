@@ -25,6 +25,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@workspace/ui/components/dialog"
+import { Textarea } from "@workspace/ui/components/textarea"
 import { formatPropertyId, parsePropertyId } from "@workspace/validation"
 import { useRouter } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
@@ -55,6 +56,8 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
   const [draft, setDraft] = useState<QcSurveyEditable | null>(() => survey?.editable ?? null)
   const [draftSurveyId, setDraftSurveyId] = useState<string | null>(() => survey?.id ?? null)
   const [reopenOpen, setReopenOpen] = useState(false)
+  const [rejectOpen, setRejectOpen] = useState(false)
+  const [rejectRemarks, setRejectRemarks] = useState("")
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [wardSwitchId, setWardSwitchId] = useState<string | null>(null)
   const [wardSwitchPending, setWardSwitchPending] = useState(false)
@@ -192,6 +195,7 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
   const pending =
     actions.reopen.isPending ||
     actions.approve.isPending ||
+    actions.reject.isPending ||
     actions.remove.isPending ||
     actions.correct.isPending ||
     wardSwitchPending
@@ -259,7 +263,8 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
             id: f.id,
             floorPosition: f.floorPosition,
             usageType: f.usageType,
-            usageFactor: f.usageFactor,
+            // Legacy rows may still have null/empty until migration backfill; coerce for validation.
+            usageFactor: f.usageFactor || "RESIDENTIAL",
             constructionType: f.constructionType,
             areaSqFt: f.areaSqFt,
           })),
@@ -320,6 +325,28 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
             await actions.approve.mutateAsync(survey.id)
             toast.success("Survey approved")
             await advanceAfterComplete()
+          } catch (error) {
+            toast.error(getApiErrorMessage(error))
+          }
+        }}
+        onReject={() => {
+          setRejectRemarks("")
+          setRejectOpen(true)
+        }}
+        onParcelJump={async (parcelNumber) => {
+          if (!effectiveWardId) {
+            toast.error("Select an active ward first")
+            return
+          }
+          try {
+            const found = await apiGet<QcQueueParcel | null>(
+              `/qc/queue/by-parcel?wardId=${encodeURIComponent(effectiveWardId)}&parcelNumber=${encodeURIComponent(parcelNumber)}`
+            )
+            if (!found?.id) {
+              toast.error("No parcel found in this ward")
+              return
+            }
+            goToNeighbor(found.id)
           } catch (error) {
             toast.error(getApiErrorMessage(error))
           }
@@ -388,6 +415,46 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
               }}
             >
               Reopen
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject survey</DialogTitle>
+            <DialogDescription>
+              Return this survey to the field with QC remarks. You will advance to the next pending parcel in this ward.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={rejectRemarks}
+            onChange={(e) => setRejectRemarks(e.target.value)}
+            placeholder="QC remarks (required)"
+            className="min-h-24"
+            aria-label="QC remarks"
+          />
+          <DialogFooter>
+            <Button variant="outline" className="cursor-pointer" onClick={() => setRejectOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              className="cursor-pointer"
+              disabled={actions.reject.isPending || !rejectRemarks.trim()}
+              onClick={async () => {
+                try {
+                  await actions.reject.mutateAsync({ id: survey.id, qcRemarks: rejectRemarks.trim() })
+                  toast.success("Survey rejected")
+                  setRejectOpen(false)
+                  await advanceAfterComplete()
+                } catch (error) {
+                  toast.error(getApiErrorMessage(error))
+                }
+              }}
+            >
+              Reject
             </Button>
           </DialogFooter>
         </DialogContent>

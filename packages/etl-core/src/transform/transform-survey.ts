@@ -98,11 +98,12 @@ export function transformSurveyBundle(
       email: bundle.surveyorEmail,
     }) ?? ctx.systemUserId
 
-  const propertyId =
-    (bundle.propertyId?.trim() ||
-      bundle.parcelNo?.trim() ||
-      bundle.localId?.trim() ||
-      legacySurveyId).toUpperCase()
+  const propertyId = (
+    bundle.propertyId?.trim() ||
+    bundle.parcelNo?.trim() ||
+    bundle.localId?.trim() ||
+    legacySurveyId
+  ).toUpperCase()
 
   const photos: MappedPhotoPlan[] = []
   for (const photo of bundle.photos ?? []) {
@@ -152,27 +153,29 @@ export function transformSurveyBundle(
       mapFloorPosition(floor.position == null ? null : String(floor.position)) ??
       mapFloorPositionByIndex(floor.position ?? index) ??
       "GROUND_FLOOR",
-    usageFactor: mapUsageFactor(floor.usageFactor),
+    usageFactor: mapUsageFactor(floor.usageFactor) ?? "RESIDENTIAL",
     usageType: mapUsageType(floor.usageType),
     constructionType: mapConstructionType(floor.constructionType),
     occupancy: floor.isOccupied ? "OCCUPIED" : "VACANT",
     areaSqFt: floor.areaSqft ?? 0,
     position: floor.position ?? index,
   }))
-  // Prisma @@unique([surveyId, floorPosition]) — collapse duplicate mapped positions
-  const floorsByPosition = new Map<string, (typeof floorsRaw)[number]>()
+  // Keep separate rows for same floor + different usage (mixed-use).
+  // Only merge areas when floorPosition AND usageFactor match.
+  const floorsByKey = new Map<string, (typeof floorsRaw)[number]>()
   for (const floor of floorsRaw) {
-    const existing = floorsByPosition.get(floor.floorPosition)
+    const key = `${floor.floorPosition}::${floor.usageFactor ?? "UNKNOWN"}`
+    const existing = floorsByKey.get(key)
     if (!existing) {
-      floorsByPosition.set(floor.floorPosition, floor)
+      floorsByKey.set(key, floor)
       continue
     }
-    floorsByPosition.set(floor.floorPosition, {
+    floorsByKey.set(key, {
       ...existing,
       areaSqFt: existing.areaSqFt + floor.areaSqFt,
     })
   }
-  const floors = [...floorsByPosition.values()]
+  const floors = [...floorsByKey.values()]
 
   const waterConnection = mapWaterConnection(
     bundle.municipalWaterConnection === true ? "yes" : bundle.municipalWaterConnection === false ? "no" : undefined

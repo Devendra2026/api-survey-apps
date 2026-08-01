@@ -1,9 +1,5 @@
-import {
-  isFullyLockedSystemRole,
-  isSystemRole,
-  protectedPermissionNames,
-  validatePermissionChange,
-} from "./system-role-policy.js"
+import { describe, expect, it } from "@jest/globals"
+import { isFullyLockedSystemRole, isSystemRole, validatePermissionChange } from "./system-role-policy.js"
 
 describe("system-role-policy", () => {
   it("identifies system roles", () => {
@@ -11,23 +7,12 @@ describe("system-role-policy", () => {
     expect(isSystemRole("QC_MANAGER")).toBe(false)
   })
 
-  it("fully locks ADMIN and PENDING_APPROVAL", () => {
-    expect(isFullyLockedSystemRole("ADMIN")).toBe(true)
-    expect(isFullyLockedSystemRole("PENDING_APPROVAL")).toBe(true)
+  it("allows full permission edits on all system roles", () => {
+    expect(isFullyLockedSystemRole("ADMIN")).toBe(false)
+    expect(isFullyLockedSystemRole("PENDING_APPROVAL")).toBe(false)
     expect(isFullyLockedSystemRole("SURVEYOR")).toBe(false)
-    expect(validatePermissionChange("ADMIN", new Set(["dashboard:view"]))).toContain("cannot be modified")
-  })
-
-  it("blocks removing protected baseline from add-only roles", () => {
-    const next = new Set(["survey:view", "dashboard:view"])
-    const error = validatePermissionChange("SURVEYOR", next)
-    expect(error).toContain("protected system permission")
-  })
-
-  it("allows adding permissions to SURVEYOR when baseline kept", () => {
-    const baseline = protectedPermissionNames("SURVEYOR")
-    const next = new Set([...baseline, "report:view"])
-    expect(validatePermissionChange("SURVEYOR", next)).toBeNull()
+    expect(validatePermissionChange("ADMIN", new Set(["dashboard:view"]))).toBeNull()
+    expect(validatePermissionChange("SURVEYOR", new Set(["survey:view"]))).toBeNull()
   })
 
   it("allows any change on custom roles", () => {

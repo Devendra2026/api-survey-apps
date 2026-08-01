@@ -1,12 +1,7 @@
 "use client"
 
 import { diffPermissionIds, rolePermissionIdSet, setsEqual } from "@/components/admin/roles/permission-utils"
-import {
-  canModifyPermissions,
-  isFullyLockedSystemRole,
-  protectedPermissionIds,
-  roleCategory,
-} from "@/components/admin/roles/system-role-policy"
+import { canModifyPermissions, roleCategory } from "@/components/admin/roles/system-role-policy"
 import { usePermissionsCatalog, useRole, useRoleUsers, useSetRolePermissions } from "@/hooks/use-api"
 import { getApiErrorMessage } from "@/lib/api/client"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -79,12 +74,9 @@ export function useRolePermissionsEditor({
 
   const roleName = roleDetail?.name ?? ""
   const category = roleName ? roleCategory(roleName) : "CUSTOM"
-  const fullyLocked = roleName ? isFullyLockedSystemRole(roleName) : false
-  const canEditMatrix = Boolean(canManage && roleDetail && canModifyPermissions(roleName) && !fullyLocked)
-  const protectedIds = useMemo(
-    () => (roleName ? protectedPermissionIds(roleName, catalog) : new Set<string>()),
-    [roleName, catalog]
-  )
+  const fullyLocked = false
+  const canEditMatrix = Boolean(canManage && roleDetail && canModifyPermissions(roleName))
+  const protectedIds = useMemo(() => new Set<string>(), [])
 
   useEffect(() => {
     onDirtyChange?.(dirty)
@@ -114,9 +106,7 @@ export function useRolePermissionsEditor({
 
   const applyDraft = (next: Set<string>) => {
     if (!canEditMatrix) return
-    const merged = new Set(next)
-    for (const id of protectedIds) merged.add(id)
-    form.setValue("permissionIds", [...merged], {
+    form.setValue("permissionIds", [...next], {
       shouldDirty: true,
       shouldTouch: true,
       shouldValidate: false,
@@ -130,7 +120,7 @@ export function useRolePermissionsEditor({
 
   const reset = () => {
     form.reset({ permissionIds: [...baselineIds] })
-    toast.message("Matrix reset to last saved state")
+    toast.message("Permissions reset to last saved state")
   }
 
   const refetch = useCallback(async () => {

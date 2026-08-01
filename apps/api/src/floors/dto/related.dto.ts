@@ -30,10 +30,9 @@ export class CreateFloorDto {
   @IsEnum(FloorPosition)
   floorPosition!: FloorPosition
 
-  @ApiPropertyOptional({ enum: UsageFactor })
-  @IsOptional()
+  @ApiProperty({ enum: UsageFactor })
   @IsEnum(UsageFactor)
-  usageFactor?: UsageFactor
+  usageFactor!: UsageFactor
 
   @ApiPropertyOptional({ enum: UsageType })
   @IsOptional()

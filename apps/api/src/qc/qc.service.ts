@@ -44,6 +44,10 @@ export class QcService {
     return this.qcRepository.findQueueNeighbors(user, wardId, surveyId)
   }
 
+  findQueueByParcel(wardId: string, parcelNumber: string, user: AuthenticatedUser) {
+    return this.qcRepository.findQueueByParcel(user, wardId, parcelNumber)
+  }
+
   async getSurveyDetail(id: string, user: AuthenticatedUser): Promise<QcSurveyDetailDto> {
     const found = await this.surveysRepository.findById(id, user)
     const row = await this.surveysService.ensureFormulaPropertyId(found)

@@ -33,11 +33,20 @@ export class FloorsRepository {
   }
 
   async create(data: CreateFloorDto) {
+    if (!data.usageFactor) {
+      throw new BadRequestException("Usage factor is required")
+    }
     const dup = await this.prisma.db.floor.findFirst({
-      where: { surveyId: data.surveyId, floorPosition: data.floorPosition },
+      where: {
+        surveyId: data.surveyId,
+        floorPosition: data.floorPosition,
+        usageFactor: data.usageFactor,
+      },
     })
     if (dup) {
-      throw new BadRequestException(`Duplicate floor position: ${data.floorPosition}`)
+      throw new BadRequestException(
+        `Duplicate floor usage: ${data.floorPosition} + ${data.usageFactor} already exists on this survey`
+      )
     }
 
     return this.prisma.db.$transaction(async (tx) => {
@@ -59,16 +68,24 @@ export class FloorsRepository {
 
   async update(id: string, data: UpdateFloorDto) {
     const existing = await this.findById(id)
-    if (data.floorPosition && data.floorPosition !== existing.floorPosition) {
+    const nextPosition = data.floorPosition ?? existing.floorPosition
+    const nextUsage = data.usageFactor ?? existing.usageFactor
+    if (
+      (data.floorPosition && data.floorPosition !== existing.floorPosition) ||
+      (data.usageFactor && data.usageFactor !== existing.usageFactor)
+    ) {
       const dup = await this.prisma.db.floor.findFirst({
         where: {
           surveyId: existing.surveyId,
-          floorPosition: data.floorPosition,
+          floorPosition: nextPosition,
+          usageFactor: nextUsage,
           NOT: { id },
         },
       })
       if (dup) {
-        throw new BadRequestException(`Duplicate floor position: ${data.floorPosition}`)
+        throw new BadRequestException(
+          `Duplicate floor usage: ${nextPosition} + ${nextUsage} already exists on this survey`
+        )
       }
     }
 

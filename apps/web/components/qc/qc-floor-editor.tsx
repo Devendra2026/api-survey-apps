@@ -53,7 +53,7 @@ type FloorForm = {
 const emptyForm = (): FloorForm => ({
   floorPosition: "GROUND_FLOOR",
   usageType: "",
-  usageFactor: "",
+  usageFactor: "RESIDENTIAL",
   constructionType: "",
   areaSqFt: "",
 })
@@ -115,6 +115,10 @@ export function QcFloorEditor({
       toast.error("Floor position is required")
       return
     }
+    if (!form.usageFactor) {
+      toast.error("Usage factor is required")
+      return
+    }
     const areaSqFt = form.areaSqFt === "" ? null : Number(form.areaSqFt)
     if (form.areaSqFt !== "" && Number.isNaN(areaSqFt)) {
       toast.error("Area must be a number")
@@ -123,7 +127,7 @@ export function QcFloorEditor({
     const body = {
       floorPosition: form.floorPosition,
       usageType: form.usageType || null,
-      usageFactor: form.usageFactor || null,
+      usageFactor: form.usageFactor,
       constructionType: form.constructionType || null,
       areaSqFt,
     }
@@ -197,6 +201,9 @@ export function QcFloorEditor({
 
   return (
     <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        Mixed use: add one row per usage on the same floor (e.g. Ground + Residential and Ground + Commercial).
+      </p>
       <div className="overflow-x-auto rounded-xl border border-white/30 dark:border-white/10">
         <Table>
           <TableHeader>

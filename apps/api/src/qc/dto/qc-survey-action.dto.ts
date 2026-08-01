@@ -55,10 +55,13 @@ export class QcFloorInputDto {
   @IsEnum(UsageType)
   usageType?: UsageType
 
-  @ApiPropertyOptional({ enum: UsageFactor })
-  @IsOptional()
+  @ApiProperty({ enum: UsageFactor })
+  @Transform(({ value }: { value: unknown }) => {
+    if (value === null || value === undefined || value === "") return UsageFactor.RESIDENTIAL
+    return value as UsageFactor
+  })
   @IsEnum(UsageFactor)
-  usageFactor?: UsageFactor
+  usageFactor!: UsageFactor
 
   @ApiPropertyOptional({ enum: ConstructionType })
   @IsOptional()

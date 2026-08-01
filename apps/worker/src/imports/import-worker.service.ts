@@ -387,19 +387,22 @@ export class ImportWorkerService {
 
               await tx.floor.deleteMany({ where: { surveyId } })
               const floorRows = floorsByPid.get(childKey) ?? []
-              const seenPositions = new Set<string>()
+              const seenFloorKeys = new Set<string>()
               for (const floorRow of floorRows) {
                 const positionRaw = mapFloorPosition(floorRow.Floor)
                 if (!positionRaw || !isFloorPosition(positionRaw)) continue
-                if (seenPositions.has(positionRaw)) continue
-                seenPositions.add(positionRaw)
+                const usageFactor = asEnum(mapUsageFactor(floorRow["Usage Factor"]), isUsageFactor)
+                if (!usageFactor) continue
+                const floorKey = `${positionRaw}::${usageFactor}`
+                if (seenFloorKeys.has(floorKey)) continue
+                seenFloorKeys.add(floorKey)
                 const areaSqFt = parseNumber(floorRow["Area (Sqft)"])
                 await tx.floor.create({
                   data: {
                     surveyId,
                     clientFloorId: emptyToUndefined(floorRow["Client Floor ID"]),
                     floorPosition: positionRaw,
-                    usageFactor: asEnum(mapUsageFactor(floorRow["Usage Factor"]), isUsageFactor),
+                    usageFactor,
                     usageType: asEnum(mapUsageType(floorRow["Usage Type"]), isUsageType),
                     constructionType: asEnum(mapConstructionType(floorRow["Construction Type"]), isConstructionType),
                     occupancy: emptyToUndefined(floorRow.Occupancy),

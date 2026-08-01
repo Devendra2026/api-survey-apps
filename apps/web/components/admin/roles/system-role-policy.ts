@@ -24,9 +24,12 @@ export const PLATFORM_ROLE_CODES = new Set([
   "ADMIN",
 ])
 
-/** System roles that may add permissions but cannot remove seeded baseline. */
-export const ADD_ONLY_SYSTEM_ROLES = new Set(["SURVEYOR", "FIELD_SUPERVISOR", "QC_SUPERVISOR"])
+/**
+ * @deprecated Full edit is allowed for all roles; retained for baseline reference / future Refresh RBAC.
+ */
+export const ADD_ONLY_SYSTEM_ROLES = new Set<string>()
 
+/** Seeded baseline permission names (informational; not enforced on save). */
 export const SYSTEM_ROLE_BASELINE: Record<string, readonly string[]> = {
   PENDING_APPROVAL: [],
   SURVEYOR: [
@@ -94,15 +97,12 @@ export function roleCategory(roleName: string): RoleCategory {
   return isSystemRole(roleName) ? "SYSTEM" : "CUSTOM"
 }
 
-export function canModifyPermissions(roleName: string): boolean {
-  if (isDepartmentRole(roleName)) return true
-  if (!isSystemRole(roleName)) return true
-  return ADD_ONLY_SYSTEM_ROLES.has(roleName)
+export function canModifyPermissions(_roleName: string): boolean {
+  return true
 }
 
-export function isFullyLockedSystemRole(roleName: string): boolean {
-  if (isDepartmentRole(roleName)) return false
-  return isSystemRole(roleName) && !ADD_ONLY_SYSTEM_ROLES.has(roleName)
+export function isFullyLockedSystemRole(_roleName: string): boolean {
+  return false
 }
 
 export function canRenameRole(roleName: string): boolean {
@@ -113,9 +113,8 @@ export function canDeleteRole(roleName: string): boolean {
   return !isSystemRole(roleName)
 }
 
-export function protectedPermissionNames(roleName: string): ReadonlySet<string> {
-  if (!isSystemRole(roleName) || isDepartmentRole(roleName)) return new Set()
-  return new Set(SYSTEM_ROLE_BASELINE[roleName] ?? [])
+export function protectedPermissionNames(_roleName: string): ReadonlySet<string> {
+  return new Set()
 }
 
 /**

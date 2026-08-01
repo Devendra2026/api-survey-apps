@@ -1,3 +1,4 @@
+import type { FloorUsageWarning } from "../floors/floor-usage-warnings.util.js"
 import type { SurveyDetailsDto } from "../surveys/dto/survey-view.dto.js"
 
 type DecimalLike = { toString(): string } | number | string | null | undefined
@@ -72,6 +73,7 @@ export type QcSurveyEditable = {
 export type QcSurveyDetailDto = SurveyDetailsDto & {
   editable: QcSurveyEditable
   stateName?: string
+  warnings: FloorUsageWarning[]
 }
 
 type SurveyForEditable = {
@@ -105,6 +107,7 @@ type SurveyForEditable = {
   assessmentYear: string
   plotAreaSqFt: DecimalLike
   plinthAreaSqFt: DecimalLike
+  totalBuiltAreaSqFt?: DecimalLike
   waterConnection: string | null
   sourceOfWater: string | null
   sanitationType: string | null

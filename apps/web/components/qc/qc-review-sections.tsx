@@ -12,7 +12,7 @@ import {
   SurveyViewField,
 } from "@/components/surveys/survey-view-field"
 import { useDistricts, useStates, useUlbs, useUsers, useWards } from "@/hooks/use-api"
-import type { QcSurveyDetail, QcSurveyEditable, SurveyAuditHistoryItem } from "@/lib/api/types"
+import type { FloorUsageWarning, QcSurveyDetail, QcSurveyEditable, SurveyAuditHistoryItem } from "@/lib/api/types"
 import { formatWardOptionLabel } from "@/lib/format-ward-label"
 import { useAuthStore } from "@/stores/app-store"
 import type { ColumnDef } from "@tanstack/react-table"
@@ -22,6 +22,7 @@ import { Input } from "@workspace/ui/components/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@workspace/ui/components/table"
 import { cn } from "@workspace/ui/lib/utils"
+import { AlertTriangle } from "lucide-react"
 import { useMemo } from "react"
 
 function GlassSection({
@@ -471,6 +472,22 @@ export function QcReviewSections({
       </div>
 
       <GlassSection title="Taxation & Floor Details" subtitle="Assessment classification and floor breakdown.">
+        {(survey.warnings?.length ?? 0) > 0 ? (
+          <div
+            role="status"
+            className="mb-4 space-y-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-950 dark:text-amber-100"
+          >
+            <div className="flex items-center gap-2 font-medium">
+              <AlertTriangle className="size-4 shrink-0" aria-hidden />
+              Floor usage checks ({survey.warnings!.length})
+            </div>
+            <ul className="list-disc space-y-1 pl-5 text-xs leading-relaxed">
+              {survey.warnings!.map((w: FloorUsageWarning, i) => (
+                <li key={`${w.code}-${w.floorPosition ?? ""}-${w.usageFactor ?? ""}-${i}`}>{w.message}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <EditableField label="Assessment Year" editMode={editMode} display={survey.assessmentYear}>
             <Select value={draft.assessmentYear || ""} onValueChange={(v) => setField("assessmentYear", v)}>

@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@workspace/ui/components/table"
 import { cn } from "@workspace/ui/lib/utils"
 import { Pencil, Plus, Trash2 } from "lucide-react"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { toast } from "sonner"
 
 const FLOOR_POSITION_OPTIONS = [
@@ -92,6 +92,18 @@ export function QcFloorEditor({
 
   const busy = floorsApi.create.isPending || floorsApi.update.isPending || floorsApi.remove.isPending
 
+  const derivedFloorTotals = useMemo(() => {
+    const byPosition = new Map<string, number>()
+    for (const floor of editableFloors) {
+      if (floor.areaSqFt == null || !Number.isFinite(floor.areaSqFt)) continue
+      byPosition.set(floor.floorPosition, (byPosition.get(floor.floorPosition) ?? 0) + floor.areaSqFt)
+    }
+    return [...byPosition.entries()].map(([floorPosition, totalSqFt]) => ({
+      floorPosition,
+      totalSqFt,
+    }))
+  }, [editableFloors])
+
   const startAdd = () => {
     setEditingId(null)
     setAdding(true)
@@ -158,6 +170,12 @@ export function QcFloorEditor({
   if (!editMode) {
     return (
       <>
+        {derivedFloorTotals.length > 0 ? (
+          <p className="mb-2 text-xs text-muted-foreground">
+            Derived floor totals:{" "}
+            {derivedFloorTotals.map((row) => `${labelEnum(row.floorPosition)} ${row.totalSqFt} sq ft`).join(" · ")}
+          </p>
+        ) : null}
         <div className="overflow-x-auto rounded-xl border border-white/30 dark:border-white/10">
           <Table>
             <TableHeader>
@@ -204,6 +222,12 @@ export function QcFloorEditor({
       <p className="text-xs text-muted-foreground">
         Mixed use: add one row per usage on the same floor (e.g. Ground + Residential and Ground + Commercial).
       </p>
+      {derivedFloorTotals.length > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Derived floor totals:{" "}
+          {derivedFloorTotals.map((row) => `${labelEnum(row.floorPosition)} ${row.totalSqFt} sq ft`).join(" · ")}
+        </p>
+      ) : null}
       <div className="overflow-x-auto rounded-xl border border-white/30 dark:border-white/10">
         <Table>
           <TableHeader>

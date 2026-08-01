@@ -28,18 +28,24 @@ export class FloorsService {
 
   async create(dto: CreateFloorDto, user: AuthenticatedUser) {
     await this.surveysService.assertEditableSurvey(dto.surveyId, user)
-    return this.floorsRepository.create(dto)
+    const result = await this.floorsRepository.create(dto)
+    const warnings = await this.floorsRepository.getUsageWarnings(dto.surveyId)
+    return { ...result, warnings }
   }
 
   async update(id: string, dto: UpdateFloorDto, user: AuthenticatedUser) {
     const floor = await this.floorsRepository.findById(id)
     await this.surveysService.assertEditableSurvey(floor.surveyId, user)
-    return this.floorsRepository.update(id, dto)
+    const result = await this.floorsRepository.update(id, dto)
+    const warnings = await this.floorsRepository.getUsageWarnings(floor.surveyId)
+    return { ...result, warnings }
   }
 
   async delete(id: string, user: AuthenticatedUser) {
     const floor = await this.floorsRepository.findById(id)
     await this.surveysService.assertEditableSurvey(floor.surveyId, user)
-    return this.floorsRepository.delete(id)
+    const result = await this.floorsRepository.delete(id)
+    const warnings = await this.floorsRepository.getUsageWarnings(floor.surveyId)
+    return { ...result, warnings }
   }
 }

@@ -692,8 +692,23 @@ export interface QcSurveyEditable {
   coOwners: QcSurveyCoOwnerEditable[]
 }
 
+export interface FloorUsageWarning {
+  code:
+    | "MIXED_USE_PROPERTY_USE_MISMATCH"
+    | "FLOOR_AREA_EXCEEDS_PLOT"
+    | "FLOOR_AREA_EXCEEDS_PLINTH"
+    | "BUILT_UP_MISMATCH"
+    | "MISSING_FLOOR_AREA"
+    | "USAGE_FACTOR_MIXED_AMBIGUOUS"
+  severity: "warning"
+  message: string
+  floorPosition?: string
+  usageFactor?: string
+}
+
 export interface QcSurveyDetail extends SurveyDetails {
   editable: QcSurveyEditable
+  warnings?: FloorUsageWarning[]
 }
 
 export type QcSurveyAction = "reopen" | "approve" | "delete" | "correct" | "reject"

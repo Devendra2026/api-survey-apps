@@ -6,6 +6,7 @@ import { sqFtToSqMeter } from "../common/utils/decimal.util.js"
 import { buildOrderBy, getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import type { CreateFloorDto, UpdateFloorDto } from "./dto/related.dto.js"
+import { warningsFromSurveyRow, type FloorUsageWarning } from "./floor-usage-warnings.util.js"
 
 @Injectable()
 export class FloorsRepository {
@@ -141,5 +142,27 @@ export class FloorsRepository {
       totalResidentialAreaSqFt: residential,
       totalCommercialAreaSqFt: commercial,
     }
+  }
+
+  async getUsageWarnings(surveyId: string): Promise<FloorUsageWarning[]> {
+    const survey = await this.prisma.db.survey.findUnique({
+      where: { id: surveyId },
+      select: {
+        propertyUse: true,
+        propertyType: true,
+        plotAreaSqFt: true,
+        plinthAreaSqFt: true,
+        totalBuiltAreaSqFt: true,
+        floors: {
+          select: {
+            floorPosition: true,
+            usageFactor: true,
+            areaSqFt: true,
+          },
+        },
+      },
+    })
+    if (!survey) return []
+    return warningsFromSurveyRow(survey)
   }
 }

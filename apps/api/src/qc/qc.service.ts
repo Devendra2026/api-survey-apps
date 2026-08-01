@@ -10,6 +10,7 @@ import { SurveysService } from "../surveys/surveys.service.js"
 import type { QcFiltersDto } from "./dto/qc-filters.dto.js"
 import type { QcRegistryQueryDto } from "./dto/qc-registry.dto.js"
 import type { QcSurveyActionDto, QcSurveyCorrectionDto } from "./dto/qc-survey-action.dto.js"
+import { warningsFromSurveyRow } from "../floors/floor-usage-warnings.util.js"
 import { mapQcEditable, type QcSurveyDetailDto } from "./qc-survey.mapper.js"
 import { QcRepository } from "./qc.repository.js"
 
@@ -55,6 +56,7 @@ export class QcService {
       ...mapSurveyToDetailsDto(row),
       editable: mapQcEditable(row),
       stateName: row.state?.name,
+      warnings: warningsFromSurveyRow(row),
     }
     return refreshSurveyPhotoUrls(this.storageService, detail, row.photos, this.logger)
   }
@@ -92,6 +94,7 @@ export class QcService {
           ...mapSurveyToDetailsDto(updated),
           editable: mapQcEditable(updated),
           stateName: updated.state?.name,
+          warnings: warningsFromSurveyRow(updated),
         }
         return refreshSurveyPhotoUrls(this.storageService, detail, updated.photos, this.logger)
       }

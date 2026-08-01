@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger"
-import { IsString, IsUUID } from "class-validator"
+import { IsString } from "class-validator"
 
 export class QcQueueFirstQueryDto {
   @ApiProperty({ description: "Active ward id" })
@@ -12,8 +12,9 @@ export class QcQueueNeighborsQueryDto {
   @IsString()
   wardId!: string
 
+  /** Prisma survey ids are CUIDs, not UUIDs. */
   @ApiProperty({ description: "Current survey id" })
-  @IsUUID()
+  @IsString()
   surveyId!: string
 }
 

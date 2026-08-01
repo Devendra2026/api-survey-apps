@@ -55,23 +55,39 @@ export class UsersRepository {
       "DEPT_OPERATOR",
     ] as const
 
-    const [total, active, disabled, ...roleCounts] = await Promise.all([
+    const fieldRoleNames = ["SURVEYOR", "FIELD_SUPERVISOR", "QC_SUPERVISOR"] as const
+
+    const [total, active, disabled, roleCounts, locationRows] = await Promise.all([
       this.prisma.db.user.count({ where: baseWhere }),
       this.prisma.db.user.count({ where: { ...baseWhere, isActive: true } }),
       this.prisma.db.user.count({ where: { ...baseWhere, isActive: false } }),
-      ...roleNames.map((roleName) =>
-        this.prisma.db.user.count({
-          where: {
-            ...baseWhere,
-            tenantRoles: {
-              some: {
-                isActive: true,
-                role: { name: roleName },
+      Promise.all(
+        roleNames.map((roleName) => {
+          const activeOnly = roleName === "SURVEYOR" || roleName === "QC_SUPERVISOR"
+          return this.prisma.db.user.count({
+            where: {
+              ...baseWhere,
+              ...(activeOnly ? { isActive: true } : {}),
+              tenantRoles: {
+                some: {
+                  isActive: true,
+                  role: { name: roleName },
+                },
               },
             },
-          },
+          })
         })
       ),
+      this.prisma.db.userTenantRole.findMany({
+        where: {
+          isActive: true,
+          ulbId: { not: null },
+          role: { name: { in: [...fieldRoleNames] } },
+          user: baseWhere,
+        },
+        select: { ulbId: true },
+        distinct: ["ulbId"],
+      }),
     ])
 
     const byRole = Object.fromEntries(roleNames.map((name, i) => [name, roleCounts[i] ?? 0])) as Record<
@@ -91,6 +107,7 @@ export class UsersRepository {
       deptAdmins: byRole.DEPT_ADMIN,
       deptClerks: byRole.DEPT_CLERK,
       deptOperators: byRole.DEPT_OPERATOR,
+      locationsAssigned: locationRows.filter((r) => r.ulbId).length,
       byRole,
     }
   }
@@ -213,7 +230,7 @@ export class UsersRepository {
       stateId: string
       districtId: string
       ulbId: string
-      wardId: string
+      wardId: string | null
     }>,
     assignedBy: string
   ) {

@@ -91,18 +91,85 @@ export function assignmentGeoLabels(role?: TenantRole) {
     state: role.state?.name ?? "—",
     district: role.district?.name ?? "—",
     ulb: role.ulb?.name ?? "—",
-    ward: role.ward ? `${role.ward.wardNumber}${role.ward.wardName ? ` · ${role.ward.wardName}` : ""}` : "—",
+    ward: role.ward
+      ? `${role.ward.wardNumber}${role.ward.wardName ? ` · ${role.ward.wardName}` : ""}`
+      : role.ulbId
+        ? "Unrestricted Access"
+        : "—",
   }
+}
+
+/** Distinct ULB names from active allotments. */
+export function assignmentLocationChips(roles?: TenantRole[]): string[] {
+  const names: string[] = []
+  const seen = new Set<string>()
+  for (const r of activeAssignments(roles)) {
+    if (!r.ulbId) continue
+    const name = r.ulb?.name ?? r.ulbId
+    if (seen.has(r.ulbId)) continue
+    seen.add(r.ulbId)
+    names.push(name)
+  }
+  return names
+}
+
+/** Ward / unrestricted labels from active allotments. */
+export function assignmentWardChips(roles?: TenantRole[]): string[] {
+  const byUlb = new Map<string, { allWards: boolean; wards: string[] }>()
+  for (const r of activeAssignments(roles)) {
+    if (!r.ulbId) continue
+    const entry = byUlb.get(r.ulbId) ?? { allWards: false, wards: [] }
+    if (!r.wardId) {
+      entry.allWards = true
+      entry.wards = []
+    } else if (!entry.allWards && r.ward) {
+      const label = r.ward.wardName ? `${r.ward.wardNumber} · ${r.ward.wardName}` : r.ward.wardNumber
+      if (!entry.wards.includes(label)) entry.wards.push(label)
+    }
+    byUlb.set(r.ulbId, entry)
+  }
+  const chips: string[] = []
+  for (const entry of byUlb.values()) {
+    if (entry.allWards) chips.push("Unrestricted Access")
+    else chips.push(...entry.wards)
+  }
+  return chips
 }
 
 /** Compact ward labels for directory: first 3 + +N. */
 export function assignmentWardSummary(roles?: TenantRole[], maxVisible = 3): string {
-  const active = activeAssignments(roles).filter((r) => r.ward)
-  if (!active.length) return "—"
-  const labels = active.map((r) => {
-    const w = r.ward!
-    return w.wardName ? `${w.wardNumber} · ${w.wardName}` : w.wardNumber
-  })
+  const labels = assignmentWardChips(roles)
+  if (!labels.length) return "—"
   if (labels.length <= maxVisible) return labels.join(", ")
   return `${labels.slice(0, maxVisible).join(", ")} +${labels.length - maxVisible}`
+}
+
+export function GeoChip({
+  label,
+  onClick,
+  tone = "default",
+}: {
+  label: string
+  onClick?: () => void
+  tone?: "default" | "unrestricted"
+}) {
+  const className = cn(
+    "inline-flex max-w-[10rem] truncate rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors duration-200",
+    tone === "unrestricted"
+      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200"
+      : "border-border bg-muted/50 text-foreground",
+    onClick && "cursor-pointer hover:border-primary/40 hover:bg-primary/5"
+  )
+  if (onClick) {
+    return (
+      <button type="button" className={className} onClick={onClick} title={label}>
+        {label}
+      </button>
+    )
+  }
+  return (
+    <span className={className} title={label}>
+      {label}
+    </span>
+  )
 }

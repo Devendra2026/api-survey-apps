@@ -25,6 +25,12 @@ import type {
   SyncUserDto,
   UpdateUserDto,
 } from "./dto/user.dto.js"
+import {
+  FieldAllotmentValidationError,
+  normalizeAllotmentWardId,
+  validateFieldAllotments,
+  type FieldAllotmentGeo,
+} from "./field-allotments.util.js"
 import { isPendingClerkUserId } from "./pending-clerk-id.util.js"
 import { UserImportService } from "./user-import.service.js"
 import { UsersRepository } from "./users.repository.js"
@@ -32,13 +38,6 @@ import { UsersRepository } from "./users.repository.js"
 const ROLES_REQUIRING_FULL_GEO = new Set(["SURVEYOR", "FIELD_SUPERVISOR", "QC_SUPERVISOR"])
 const ROLES_REQUIRING_GLOBAL = new Set(["ADMIN", "PENDING_APPROVAL"])
 const ROLES_REQUIRING_ULB = new Set(["DEPT_ADMIN", "DEPT_CLERK", "DEPT_OPERATOR"])
-
-type AllotmentGeo = {
-  stateId: string
-  districtId: string
-  ulbId: string
-  wardId: string
-}
 
 @Injectable()
 export class UsersService {
@@ -132,27 +131,19 @@ export class UsersService {
       throw new ForbiddenException(`Your role cannot grant ${role.name}`)
     }
 
-    // Field roles: multiple simultaneous ULB+ward allotments
+    // Field roles: ULB allotments; ward optional (null = All Wards). QC = one ULB.
     if (ROLES_REQUIRING_FULL_GEO.has(role.name)) {
       const allotments = this.normalizeFieldAllotments(dto)
-      if (!allotments.length) {
-        throw new BadRequestException(
-          `${this.fieldRoleLabel(role.name)} assignments require at least one State, District, ULB, and Ward allotment`
-        )
-      }
-
-      const wardIds = allotments.map((a) => a.wardId)
-      if (new Set(wardIds).size !== wardIds.length) {
-        throw new BadRequestException("Duplicate ward allotments are not allowed")
+      try {
+        validateFieldAllotments(role.name, allotments)
+      } catch (err) {
+        if (err instanceof FieldAllotmentValidationError) {
+          throw new BadRequestException(err.message)
+        }
+        throw err
       }
 
       for (const geo of allotments) {
-        if (!geo.stateId || !geo.districtId || !geo.ulbId || !geo.wardId) {
-          throw new BadRequestException(
-            `${this.fieldRoleLabel(role.name)} assignments require State, District, ULB, and Ward on every allotment`
-          )
-        }
-
         if (!actorScope.isGlobal && !userHasPermissionInTenant(actor, "role:assign", geo)) {
           throw new ForbiddenException("Missing permission role:assign in this tenant scope")
         }
@@ -273,19 +264,13 @@ export class UsersService {
     return this.usersRepository.assignTenantRole(normalizedDto, actor.id)
   }
 
-  private fieldRoleLabel(roleName: string): string {
-    if (roleName === "FIELD_SUPERVISOR") return "Supervisor"
-    if (roleName === "QC_SUPERVISOR") return "QC Supervisor"
-    return "Surveyor"
-  }
-
-  private normalizeFieldAllotments(dto: AssignTenantRoleDto): AllotmentGeo[] {
+  private normalizeFieldAllotments(dto: AssignTenantRoleDto): FieldAllotmentGeo[] {
     if (dto.allotments?.length) {
       return dto.allotments.map((a) => ({
         stateId: a.stateId,
         districtId: a.districtId,
         ulbId: a.ulbId,
-        wardId: a.wardId,
+        wardId: normalizeAllotmentWardId(a.wardId),
       }))
     }
     if (dto.stateId || dto.districtId || dto.ulbId || dto.wardId) {
@@ -294,7 +279,7 @@ export class UsersService {
           stateId: dto.stateId ?? "",
           districtId: dto.districtId ?? "",
           ulbId: dto.ulbId ?? "",
-          wardId: dto.wardId ?? "",
+          wardId: normalizeAllotmentWardId(dto.wardId),
         },
       ]
     }

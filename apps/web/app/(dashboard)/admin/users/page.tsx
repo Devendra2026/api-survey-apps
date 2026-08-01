@@ -1,10 +1,14 @@
 "use client"
 
 import { BulkConfirmDialog } from "@/components/admin/bulk-confirm-dialog"
+import { GrantPermissionModal } from "@/components/admin/grant-permission-modal"
 import { UserAssignRoleDialog } from "@/components/admin/user-assign-role-dialog"
 import {
   assignmentGeoLabels,
+  assignmentLocationChips,
+  assignmentWardChips,
   assignmentWardSummary,
+  GeoChip,
   primaryAssignment,
   RoleBadge,
   StatusBadge,
@@ -117,16 +121,18 @@ function AdminUsersPage() {
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
     phone: false,
     email: true,
+    scope: false,
     state: false,
     district: false,
-    ulb: false,
-    ward: false,
+    ulb: true,
+    ward: true,
   })
 
   const [selected, setSelected] = useState<AuthenticatedProfile | null>(null)
   const [editUser, setEditUser] = useState<AuthenticatedProfile | null>(null)
   const [assignUser, setAssignUser] = useState<AuthenticatedProfile | null>(null)
   const [assignMode, setAssignMode] = useState<"role" | "location">("role")
+  const [grantUser, setGrantUser] = useState<AuthenticatedProfile | null>(null)
   const [statusUser, setStatusUser] = useState<AuthenticatedProfile | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AuthenticatedProfile | null>(null)
   const [onboardUser, setOnboardUser] = useState<AuthenticatedProfile | null>(null)
@@ -231,13 +237,19 @@ function AdminUsersPage() {
   }, [data?.items, rowSelection])
 
   const kpiActiveId = useMemo(() => {
-    if (filters.roleName === "PENDING_APPROVAL") return "pending" as const
-    if (filters.roleName === "ADMIN") return "admins" as const
-    if (filters.isActive === "true") return "active" as const
-    if (filters.isActive === "false") return "disabled" as const
+    if (filters.roleName === "QC_SUPERVISOR" && filters.isActive === "true") return "qc" as const
+    if (filters.roleName === "SURVEYOR" && filters.isActive === "true") return "surveyors" as const
     if (!filters.roleName && !filters.isActive) return "total" as const
     return null
   }, [filters.isActive, filters.roleName])
+
+  const openGrantPermission = useCallback(
+    (user: AuthenticatedProfile) => {
+      if (!canAssign) return
+      setGrantUser(user)
+    },
+    [canAssign]
+  )
 
   const columns = useMemo<ColumnDef<AuthenticatedProfile>[]>(
     () => [
@@ -299,21 +311,57 @@ function AdminUsersPage() {
       },
       {
         id: "ulb",
-        header: "ULB",
-        cell: ({ row }) => (
-          <span className="max-w-40 truncate">
-            {assignmentGeoLabels(primaryAssignment(row.original.tenantRoles)).ulb}
-          </span>
-        ),
+        header: "Location(s)",
+        cell: ({ row }) => {
+          const chips = assignmentLocationChips(row.original.tenantRoles)
+          if (!chips.length) return <span className="text-muted-foreground">—</span>
+          return (
+            <ul className="flex max-w-56 flex-wrap gap-1">
+              {chips.slice(0, 3).map((label) => (
+                <li key={label}>
+                  <GeoChip label={label} onClick={canAssign ? () => openGrantPermission(row.original) : undefined} />
+                </li>
+              ))}
+              {chips.length > 3 ? (
+                <li>
+                  <GeoChip
+                    label={`+${chips.length - 3}`}
+                    onClick={canAssign ? () => openGrantPermission(row.original) : undefined}
+                  />
+                </li>
+              ) : null}
+            </ul>
+          )
+        },
       },
       {
         id: "ward",
-        header: "Ward",
-        cell: ({ row }) => (
-          <span className="max-w-48 truncate" title={assignmentWardSummary(row.original.tenantRoles, 99)}>
-            {assignmentWardSummary(row.original.tenantRoles)}
-          </span>
-        ),
+        header: "Ward(s)",
+        cell: ({ row }) => {
+          const chips = assignmentWardChips(row.original.tenantRoles)
+          if (!chips.length) return <span className="text-muted-foreground">—</span>
+          return (
+            <ul className="flex max-w-56 flex-wrap gap-1" title={assignmentWardSummary(row.original.tenantRoles, 99)}>
+              {chips.slice(0, 3).map((label) => (
+                <li key={label}>
+                  <GeoChip
+                    label={label}
+                    tone={label === "Unrestricted Access" ? "unrestricted" : "default"}
+                    onClick={canAssign ? () => openGrantPermission(row.original) : undefined}
+                  />
+                </li>
+              ))}
+              {chips.length > 3 ? (
+                <li>
+                  <GeoChip
+                    label={`+${chips.length - 3}`}
+                    onClick={canAssign ? () => openGrantPermission(row.original) : undefined}
+                  />
+                </li>
+              ) : null}
+            </ul>
+          )
+        },
       },
       {
         accessorKey: "isActive",
@@ -415,6 +463,15 @@ function AdminUsersPage() {
                     >
                       Assign location
                     </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="cursor-pointer"
+                      onSelect={(e) => {
+                        e.preventDefault()
+                        queueMicrotask(() => openGrantPermission(user))
+                      }}
+                    >
+                      Grant permission
+                    </DropdownMenuItem>
                   </>
                 ) : null}
                 {canUpdate || canDelete ? <DropdownMenuSeparator /> : null}
@@ -446,7 +503,7 @@ function AdminUsersPage() {
         },
       },
     ],
-    [canAssign, canDelete, canUpdate, currentUserId, openProfileDrawer]
+    [canAssign, canDelete, canUpdate, currentUserId, openGrantPermission, openProfileDrawer]
   )
 
   if (!canView) {
@@ -612,10 +669,9 @@ function AdminUsersPage() {
           activeId={kpiActiveId}
           onSelect={(id) => {
             if (id === "total") setFilterPreset({})
-            if (id === "active") setFilterPreset({ isActive: "true" })
-            if (id === "disabled") setFilterPreset({ isActive: "false" })
-            if (id === "pending") setFilterPreset({ roleName: "PENDING_APPROVAL" })
-            if (id === "admins") setFilterPreset({ roleName: "ADMIN" })
+            if (id === "qc") setFilterPreset({ roleName: "QC_SUPERVISOR", isActive: "true" })
+            if (id === "surveyors") setFilterPreset({ roleName: "SURVEYOR", isActive: "true" })
+            if (id === "locations") setFilterPreset({})
           }}
         />
       ) : null}
@@ -760,6 +816,7 @@ function AdminUsersPage() {
         mode={assignMode}
         onOpenChange={(o) => !o && setAssignUser(null)}
       />
+      <GrantPermissionModal user={grantUser} open={Boolean(grantUser)} onOpenChange={(o) => !o && setGrantUser(null)} />
       <UserStatusDialog user={statusUser} open={Boolean(statusUser)} onOpenChange={(o) => !o && setStatusUser(null)} />
       <UserDeleteDialog
         user={deleteTarget}

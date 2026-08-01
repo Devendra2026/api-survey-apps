@@ -752,7 +752,7 @@ export function useAssignTenantRole() {
         stateId: string
         districtId: string
         ulbId: string
-        wardId: string
+        wardId?: string
       }>
       stateId?: string
       districtId?: string

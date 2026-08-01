@@ -1,7 +1,10 @@
 "use client"
 
 import {
+  ALL_WARDS_SENTINEL,
+  allotmentModeForRole,
   allotmentsComplete,
+  allotmentsEqual,
   emptyAllotment,
   toAllotmentPayload,
   UserAllotmentsEditor,
@@ -38,14 +41,14 @@ const GEO_FORBIDDEN = new Set(["ADMIN", "PENDING_APPROVAL"])
 const GEO_ULB_ONLY = new Set(["DEPT_ADMIN", "DEPT_CLERK", "DEPT_OPERATOR"])
 
 function draftsFromUser(user: AuthenticatedProfile | null): AllotmentDraft[] {
-  const active = activeAssignments(user?.tenantRoles).filter((r) => r.wardId && r.ulbId)
+  const active = activeAssignments(user?.tenantRoles).filter((r) => r.ulbId)
   if (!active.length) return [emptyAllotment()]
   return active.map((r) => ({
     key: r.id,
     stateId: r.stateId ?? "",
     districtId: r.districtId ?? "",
     ulbId: r.ulbId ?? "",
-    wardId: r.wardId ?? "",
+    wardId: r.wardId ? r.wardId : ALL_WARDS_SENTINEL,
   }))
 }
 
@@ -68,6 +71,8 @@ export function UserAssignRoleDialog({
   const profile = useAuthStore((s) => s.profile)
   const [roleName, setRoleName] = useState("SURVEYOR")
   const [allotments, setAllotments] = useState<AllotmentDraft[]>([emptyAllotment()])
+  const [baselineAllotments, setBaselineAllotments] = useState<AllotmentDraft[]>([emptyAllotment()])
+  const [baselineRoleName, setBaselineRoleName] = useState("SURVEYOR")
   const [stateId, setStateId] = useState("")
   const [districtId, setDistrictId] = useState("")
   const [ulbId, setUlbId] = useState("")
@@ -104,8 +109,12 @@ export function UserAssignRoleDialog({
         : null
     const fallback = actorIsDeptOnly ? "DEPT_CLERK" : "SURVEYOR"
     const code = preferred ?? (current ? tenantRoleCode(current) : fallback)
-    setRoleName(assignableRoles.includes(code as (typeof assignableRoles)[number]) ? code : fallback)
-    setAllotments(draftsFromUser(user))
+    const nextRole = assignableRoles.includes(code as (typeof assignableRoles)[number]) ? code : fallback
+    const drafts = draftsFromUser(user)
+    setRoleName(nextRole)
+    setBaselineRoleName(nextRole)
+    setAllotments(drafts)
+    setBaselineAllotments(drafts)
     setStateId(current?.stateId ?? "")
     setDistrictId(current?.districtId ?? "")
     setUlbId(current?.ulbId ?? "")
@@ -114,6 +123,11 @@ export function UserAssignRoleDialog({
   const needsFullGeo = GEO_REQUIRED_FULL.has(roleName)
   const needsUlbOnly = GEO_ULB_ONLY.has(roleName)
   const forbidGeo = GEO_FORBIDDEN.has(roleName)
+  const editorMode = allotmentModeForRole(roleName)
+  const isDirty =
+    roleName !== baselineRoleName ||
+    (needsFullGeo && !allotmentsEqual(allotments, baselineAllotments)) ||
+    (needsUlbOnly && ulbId !== (primaryAssignment(user?.tenantRoles)?.ulbId ?? ""))
 
   const handleSubmit = async () => {
     if (!user) return
@@ -122,8 +136,12 @@ export function UserAssignRoleDialog({
       toast.error("Role catalog not loaded. Try again.")
       return
     }
-    if (needsFullGeo && !allotmentsComplete(allotments)) {
-      toast.error("Surveyor, Supervisor, and QC Supervisor require State, District, ULB, and Ward on every allotment")
+    if (needsFullGeo && !allotmentsComplete(allotments, editorMode)) {
+      toast.error(
+        roleName === "QC_SUPERVISOR"
+          ? "QC Supervisor requires one Location and either one ward or All Wards"
+          : "Surveyor and Supervisor require State, District, ULB, and ward(s) or All Wards per city"
+      )
       return
     }
     if (needsUlbOnly && !ulbId) {
@@ -147,7 +165,7 @@ export function UserAssignRoleDialog({
                   ulbId: ulbId || undefined,
                 }),
       })
-      toast.success(mode === "location" ? "Location assigned" : "Role assigned")
+      toast.success(mode === "location" ? "Permissions granted" : "User updated")
       onOpenChange(false)
     } catch (error) {
       toast.error(getApiErrorMessage(error))
@@ -269,7 +287,7 @@ export function UserAssignRoleDialog({
               </p>
             </div>
           ) : needsFullGeo ? (
-            <UserAllotmentsEditor value={allotments} onChange={setAllotments} />
+            <UserAllotmentsEditor value={allotments} onChange={setAllotments} mode={editorMode} />
           ) : (
             <p className="text-sm text-muted-foreground">Geography is optional for this role.</p>
           )}
@@ -283,9 +301,9 @@ export function UserAssignRoleDialog({
             type="button"
             className="rounded-xl"
             onClick={() => void handleSubmit()}
-            disabled={assignRole.isPending}
+            disabled={assignRole.isPending || !isDirty || (needsFullGeo && !allotmentsComplete(allotments, editorMode))}
           >
-            {assignRole.isPending ? "Saving…" : "Confirm assignment"}
+            {assignRole.isPending ? "Saving…" : "Save"}
           </Button>
         </DialogFooter>
       </DialogContent>

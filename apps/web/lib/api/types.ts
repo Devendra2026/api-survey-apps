@@ -110,6 +110,8 @@ export interface UserDirectoryStats {
   deptAdmins?: number
   deptClerks?: number
   deptOperators?: number
+  /** Distinct ULBs on active field-role allotments */
+  locationsAssigned?: number
   byRole: Record<string, number>
 }
 

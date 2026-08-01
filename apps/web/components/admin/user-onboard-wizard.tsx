@@ -2,6 +2,7 @@
 
 import { PermissionMatrix, rolePermissionIdSet } from "@/components/admin/permission-matrix"
 import {
+  allotmentModeForRole,
   allotmentsComplete,
   AllotmentSummaryList,
   emptyAllotment,
@@ -77,6 +78,7 @@ export function UserOnboardWizard({
   const needsGeo = GEO_REQUIRED.has(roleName)
   const needsUlbOnly = GEO_ULB_ONLY.has(roleName)
   const forbidGeo = GEO_FORBIDDEN.has(roleName)
+  const editorMode = allotmentModeForRole(roleName)
 
   useEffect(() => {
     if (!open) return
@@ -92,7 +94,7 @@ export function UserOnboardWizard({
     if (step === 2) return Boolean(roleName)
     if (step === 3) {
       if (forbidGeo) return true
-      if (needsGeo) return allotmentsComplete(allotments)
+      if (needsGeo) return allotmentsComplete(allotments, editorMode)
       if (needsUlbOnly) return Boolean(ulbId)
       return true
     }
@@ -102,8 +104,12 @@ export function UserOnboardWizard({
   const geographySummary = () => {
     if (forbidGeo) return "Global"
     if (needsGeo) {
-      const n = allotments.filter((a) => a.ulbId && a.wardId).length
-      return n ? `${n} ward allotment${n === 1 ? "" : "s"}` : "—"
+      const payload = toAllotmentPayload(allotments)
+      const n = payload.length
+      const allWards = payload.some((p) => !p.wardId)
+      if (!n) return "—"
+      if (allWards && n === 1) return "1 location · Unrestricted Access"
+      return `${n} allotment${n === 1 ? "" : "s"}`
     }
     if (needsUlbOnly) {
       const ulbName = ulbs?.items.find((u) => u.id === ulbId)?.name
@@ -119,8 +125,12 @@ export function UserOnboardWizard({
       toast.error("Role catalog not loaded")
       return
     }
-    if (needsGeo && !allotmentsComplete(allotments)) {
-      toast.error("Surveyor, Supervisor, and QC Supervisor require at least one full ULB + ward allotment")
+    if (needsGeo && !allotmentsComplete(allotments, editorMode)) {
+      toast.error(
+        roleName === "QC_SUPERVISOR"
+          ? "QC Supervisor requires one Location and either one ward or All Wards"
+          : "Surveyor and Supervisor require at least one ULB with ward(s) or All Wards"
+      )
       return
     }
     if (needsUlbOnly && !ulbId) {
@@ -220,7 +230,7 @@ export function UserOnboardWizard({
                 {roleName === "ADMIN" ? "Admin is assigned globally." : "This role does not require geography."}
               </p>
             ) : needsGeo ? (
-              <UserAllotmentsEditor value={allotments} onChange={setAllotments} />
+              <UserAllotmentsEditor value={allotments} onChange={setAllotments} mode={editorMode} />
             ) : needsUlbOnly ? (
               <div className="grid gap-3 sm:grid-cols-2">
                 <FormField label="State" required>

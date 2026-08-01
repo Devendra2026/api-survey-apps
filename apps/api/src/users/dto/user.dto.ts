@@ -88,9 +88,11 @@ export class AllotmentGeoDto {
   @IsString()
   ulbId!: string
 
-  @ApiProperty()
+  /** Omit or empty = All Wards within the ULB (stored as null). */
+  @ApiPropertyOptional({ description: "Ward id; omit/empty for All Wards (ULB-wide)" })
+  @IsOptional()
   @IsString()
-  wardId!: string
+  wardId?: string
 }
 
 export class AssignTenantRoleDto {

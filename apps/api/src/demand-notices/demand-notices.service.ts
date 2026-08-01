@@ -223,7 +223,16 @@ export class DemandNoticesService {
   ): Promise<Prisma.SurveyWhereInput> {
     const scope = user
       ? resolveTenantScope(user.tenantRoles)
-      : { isGlobal: true as const, stateIds: [], districtIds: [], ulbIds: [], wardIds: [] }
+      : {
+          isGlobal: true as const,
+          stateIds: [],
+          districtIds: [],
+          ulbIds: [],
+          wardIds: [],
+          parentStateIds: [],
+          parentDistrictIds: [],
+          parentUlbIds: [],
+        }
     const tenantWhere = user ? buildTenantWhere(scope) : undefined
 
     let assessmentYear: AssessmentYear | undefined

@@ -7,6 +7,10 @@ interface TenantScope {
   districtIds: string[]
   ulbIds: string[]
   wardIds: string[]
+  /** Guard-only parents from narrower allotments; never used in buildTenantWhere. */
+  parentStateIds: string[]
+  parentDistrictIds: string[]
+  parentUlbIds: string[]
 }
 
 export function resolveTenantScope(roles: TenantRolePayload[]): TenantScope {
@@ -17,6 +21,9 @@ export function resolveTenantScope(roles: TenantRolePayload[]): TenantScope {
     districtIds: [],
     ulbIds: [],
     wardIds: [],
+    parentStateIds: [],
+    parentDistrictIds: [],
+    parentUlbIds: [],
   }
 
   for (const role of active) {
@@ -24,16 +31,30 @@ export function resolveTenantScope(roles: TenantRolePayload[]): TenantScope {
       scope.isGlobal = true
       continue
     }
-    if (role.wardId) scope.wardIds.push(role.wardId)
-    else if (role.ulbId) scope.ulbIds.push(role.ulbId)
-    else if (role.districtId) scope.districtIds.push(role.districtId)
-    else if (role.stateId) scope.stateIds.push(role.stateId)
+    if (role.wardId) {
+      scope.wardIds.push(role.wardId)
+      if (role.ulbId) scope.parentUlbIds.push(role.ulbId)
+      if (role.districtId) scope.parentDistrictIds.push(role.districtId)
+      if (role.stateId) scope.parentStateIds.push(role.stateId)
+    } else if (role.ulbId) {
+      scope.ulbIds.push(role.ulbId)
+      if (role.districtId) scope.parentDistrictIds.push(role.districtId)
+      if (role.stateId) scope.parentStateIds.push(role.stateId)
+    } else if (role.districtId) {
+      scope.districtIds.push(role.districtId)
+      if (role.stateId) scope.parentStateIds.push(role.stateId)
+    } else if (role.stateId) {
+      scope.stateIds.push(role.stateId)
+    }
   }
 
   scope.stateIds = [...new Set(scope.stateIds)]
   scope.districtIds = [...new Set(scope.districtIds)]
   scope.ulbIds = [...new Set(scope.ulbIds)]
   scope.wardIds = [...new Set(scope.wardIds)]
+  scope.parentStateIds = [...new Set(scope.parentStateIds)]
+  scope.parentDistrictIds = [...new Set(scope.parentDistrictIds)]
+  scope.parentUlbIds = [...new Set(scope.parentUlbIds)]
 
   return scope
 }
@@ -57,5 +78,11 @@ export function canAccessTenant(
   if (geo.ulbId && scope.ulbIds.includes(geo.ulbId)) return true
   if (geo.districtId && scope.districtIds.includes(geo.districtId)) return true
   if (geo.stateId && scope.stateIds.includes(geo.stateId)) return true
+  if (geo.wardId && scope.wardIds.length > 0 && !scope.wardIds.includes(geo.wardId)) {
+    return false
+  }
+  if (geo.ulbId && scope.parentUlbIds.includes(geo.ulbId)) return true
+  if (geo.districtId && scope.parentDistrictIds.includes(geo.districtId)) return true
+  if (geo.stateId && scope.parentStateIds.includes(geo.stateId)) return true
   return false
 }

@@ -14,6 +14,9 @@ export function resolveTenantScope(roles: TenantRoleAssignment[]): TenantScope {
     districtIds: [],
     ulbIds: [],
     wardIds: [],
+    parentStateIds: [],
+    parentDistrictIds: [],
+    parentUlbIds: [],
   }
 
   for (const role of active) {
@@ -21,16 +24,31 @@ export function resolveTenantScope(roles: TenantRoleAssignment[]): TenantScope {
       scope.isGlobal = true
       continue
     }
-    if (role.wardId) scope.wardIds.push(role.wardId)
-    else if (role.ulbId) scope.ulbIds.push(role.ulbId)
-    else if (role.districtId) scope.districtIds.push(role.districtId)
-    else if (role.stateId) scope.stateIds.push(role.stateId)
+    if (role.wardId) {
+      scope.wardIds.push(role.wardId)
+      // Parents are guard-only so query filters like districtId/ulbId do not 403
+      if (role.ulbId) scope.parentUlbIds.push(role.ulbId)
+      if (role.districtId) scope.parentDistrictIds.push(role.districtId)
+      if (role.stateId) scope.parentStateIds.push(role.stateId)
+    } else if (role.ulbId) {
+      scope.ulbIds.push(role.ulbId)
+      if (role.districtId) scope.parentDistrictIds.push(role.districtId)
+      if (role.stateId) scope.parentStateIds.push(role.stateId)
+    } else if (role.districtId) {
+      scope.districtIds.push(role.districtId)
+      if (role.stateId) scope.parentStateIds.push(role.stateId)
+    } else if (role.stateId) {
+      scope.stateIds.push(role.stateId)
+    }
   }
 
   scope.stateIds = [...new Set(scope.stateIds)]
   scope.districtIds = [...new Set(scope.districtIds)]
   scope.ulbIds = [...new Set(scope.ulbIds)]
   scope.wardIds = [...new Set(scope.wardIds)]
+  scope.parentStateIds = [...new Set(scope.parentStateIds)]
+  scope.parentDistrictIds = [...new Set(scope.parentDistrictIds)]
+  scope.parentUlbIds = [...new Set(scope.parentUlbIds)]
 
   return scope
 }
@@ -104,6 +122,15 @@ export function canAccessTenant(scope: TenantScope, geo: TenantGeo): boolean {
   if (geo.districtId && scope.districtIds.includes(geo.districtId)) return true
   if (geo.stateId && scope.stateIds.includes(geo.stateId)) return true
 
+  // Do not let parent ULB/district/state bypass an explicit out-of-scope ward.
+  if (geo.wardId && scope.wardIds.length > 0 && !scope.wardIds.includes(geo.wardId)) {
+    return false
+  }
+
+  if (geo.ulbId && scope.parentUlbIds.includes(geo.ulbId)) return true
+  if (geo.districtId && scope.parentDistrictIds.includes(geo.districtId)) return true
+  if (geo.stateId && scope.parentStateIds.includes(geo.stateId)) return true
+
   return false
 }
 
@@ -117,7 +144,9 @@ export function canAccessTenantStrict(scope: TenantScope, geo: TenantGeo): boole
 
   if (geo.wardId && scope.wardIds.length && !scope.wardIds.includes(geo.wardId)) {
     // Ward-scoped users must match ward; ULB-scoped users may access wards under their ULB via ulbId.
-    if (!geo.ulbId || !scope.ulbIds.includes(geo.ulbId)) {
+    const ulbAllowed =
+      Boolean(geo.ulbId) && (scope.ulbIds.includes(geo.ulbId!) || scope.parentUlbIds.includes(geo.ulbId!))
+    if (!ulbAllowed) {
       if (!scope.ulbIds.length && !scope.districtIds.length && !scope.stateIds.length) return false
     }
   }

@@ -33,6 +33,13 @@ export interface TenantScope {
   districtIds: string[]
   ulbIds: string[]
   wardIds: string[]
+  /**
+   * Parent geos from narrower allotments (e.g. ward row stores ulbId/districtId).
+   * Used by TenantGuard / canAccessTenant only — never widen buildTenantWhere.
+   */
+  parentStateIds: string[]
+  parentDistrictIds: string[]
+  parentUlbIds: string[]
 }
 
 export type TenantGeo = {

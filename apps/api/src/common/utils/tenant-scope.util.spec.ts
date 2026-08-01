@@ -37,10 +37,104 @@ describe("tenant-scope.util", () => {
     expect(scope.wardIds).toEqual(["ward1"])
   })
 
+  it("collects parent geos from ward allotments without widening buildTenantWhere", () => {
+    const scope = resolveTenantScope([
+      baseRole({
+        id: "qc-ward",
+        roleName: "QC_SUPERVISOR",
+        stateId: "st1",
+        districtId: "dist1",
+        ulbId: "ulb1",
+        wardId: "ward10",
+      }),
+    ])
+
+    expect(scope.wardIds).toEqual(["ward10"])
+    expect(scope.ulbIds).toEqual([])
+    expect(scope.districtIds).toEqual([])
+    expect(scope.stateIds).toEqual([])
+    expect(scope.parentUlbIds).toEqual(["ulb1"])
+    expect(scope.parentDistrictIds).toEqual(["dist1"])
+    expect(scope.parentStateIds).toEqual(["st1"])
+    expect(buildTenantWhere(scope)).toEqual({ OR: [{ wardId: { in: ["ward10"] } }] })
+  })
+
   it("allows access within ulb scope", () => {
     const scope = resolveTenantScope([baseRole({ ulbId: "ulb1" })])
     expect(canAccessTenant(scope, { ulbId: "ulb1", wardId: "w1" })).toBe(true)
     expect(canAccessTenant(scope, { ulbId: "ulb2" })).toBe(false)
+  })
+
+  it("allows ward-scoped QC parent district/ulb query geo without granting foreign wards", () => {
+    const scope = resolveTenantScope([
+      baseRole({
+        id: "qc-ward",
+        roleName: "QC_SUPERVISOR",
+        stateId: "st1",
+        districtId: "dist1",
+        ulbId: "ulb1",
+        wardId: "ward10",
+      }),
+    ])
+
+    // Registry header auto-sends Etah district + ULB without wardId
+    expect(canAccessTenant(scope, { districtId: "dist1", ulbId: "ulb1" })).toBe(true)
+    expect(canAccessTenant(scope, { districtId: "dist1" })).toBe(true)
+    expect(canAccessTenant(scope, { ulbId: "ulb1" })).toBe(true)
+    expect(canAccessTenant(scope, { wardId: "ward10" })).toBe(true)
+
+    // Foreign parent / mismatched ward stay denied
+    expect(canAccessTenant(scope, { ulbId: "ulb-other" })).toBe(false)
+    expect(canAccessTenant(scope, { districtId: "dist-other" })).toBe(false)
+    expect(canAccessTenant(scope, { wardId: "ward-other", ulbId: "ulb1" })).toBe(false)
+  })
+
+  it("supports All Wards QC allotment (ulb scope) without parent-only 403", () => {
+    const scope = resolveTenantScope([
+      baseRole({
+        id: "qc-all-wards",
+        roleName: "QC_SUPERVISOR",
+        stateId: "st1",
+        districtId: "dist1",
+        ulbId: "ulb1",
+        wardId: null,
+      }),
+    ])
+
+    expect(scope.ulbIds).toEqual(["ulb1"])
+    expect(scope.wardIds).toEqual([])
+    expect(buildTenantWhere(scope)).toEqual({ OR: [{ ulbId: { in: ["ulb1"] } }] })
+    expect(canAccessTenant(scope, { districtId: "dist1", ulbId: "ulb1" })).toBe(true)
+    expect(canAccessTenant(scope, { ulbId: "ulb1", wardId: "any-ward" })).toBe(true)
+    expect(canAccessTenant(scope, { ulbId: "ulb-other" })).toBe(false)
+  })
+
+  it("keeps single-ward QC supervisors isolated to their own ward data filter", () => {
+    const qcWard10 = resolveTenantScope([
+      baseRole({
+        id: "preeti",
+        roleName: "QC_SUPERVISOR",
+        stateId: "st1",
+        districtId: "dist1",
+        ulbId: "ulb1",
+        wardId: "ward10",
+      }),
+    ])
+    const qcWard5 = resolveTenantScope([
+      baseRole({
+        id: "other-qc",
+        roleName: "QC_SUPERVISOR",
+        stateId: "st1",
+        districtId: "dist1",
+        ulbId: "ulb1",
+        wardId: "ward5",
+      }),
+    ])
+
+    expect(buildTenantWhere(qcWard10)).toEqual({ OR: [{ wardId: { in: ["ward10"] } }] })
+    expect(buildTenantWhere(qcWard5)).toEqual({ OR: [{ wardId: { in: ["ward5"] } }] })
+    expect(canAccessTenant(qcWard10, { wardId: "ward5", ulbId: "ulb1" })).toBe(false)
+    expect(canAccessTenant(qcWard5, { wardId: "ward10", ulbId: "ulb1" })).toBe(false)
   })
 
   it("returns impossible filter when no scope", () => {

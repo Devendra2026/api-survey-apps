@@ -15,7 +15,7 @@ import {
   UsageType,
   WaterConnection,
 } from "@workspace/database"
-import { Type } from "class-transformer"
+import { Transform, Type } from "class-transformer"
 import {
   IsArray,
   IsBoolean,
@@ -32,6 +32,13 @@ import {
   ValidateIf,
   ValidateNested,
 } from "class-validator"
+
+/** Keep null/empty as null so `@Type(() => Number)` does not coerce `null` → `0`. */
+function nullableNumber({ value }: { value: unknown }): number | null | undefined {
+  if (value === null || value === undefined || value === "") return value === undefined ? undefined : null
+  const n = typeof value === "number" ? value : Number(value)
+  return Number.isFinite(n) ? n : null
+}
 
 export class QcFloorInputDto {
   @ApiPropertyOptional()
@@ -60,9 +67,10 @@ export class QcFloorInputDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @Type(() => Number)
+  @Transform(nullableNumber)
+  @ValidateIf((_, v) => v !== null && v !== undefined)
   @IsNumber()
-  areaSqFt?: number
+  areaSqFt?: number | null
 }
 
 export class QcCoOwnerInputDto {
@@ -148,10 +156,11 @@ export class QcSurveyCorrectionDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @Type(() => Number)
+  @Transform(nullableNumber)
+  @ValidateIf((_, v) => v !== null && v !== undefined)
   @IsInt()
   @Min(0)
-  familySize?: number
+  familySize?: number | null
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -185,9 +194,10 @@ export class QcSurveyCorrectionDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
   @IsString()
   @MaxLength(200)
-  fatherHusbandName?: string
+  fatherHusbandName?: string | null
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -203,9 +213,10 @@ export class QcSurveyCorrectionDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
   @IsString()
   @MaxLength(50)
-  parcelNumber?: string
+  parcelNumber?: string | null
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -215,9 +226,10 @@ export class QcSurveyCorrectionDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @Type(() => Number)
+  @Transform(nullableNumber)
+  @ValidateIf((_, v) => v !== null && v !== undefined)
   @IsInt()
-  constructedYear?: number
+  constructedYear?: number | null
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -261,15 +273,17 @@ export class QcSurveyCorrectionDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @Type(() => Number)
+  @Transform(nullableNumber)
+  @ValidateIf((_, v) => v !== null && v !== undefined)
   @IsNumber()
-  plotAreaSqFt?: number
+  plotAreaSqFt?: number | null
 
   @ApiPropertyOptional()
   @IsOptional()
-  @Type(() => Number)
+  @Transform(nullableNumber)
+  @ValidateIf((_, v) => v !== null && v !== undefined)
   @IsNumber()
-  plinthAreaSqFt?: number
+  plinthAreaSqFt?: number | null
 
   @ApiPropertyOptional({ enum: WaterConnection })
   @IsOptional()
@@ -299,19 +313,21 @@ export class QcSurveyCorrectionDto {
 
   @ApiPropertyOptional({ description: "WGS84 latitude (-90..90)" })
   @IsOptional()
-  @Type(() => Number)
+  @Transform(nullableNumber)
+  @ValidateIf((_, v) => v !== null && v !== undefined)
   @IsNumber()
   @Min(-90)
   @Max(90)
-  latitude?: number
+  latitude?: number | null
 
   @ApiPropertyOptional({ description: "WGS84 longitude (-180..180)" })
   @IsOptional()
-  @Type(() => Number)
+  @Transform(nullableNumber)
+  @ValidateIf((_, v) => v !== null && v !== undefined)
   @IsNumber()
   @Min(-180)
   @Max(180)
-  longitude?: number
+  longitude?: number | null
 
   @ApiPropertyOptional({ type: [QcFloorInputDto] })
   @IsOptional()

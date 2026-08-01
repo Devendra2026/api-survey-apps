@@ -1,7 +1,19 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common"
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common"
 import { ExportFormat, JobStatus, OwnershipType, PhotoType, SurveyStatus } from "@workspace/database"
 import { formatPropertyId } from "@workspace/validation"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
+import {
+  assertActiveSurveyIdentityAvailable,
+  isPrismaUniqueConflict,
+  surveyIdentityConflictMessage,
+} from "../common/utils/survey-identity.util.js"
 import { canAccessTenant, resolveTenantScope, userHasPermissionInTenant } from "../common/utils/tenant-scope.util.js"
 import { JobsService } from "../jobs/jobs.service.js"
 import { PrismaService } from "../prisma/prisma.service.js"
@@ -139,8 +151,8 @@ export class SurveysService {
       this.logger.log(`Survey created ${survey.id} by ${user.id}`)
       return survey
     } catch (err: unknown) {
-      if (typeof err === "object" && err !== null && "code" in err && (err as { code: string }).code === "P2002") {
-        throw new BadRequestException("Property ID must be unique within ULB and assessment year")
+      if (isPrismaUniqueConflict(err)) {
+        throw new ConflictException(surveyIdentityConflictMessage(dto.propertyId, "unknown"))
       }
       throw err
     }
@@ -170,20 +182,43 @@ export class SurveysService {
       await this.assertGeoHierarchy(nextGeo)
     }
 
+    const nextPropertyId = dto.propertyId ?? survey.propertyId
+    const nextAssessmentYear = dto.assessmentYear ?? survey.assessmentYear
+    const identityChanged =
+      nextGeo.ulbId !== survey.ulbId ||
+      nextPropertyId !== survey.propertyId ||
+      nextAssessmentYear !== survey.assessmentYear
+    if (identityChanged) {
+      await assertActiveSurveyIdentityAvailable(this.prisma.db, {
+        ulbId: nextGeo.ulbId,
+        propertyId: nextPropertyId,
+        assessmentYear: nextAssessmentYear,
+        excludeId: survey.id,
+      })
+    }
+
     const nextStatus = survey.surveyStatus === "DRAFT" ? ("IN_PROGRESS" as const) : undefined
 
-    const updated = await this.surveysRepository.update(id, dto)
-    if (nextStatus) {
-      await this.surveysRepository.transitionStatus({
-        id,
-        from: survey.surveyStatus,
-        to: nextStatus,
-        changedBy: user.id,
-        action: "STATUS_IN_PROGRESS",
-      })
-      return this.surveysRepository.findById(id, user)
+    try {
+      const updated = await this.surveysRepository.update(id, dto)
+      if (nextStatus) {
+        await this.surveysRepository.transitionStatus({
+          id,
+          from: survey.surveyStatus,
+          to: nextStatus,
+          changedBy: user.id,
+          action: "STATUS_IN_PROGRESS",
+        })
+        return this.surveysRepository.findById(id, user)
+      }
+      return updated
+    } catch (err: unknown) {
+      if (err instanceof ConflictException) throw err
+      if (isPrismaUniqueConflict(err)) {
+        throw new ConflictException(surveyIdentityConflictMessage(nextPropertyId, "unknown"))
+      }
+      throw err
     }
-    return updated
   }
 
   async softDelete(id: string, user: AuthenticatedUser) {

@@ -13,6 +13,12 @@ import {
   tallySurveyBuckets,
   type SurveyBucketTotals,
 } from "../common/utils/survey-bucket.util.js"
+import {
+  allocateTempPropertyId,
+  findActiveSurveyIdentityConflict,
+  isPrismaUniqueConflict,
+  surveyIdentityConflictMessage,
+} from "../common/utils/survey-identity.util.js"
 import { buildTenantWhere, resolveTenantScope } from "../common/utils/tenant-scope.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import type { QcFiltersDto } from "./dto/qc-filters.dto.js"
@@ -499,11 +505,11 @@ export class QcRepository {
           {
             ...first,
             name: first.name ?? "Owner",
-            fatherOrHusbandName: patch.fatherHusbandName,
+            fatherOrHusbandName: patch.fatherHusbandName ?? undefined,
           },
           ...base.slice(1),
         ]
-      } else if (patch.fatherHusbandName.trim()) {
+      } else if (patch.fatherHusbandName?.trim()) {
         coOwnersPatch = [
           {
             name: (patch.respondentName ?? existing.respondentName ?? "Owner").trim() || "Owner",
@@ -532,6 +538,8 @@ export class QcRepository {
     const effectiveUnit = patch.unitSubNo !== undefined ? patch.unitSubNo : (existing.unitSubNo ?? "")
     const effectiveUse = patch.propertyUse !== undefined ? patch.propertyUse : existing.propertyUse
 
+    const nextAssessmentYear = patch.assessmentYear ?? existing.assessmentYear
+
     let nextPropertyId = existing.propertyId
     if (ulbCode && wardNo && effectiveParcel && effectiveUnit && effectiveUse) {
       const formatted = formatPropertyId({
@@ -544,21 +552,42 @@ export class QcRepository {
       if (formatted) nextPropertyId = formatted
     }
 
-    if (nextPropertyId !== existing.propertyId) {
-      const conflict = await this.prisma.db.survey.findFirst({
-        where: {
-          ulbId: nextUlbId,
-          propertyId: nextPropertyId,
-          assessmentYear: patch.assessmentYear ?? existing.assessmentYear,
-          deletedAt: null,
-          NOT: { id: existing.id },
-        },
-        select: { id: true },
+    const identityChanged =
+      nextUlbId !== existing.ulbId ||
+      nextPropertyId !== existing.propertyId ||
+      nextAssessmentYear !== existing.assessmentYear
+
+    let swapPeer: Awaited<ReturnType<typeof findActiveSurveyIdentityConflict>> = null
+    if (identityChanged) {
+      const conflict = await findActiveSurveyIdentityConflict(this.prisma.db, {
+        ulbId: nextUlbId,
+        propertyId: nextPropertyId,
+        assessmentYear: nextAssessmentYear,
+        excludeId: existing.id,
       })
       if (conflict) {
-        throw new ConflictException(`Property ID ${nextPropertyId} already exists for this ULB and assessment year`)
+        // Implicit live swap only when claiming another survey's property identity
+        // within the same assessment year (parcel re-allotment). Assessment-year-only
+        // collisions surface a clear conflict instead of silently rewriting the peer's year.
+        const canSwap =
+          nextAssessmentYear === existing.assessmentYear &&
+          (nextPropertyId !== existing.propertyId || nextUlbId !== existing.ulbId)
+        if (!canSwap) {
+          throw new ConflictException(surveyIdentityConflictMessage(nextPropertyId, conflict.id))
+        }
+        swapPeer = conflict
       }
     }
+
+    const paddedParcel =
+      patch.parcelNumber !== undefined && patch.parcelNumber !== null
+        ? (() => {
+            const digits = String(patch.parcelNumber).replace(/\D/g, "")
+            return digits ? padParcelNo(digits) : patch.parcelNumber
+          })()
+        : patch.parcelNumber === null
+          ? null
+          : undefined
 
     const scalarData: Prisma.SurveyUpdateInput = {}
     if (
@@ -589,10 +618,7 @@ export class QcRepository {
     if (patch.pinCode !== undefined) scalarData.pinCode = patch.pinCode
     if (patch.sectorNo !== undefined) scalarData.sectorNo = patch.sectorNo
     if (patch.unitSubNo !== undefined) scalarData.unitSubNo = patch.unitSubNo
-    if (patch.parcelNumber !== undefined) {
-      const digits = patch.parcelNumber.replace(/\D/g, "")
-      scalarData.parcelNumber = digits ? padParcelNo(digits) : patch.parcelNumber
-    }
+    if (paddedParcel !== undefined) scalarData.parcelNumber = paddedParcel
     if (patch.propertyIdOld !== undefined) scalarData.propertyIdOld = patch.propertyIdOld
     if (patch.constructedYear !== undefined) scalarData.constructedYear = patch.constructedYear
     if (patch.isSlum !== undefined) scalarData.isSlum = patch.isSlum
@@ -667,59 +693,123 @@ export class QcRepository {
       })),
     }
 
-    return this.prisma.db.$transaction(async (tx) => {
-      if (Object.keys(scalarData).length > 0) {
-        await tx.survey.update({ where: { id }, data: scalarData })
-      }
+    const surveyDetailInclude = {
+      floors: { orderBy: { position: "asc" as const } },
+      photos: { orderBy: { createdAt: "asc" as const } },
+      coOwners: { orderBy: { ownerIndex: "asc" as const } },
+      createdBy: { select: { id: true, fullName: true, email: true } },
+      assignedTo: { select: { id: true, fullName: true, email: true } },
+      ward: { select: { id: true, wardName: true, wardNumber: true } },
+      ulb: { select: { id: true, name: true } },
+      district: { select: { id: true, name: true } },
+      state: { select: { id: true, name: true } },
+    }
 
-      if (patch.floors !== undefined) {
-        await this.syncFloors(tx, id, patch.floors)
+    try {
+      return await this.prisma.db.$transaction(async (tx) => {
+        if (swapPeer) {
+          const tempPropertyId = allocateTempPropertyId("TEMP-SWAP")
+          await tx.survey.update({
+            where: { id: swapPeer.id },
+            data: { propertyId: tempPropertyId },
+          })
+        }
 
-        const floors = await tx.floor.findMany({ where: { surveyId: id } })
-        const totalBuilt = floors.reduce((sum, f) => {
-          const area = f.areaSqFt != null ? Number(f.areaSqFt.toString()) : 0
-          return sum + (Number.isNaN(area) ? 0 : area)
-        }, 0)
-        await tx.survey.update({
-          where: { id },
-          data: { totalBuiltAreaSqFt: totalBuilt },
+        if (Object.keys(scalarData).length > 0) {
+          await tx.survey.update({ where: { id }, data: scalarData })
+        }
+
+        if (swapPeer) {
+          await tx.survey.update({
+            where: { id: swapPeer.id },
+            data: {
+              propertyId: existing.propertyId,
+              parcelNumber: existing.parcelNumber,
+              unitSubNo: existing.unitSubNo,
+              propertyUse: existing.propertyUse,
+              ulbId: existing.ulbId,
+              wardId: existing.wardId,
+              stateId: existing.stateId,
+              districtId: existing.districtId,
+              assessmentYear: existing.assessmentYear,
+              ulbCode: existing.ulbCode,
+              wardNumber: existing.wardNumber,
+            },
+          })
+          await tx.surveyAudit.create({
+            data: {
+              surveyId: swapPeer.id,
+              action: "survey.qc_identity_swapped",
+              oldValue: {
+                propertyId: swapPeer.propertyId,
+                parcelNumber: swapPeer.parcelNumber,
+                unitSubNo: swapPeer.unitSubNo,
+                propertyUse: swapPeer.propertyUse,
+                ulbId: swapPeer.ulbId,
+                wardId: swapPeer.wardId,
+                assessmentYear: swapPeer.assessmentYear,
+              },
+              newValue: {
+                propertyId: existing.propertyId,
+                parcelNumber: existing.parcelNumber,
+                unitSubNo: existing.unitSubNo,
+                propertyUse: existing.propertyUse,
+                ulbId: existing.ulbId,
+                wardId: existing.wardId,
+                assessmentYear: existing.assessmentYear,
+                swappedWithSurveyId: id,
+              },
+              changedBy,
+            },
+          })
+        }
+
+        if (patch.floors !== undefined) {
+          await this.syncFloors(tx, id, patch.floors)
+
+          const floors = await tx.floor.findMany({ where: { surveyId: id } })
+          const totalBuilt = floors.reduce((sum, f) => {
+            const area = f.areaSqFt != null ? Number(f.areaSqFt.toString()) : 0
+            return sum + (Number.isNaN(area) ? 0 : area)
+          }, 0)
+          await tx.survey.update({
+            where: { id },
+            data: { totalBuiltAreaSqFt: totalBuilt },
+          })
+        }
+
+        if (coOwnersPatch !== undefined) {
+          await this.syncCoOwners(tx, id, coOwnersPatch)
+        }
+
+        await tx.surveyAudit.create({
+          data: {
+            surveyId: id,
+            action: "survey.qc_corrected",
+            oldValue: oldValue,
+            newValue: {
+              propertyId: nextPropertyId,
+              patch: scalarData,
+              floors: patch.floors ?? null,
+              coOwners: coOwnersPatch ?? null,
+              swappedWithSurveyId: swapPeer?.id ?? null,
+            } as Prisma.InputJsonValue,
+            changedBy,
+          },
         })
-      }
 
-      if (coOwnersPatch !== undefined) {
-        await this.syncCoOwners(tx, id, coOwnersPatch)
-      }
-
-      await tx.surveyAudit.create({
-        data: {
-          surveyId: id,
-          action: "survey.qc_corrected",
-          oldValue: oldValue,
-          newValue: {
-            propertyId: nextPropertyId,
-            patch: scalarData,
-            floors: patch.floors ?? null,
-            coOwners: coOwnersPatch ?? null,
-          } as Prisma.InputJsonValue,
-          changedBy,
-        },
+        return tx.survey.findFirstOrThrow({
+          where: { id },
+          include: surveyDetailInclude,
+        })
       })
-
-      return tx.survey.findFirstOrThrow({
-        where: { id },
-        include: {
-          floors: { orderBy: { position: "asc" } },
-          photos: { orderBy: { createdAt: "asc" } },
-          coOwners: { orderBy: { ownerIndex: "asc" } },
-          createdBy: { select: { id: true, fullName: true, email: true } },
-          assignedTo: { select: { id: true, fullName: true, email: true } },
-          ward: { select: { id: true, wardName: true, wardNumber: true } },
-          ulb: { select: { id: true, name: true } },
-          district: { select: { id: true, name: true } },
-          state: { select: { id: true, name: true } },
-        },
-      })
-    })
+    } catch (err: unknown) {
+      if (err instanceof ConflictException) throw err
+      if (isPrismaUniqueConflict(err)) {
+        throw new ConflictException(surveyIdentityConflictMessage(nextPropertyId, "unknown"))
+      }
+      throw err
+    }
   }
 
   private async syncFloors(tx: Prisma.TransactionClient, surveyId: string, floors: QcFloorInputDto[]) {

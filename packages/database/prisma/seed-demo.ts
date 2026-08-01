@@ -229,14 +229,32 @@ async function seedSampleSurveys(db: PrismaClient, geo: Geography, users: SeedUs
     districtName: "Etah",
   }
 
-  const draft = await db.survey.upsert({
-    where: {
-      ulbId_propertyId_assessmentYear: {
-        ulbId: geo.ulb.id,
-        propertyId: "SEED-PROP-001",
-        assessmentYear: AssessmentYear.AY_2025_2026,
+  /** Active identity upsert — compound @@unique is SQL-partial and not in Prisma client. */
+  async function upsertByIdentity(args: {
+    ulbId: string
+    propertyId: string
+    assessmentYear: AssessmentYear
+    create: Prisma.SurveyUncheckedCreateInput
+    update: Prisma.SurveyUncheckedUpdateInput
+  }) {
+    const existing = await db.survey.findFirst({
+      where: {
+        ulbId: args.ulbId,
+        propertyId: args.propertyId,
+        assessmentYear: args.assessmentYear,
+        deletedAt: null,
       },
-    },
+    })
+    if (existing) {
+      return db.survey.update({ where: { id: existing.id }, data: args.update })
+    }
+    return db.survey.create({ data: args.create })
+  }
+
+  const draft = await upsertByIdentity({
+    ulbId: geo.ulb.id,
+    propertyId: "SEED-PROP-001",
+    assessmentYear: AssessmentYear.AY_2025_2026,
     create: {
       ...sharedGeo,
       propertyId: "SEED-PROP-001",
@@ -282,14 +300,10 @@ async function seedSampleSurveys(db: PrismaClient, geo: Geography, users: SeedUs
     },
   })
 
-  const submitted = await db.survey.upsert({
-    where: {
-      ulbId_propertyId_assessmentYear: {
-        ulbId: geo.ulb.id,
-        propertyId: "SEED-PROP-002",
-        assessmentYear: AssessmentYear.AY_2025_2026,
-      },
-    },
+  const submitted = await upsertByIdentity({
+    ulbId: geo.ulb.id,
+    propertyId: "SEED-PROP-002",
+    assessmentYear: AssessmentYear.AY_2025_2026,
     create: {
       ...sharedGeo,
       propertyId: "SEED-PROP-002",
@@ -338,14 +352,10 @@ async function seedSampleSurveys(db: PrismaClient, geo: Geography, users: SeedUs
     },
   })
 
-  const approved = await db.survey.upsert({
-    where: {
-      ulbId_propertyId_assessmentYear: {
-        ulbId: geo.ulb.id,
-        propertyId: "SEED-PROP-003",
-        assessmentYear: AssessmentYear.AY_2026_2027,
-      },
-    },
+  const approved = await upsertByIdentity({
+    ulbId: geo.ulb.id,
+    propertyId: "SEED-PROP-003",
+    assessmentYear: AssessmentYear.AY_2026_2027,
     create: {
       ...sharedGeo,
       propertyId: "SEED-PROP-003",

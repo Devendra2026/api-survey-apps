@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import type { Prisma, SurveyStatus } from "@workspace/database"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { buildOrderBy, getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
+import { allocateTempPropertyId, findActiveSurveyIdentityConflict } from "../common/utils/survey-identity.util.js"
 import { buildTenantWhere, resolveTenantScope } from "../common/utils/tenant-scope.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import type { CreateSurveyDto, SurveyQueryDto, UpdateSurveyDto } from "./dto/survey.dto.js"
@@ -321,17 +322,42 @@ export class SurveysRepository {
     if (!existing) throw new NotFoundException("Deleted survey not found")
 
     return this.prisma.db.$transaction(async (tx) => {
+      const conflict = await findActiveSurveyIdentityConflict(tx, {
+        ulbId: existing.ulbId,
+        propertyId: existing.propertyId,
+        assessmentYear: existing.assessmentYear,
+        excludeId: existing.id,
+      })
+
+      const restoreData: Prisma.SurveyUpdateInput = { deletedAt: null }
+      let rekeyedPropertyId: string | null = null
+      if (conflict) {
+        rekeyedPropertyId = allocateTempPropertyId("TEMP-RESTORE")
+        restoreData.propertyId = rekeyedPropertyId
+        if (!existing.propertyIdOld) {
+          restoreData.propertyIdOld = existing.propertyId
+        }
+      }
+
       const survey = await tx.survey.update({
         where: { id },
-        data: { deletedAt: null },
+        data: restoreData,
         include: surveyInclude,
       })
       await tx.surveyAudit.create({
         data: {
           surveyId: id,
           action: "RESTORED",
-          oldValue: { deletedAt: existing.deletedAt },
-          newValue: { deletedAt: null },
+          oldValue: {
+            deletedAt: existing.deletedAt,
+            propertyId: existing.propertyId,
+          },
+          newValue: {
+            deletedAt: null,
+            propertyId: survey.propertyId,
+            rekeyed: rekeyedPropertyId != null,
+            previousPropertyId: rekeyedPropertyId != null ? existing.propertyId : undefined,
+          },
           changedBy: user.id,
         },
       })

@@ -46,14 +46,25 @@ export function getApiErrorMessage(error: unknown): string {
       return error.message || "Network request failed"
     }
     const data = error.response.data as ApiResponse | undefined
-    if (data?.message) return data.message
-    if (Array.isArray(data?.errors) && data.errors.length > 0) {
-      const first = data.errors[0]
-      if (typeof first === "string") return first
-      if (typeof first === "object" && first !== null && "message" in first) {
-        return String((first as { message: string }).message)
-      }
+    const detailErrors = Array.isArray(data?.errors) ? data.errors : []
+    const detailMessages = detailErrors
+      .map((item) => {
+        if (typeof item === "string") return item
+        if (typeof item === "object" && item !== null && "message" in item) {
+          return String((item as { message: string }).message)
+        }
+        return null
+      })
+      .filter((m): m is string => Boolean(m && m.trim()))
+
+    // Nest validation filter often sets message to a generic "Validation failed"
+    // while field details live in `errors` — prefer those for QC Save toasts.
+    if (detailMessages.length > 0) {
+      const generic = !data?.message || /^validation failed$/i.test(data.message.trim())
+      if (generic) return detailMessages.slice(0, 3).join("; ")
     }
+    if (data?.message) return data.message
+    if (detailMessages.length > 0) return detailMessages[0]!
     return error.message
   }
   if (error instanceof Error) return error.message

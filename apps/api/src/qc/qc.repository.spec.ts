@@ -1,5 +1,5 @@
 import { describe, expect, it, jest } from "@jest/globals"
-import { BadRequestException } from "@nestjs/common"
+import { BadRequestException, ConflictException } from "@nestjs/common"
 import { OwnershipType } from "@workspace/database"
 import { QcRepository } from "./qc.repository.js"
 
@@ -13,7 +13,10 @@ describe("QcRepository.qcCorrectSurvey", () => {
     ownershipType: OwnershipType.JOINT,
     propertyId: "800726-001-00001-001-R",
     parcelNumber: "00001",
+    stateId: "state-1",
+    districtId: "district-1",
     ulbId: "ulb-1",
+    wardId: "w1",
     ulbCode: "800726",
     wardNumber: "001",
     respondentName: "Test",
@@ -61,6 +64,21 @@ describe("QcRepository.qcCorrectSurvey", () => {
     ulb: { id: "ulb-1", name: "Test ULB", code: "800726" },
   }
 
+  const peerSurvey = {
+    id: "survey-peer",
+    propertyId: "800726-001-00042-001-R",
+    parcelNumber: "00042",
+    unitSubNo: "001",
+    propertyUse: "RESIDENTIAL",
+    ulbId: "ulb-1",
+    wardId: "w1",
+    stateId: "state-1",
+    districtId: "district-1",
+    assessmentYear: "AY_2025_2026",
+    ulbCode: "800726",
+    wardNumber: "001",
+  }
+
   function makeRepo(surveyOverrides: Record<string, unknown> = {}) {
     const survey = { ...existingSurvey, ...surveyOverrides }
     const tx = {
@@ -106,6 +124,41 @@ describe("QcRepository.qcCorrectSurvey", () => {
   it("rejects JOINT ownership with empty co-owners", async () => {
     const { repo } = makeRepo()
     await expect(repo.qcCorrectSurvey(surveyId, { coOwners: [] }, "user-1")).rejects.toThrow(BadRequestException)
+  })
+
+  it("allows save when fatherHusbandName is null and there are no co-owners", async () => {
+    const { repo, tx } = makeRepo({ ownershipType: OwnershipType.INDIVIDUAL, coOwners: [] })
+    await expect(
+      repo.qcCorrectSurvey(
+        surveyId,
+        {
+          fatherHusbandName: null,
+          respondentName: "Suneel kumar",
+          coOwners: [],
+        },
+        "user-1"
+      )
+    ).resolves.toBeDefined()
+    expect(tx.surveyAudit.create).toHaveBeenCalled()
+  })
+
+  it("allows save when parcelNumber is null without throwing", async () => {
+    const { repo, tx } = makeRepo({ ownershipType: OwnershipType.INDIVIDUAL, coOwners: [] })
+    await expect(
+      repo.qcCorrectSurvey(
+        surveyId,
+        {
+          parcelNumber: null,
+          coOwners: [{ name: "Owner" }],
+        },
+        "user-1"
+      )
+    ).resolves.toBeDefined()
+    expect(tx.survey.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ parcelNumber: null }),
+      })
+    )
   })
 
   it("rejects corrections when survey is not Pending QC", async () => {
@@ -213,25 +266,111 @@ describe("QcRepository.qcCorrectSurvey", () => {
     )
   })
 
-  it("throws conflict when recomputed propertyId already exists", async () => {
+  it("swaps identities when recomputed propertyId is held by another active survey", async () => {
+    const { repo, tx, prisma } = makeRepo()
+    prisma.db.survey.findFirst = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ...existingSurvey,
+      } as never)
+      .mockResolvedValueOnce(peerSurvey as never)
+
+    await repo.qcCorrectSurvey(
+      surveyId,
+      {
+        parcelNumber: "42",
+        coOwners: [{ name: "Co Owner" }],
+      },
+      "user-1"
+    )
+
+    const updateCalls = tx.survey.update.mock.calls as Array<
+      [{ where?: { id?: string }; data?: Record<string, unknown> }]
+    >
+    expect(updateCalls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        where: { id: "survey-peer" },
+        data: expect.objectContaining({ propertyId: expect.stringMatching(/^TEMP-SWAP-/) }),
+      })
+    )
+    expect(updateCalls.some((c) => c[0]?.data?.propertyId === "800726-001-00042-001-R")).toBe(true)
+    expect(
+      updateCalls.some((c) => c[0]?.where?.id === "survey-peer" && c[0]?.data?.propertyId === existingSurvey.propertyId)
+    ).toBe(true)
+    expect(tx.surveyAudit.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ action: "survey.qc_identity_swapped" }),
+      })
+    )
+  })
+
+  it("throws conflict when only assessment year collides with another active survey", async () => {
     const { repo, prisma } = makeRepo()
     prisma.db.survey.findFirst = jest
       .fn()
       .mockResolvedValueOnce({
         ...existingSurvey,
       } as never)
-      .mockResolvedValueOnce({ id: "other-survey" } as never)
+      .mockResolvedValueOnce({ id: "other-ay", propertyId: existingSurvey.propertyId } as never)
 
     await expect(
       repo.qcCorrectSurvey(
         surveyId,
         {
-          parcelNumber: "99",
+          assessmentYear: "AY_2026_2027",
           coOwners: [{ name: "Co Owner" }],
         },
         "user-1"
       )
-    ).rejects.toThrow(/already exists/)
+    ).rejects.toThrow(ConflictException)
+
+    // Re-mock for message assertion (mocks were consumed)
+    prisma.db.survey.findFirst = jest
+      .fn()
+      .mockResolvedValueOnce({ ...existingSurvey } as never)
+      .mockResolvedValueOnce({ id: "other-ay", propertyId: existingSurvey.propertyId } as never)
+
+    await expect(
+      repo.qcCorrectSurvey(
+        surveyId,
+        {
+          assessmentYear: "AY_2026_2027",
+          coOwners: [{ name: "Co Owner" }],
+        },
+        "user-1"
+      )
+    ).rejects.toThrow(/survey other-ay/)
+  })
+
+  it("allows reclaiming a propertyId held only by soft-deleted surveys", async () => {
+    const { repo, tx, prisma } = makeRepo()
+    prisma.db.survey.findFirst = jest
+      .fn()
+      .mockResolvedValueOnce({ ...existingSurvey } as never)
+      .mockResolvedValueOnce(null as never)
+
+    await repo.qcCorrectSurvey(
+      surveyId,
+      {
+        parcelNumber: "82",
+        coOwners: [{ name: "Co Owner" }],
+      },
+      "user-1"
+    )
+
+    expect(tx.survey.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          parcelNumber: "00082",
+          propertyId: "800726-001-00082-001-R",
+        }),
+      })
+    )
+    expect(tx.surveyAudit.create).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ action: "survey.qc_identity_swapped" }),
+      })
+    )
   })
 })
 

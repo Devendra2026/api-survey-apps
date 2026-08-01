@@ -46,7 +46,9 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
   const actions = useQcSurveyActions()
 
   const survey = detailQuery.data
-  const effectiveWardId = activeWardId || survey?.editable.wardId || null
+  // Always scope queue neighbors to the survey's ward so Approve → Next works even if
+  // Active Ward was left on a different ward from a previous parcel.
+  const effectiveWardId = survey?.editable.wardId || activeWardId || null
   const neighborsQuery = useQcQueueNeighbors(effectiveWardId, survey?.id, Boolean(canApprove) && Boolean(survey?.id))
 
   const [editMode, setEditMode] = useState(false)
@@ -73,10 +75,10 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
     if (editMode) setEditMode(false)
   }
 
-  // Seed working context from the loaded survey when empty.
+  // Keep working context aligned with the open survey so ward chrome and queue stay consistent.
   useEffect(() => {
     if (!survey?.editable.wardId || !survey.editable.ulbId) return
-    if (activeWardId) return
+    if (activeWardId === survey.editable.wardId) return
     setActiveWard({ wardId: survey.editable.wardId, ulbId: survey.editable.ulbId })
   }, [survey?.editable.wardId, survey?.editable.ulbId, activeWardId, setActiveWard])
 
@@ -251,7 +253,9 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
           electricityConsumerNo: draft.electricityConsumerNo,
           latitude: draft.latitude,
           longitude: draft.longitude,
-          floors: draft.floors.map((f) => ({
+          // Floors are mutated via /floors immediately; always send server editable floors
+          // so Save cannot wipe (or resurrect) floors from a stale draft.
+          floors: survey.editable.floors.map((f) => ({
             id: f.id,
             floorPosition: f.floorPosition,
             usageType: f.usageType,

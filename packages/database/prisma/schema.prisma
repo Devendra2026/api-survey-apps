@@ -585,7 +585,8 @@ model UserTenantRole {
 
 /// Central property tax survey record. Belongs to full geo hierarchy + creator.
 /// Soft-deleted via deletedAt. Legacy string fields support data migration only.
-/// Identity: one assessment per (ulbId, propertyId, assessmentYear).
+/// Active identity: one assessment per (ulbId, propertyId, assessmentYear) among
+/// non-deleted rows — enforced by partial unique index (WHERE deletedAt IS NULL).
 model Survey {
   id String @id @default(uuid())
 
@@ -694,7 +695,8 @@ model Survey {
   audits         SurveyAudit[]
   qcRemarkThread QcRemark[]
 
-  @@unique([ulbId, propertyId, assessmentYear])
+  // Active uniqueness of (ulbId, propertyId, assessmentYear) is enforced by a
+  // partial unique index in SQL (WHERE deletedAt IS NULL) — not expressible as @@unique here.
   @@unique([legacySurveyId])
   @@index([stateId, surveyStatus])
   @@index([districtId, surveyStatus])

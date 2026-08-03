@@ -3,17 +3,18 @@
 import { EmptyState } from "@/components/shared/page-elements"
 import { ReassignDraftsDialog } from "@/components/surveys/reassign-drafts-dialog"
 import { emptyScope, SurveyRegistryHeader, type RegistryScopeState } from "@/components/surveys/survey-registry-header"
-import { SurveyRegistryTable } from "@/components/surveys/survey-registry-table"
+import { SurveyRegistryTable, type SurveyRegistrySearchField } from "@/components/surveys/survey-registry-table"
 import { SurveyRegistryToolbar } from "@/components/surveys/survey-registry-toolbar"
 import { useDistricts, useRegistryData, useRegistryImportMutation, useUlbs, useWards } from "@/hooks/use-api"
+import { useDebouncedValue } from "@/hooks/use-debounced-value"
 import { useHydrateGeoScopeFromSearchParams } from "@/hooks/use-hydrate-geo-scope"
 import { getApiErrorMessage } from "@/lib/api/client"
-import type { SurveyRegistryTab } from "@/lib/api/types"
+import type { SurveyRegistryCounts, SurveyRegistryTab } from "@/lib/api/types"
 import { formatWardOptionLabel } from "@/lib/format-ward-label"
 import { exportRegistryToExcel, parseRegistryExcelFile } from "@/lib/survey-registry-xlsx"
 import { useAuthStore } from "@/stores/app-store"
 import { Skeleton } from "@workspace/ui/components/skeleton"
-import { Suspense, useCallback, useMemo, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
 function SurveysPageInner() {
@@ -27,8 +28,11 @@ function SurveysPageInner() {
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(50)
   const [search, setSearch] = useState("")
+  const [searchField, setSearchField] = useState<SurveyRegistrySearchField>("all")
   const [tab, setTab] = useState<SurveyRegistryTab>("all")
+  const [lastCounts, setLastCounts] = useState<SurveyRegistryCounts | undefined>()
   const [reassignOpen, setReassignOpen] = useState(false)
+  const debouncedSearch = useDebouncedValue(search, 300)
 
   useHydrateGeoScopeFromSearchParams(
     useCallback((hydrated) => {
@@ -51,7 +55,8 @@ function SurveysPageInner() {
     () => ({
       page,
       limit,
-      search: search || undefined,
+      search: debouncedSearch || undefined,
+      searchField,
       tab,
       districtId: scope.districtId || undefined,
       ulbId: scope.ulbId || undefined,
@@ -59,11 +64,17 @@ function SurveysPageInner() {
       sortBy: "createdAt",
       sortOrder: "desc" as const,
     }),
-    [page, limit, search, tab, scope.districtId, scope.ulbId, scope.wardId]
+    [page, limit, debouncedSearch, searchField, tab, scope.districtId, scope.ulbId, scope.wardId]
   )
 
   const registryQuery = useRegistryData(filters, Boolean(canView))
   const importMutation = useRegistryImportMutation()
+
+  useEffect(() => {
+    if (registryQuery.data?.counts) {
+      setLastCounts(registryQuery.data.counts)
+    }
+  }, [registryQuery.data?.counts])
 
   const { data: districts } = useDistricts(scope.stateId || undefined)
   const { data: ulbs } = useUlbs(scope.districtId || undefined)
@@ -139,12 +150,17 @@ function SurveysPageInner() {
             setSearch(value)
             setPage(1)
           }}
+          searchField={searchField}
+          onSearchFieldChange={(value) => {
+            setSearchField(value)
+            setPage(1)
+          }}
           tab={tab}
           onTabChange={(next) => {
             setTab(next)
             setPage(1)
           }}
-          counts={registryQuery.data?.counts}
+          counts={registryQuery.data?.counts ?? lastCounts}
           page={page}
           limit={limit}
           totalPages={registryQuery.data?.meta.totalPages ?? 1}

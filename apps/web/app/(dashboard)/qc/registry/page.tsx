@@ -6,7 +6,7 @@ import { EmptyState } from "@/components/shared/page-elements"
 import { useDistricts, useQcRegistry, useUlbs, useWards } from "@/hooks/use-api"
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
 import { useHydrateGeoScopeFromSearchParams } from "@/hooks/use-hydrate-geo-scope"
-import type { QcRegistryTab } from "@/lib/api/types"
+import type { QcRegistryCounts, QcRegistryTab } from "@/lib/api/types"
 import { formatWardOptionLabel } from "@/lib/format-ward-label"
 import { isQcRegistryTab } from "@/lib/ward-action-links"
 import { useAuthStore } from "@/stores/app-store"
@@ -27,7 +27,8 @@ function QcReviewRegistryPageInner() {
   const [search, setSearch] = useState("")
   const [searchField, setSearchField] = useState<QcRegistrySearchField>("all")
   const [tab, setTab] = useState<QcRegistryTab>("pendingApproved")
-  const debouncedSearch = useDebouncedValue(search, 400)
+  const [lastCounts, setLastCounts] = useState<QcRegistryCounts | undefined>()
+  const debouncedSearch = useDebouncedValue(search, 300)
 
   useHydrateGeoScopeFromSearchParams(
     useCallback(
@@ -82,6 +83,12 @@ function QcReviewRegistryPageInner() {
 
   const registryQuery = useQcRegistry(filters, Boolean(canApprove))
 
+  useEffect(() => {
+    if (registryQuery.data?.counts) {
+      setLastCounts(registryQuery.data.counts)
+    }
+  }, [registryQuery.data?.counts])
+
   const { data: districts } = useDistricts(scope.stateId || undefined)
   const { data: ulbs } = useUlbs(scope.districtId || undefined)
   const { data: wards } = useWards(scope.ulbId || undefined)
@@ -135,7 +142,7 @@ function QcReviewRegistryPageInner() {
             setTab(next)
             setPage(1)
           }}
-          counts={registryQuery.data?.counts}
+          counts={registryQuery.data?.counts ?? lastCounts}
           page={page}
           limit={limit}
           totalPages={registryQuery.data?.meta.totalPages ?? 1}

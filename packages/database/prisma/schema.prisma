@@ -600,9 +600,11 @@ model Survey {
   assignedAt   DateTime?
 
   // Property identification
+  /// Also GIN trigram (pg_trgm) in SQL for ILIKE contains — see surveys_*_trgm_idx migration
   propertyId      String
   localId         String?
   propertyIdOld   String?
+  /// Also GIN trigram (pg_trgm) in SQL for ILIKE contains — see surveys_parcelNumber_trgm_idx
   parcelNumber    String?
   unitSubNo       String?
   sectorNo        String?
@@ -618,6 +620,7 @@ model Survey {
   legacySurveyId  String?
 
   // Owner / respondent
+  /// Also GIN trigram (pg_trgm) in SQL for ILIKE contains — see surveys_respondentName_trgm_idx
   respondentName        String?
   relationshipWithOwner String?
   mobileNumber          String?
@@ -705,6 +708,7 @@ model Survey {
   @@index([ulbId, qcStatus])
   @@index([wardId, qcStatus])
   @@index([wardId, parcelNumber])
+  @@index([parcelNumber])
   @@index([createdById, createdAt])
   @@index([assignedToId, surveyStatus])
   @@index([surveyStatus, createdAt])
@@ -713,6 +717,7 @@ model Survey {
   @@index([deletedAt])
   @@index([mobileNumber])
   @@index([propertyId])
+  @@index([respondentName])
   @@index([localId])
   @@map("surveys")
 }
@@ -722,6 +727,7 @@ model CoOwner {
   id                  String   @id @default(cuid())
   surveyId            String
   ownerIndex          Int      @default(1)
+  /// Also GIN trigram (pg_trgm) in SQL for ILIKE contains — see co_owners_name_trgm_idx
   name                String
   fatherOrHusbandName String?
   mobile              String?

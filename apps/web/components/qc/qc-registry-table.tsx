@@ -11,10 +11,12 @@ import { Card, CardContent } from "@workspace/ui/components/card"
 import { Input } from "@workspace/ui/components/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
 import { cn } from "@workspace/ui/lib/utils"
-import { Eye, Search } from "lucide-react"
+import { Eye, Loader2, Search, X } from "lucide-react"
 import Link from "next/link"
 
 export type QcRegistrySearchField = "all" | "owner" | "parcel" | "propertyId"
+
+const SEARCH_PLACEHOLDER = "Search by Parcel Number, Property ID, or Owner Name"
 
 const SEARCH_FIELD_OPTIONS: Array<{ value: QcRegistrySearchField; label: string }> = [
   { value: "all", label: "All" },
@@ -234,17 +236,28 @@ export function QcRegistryTable({
             <Input
               value={search}
               onChange={(e) => onSearchChange(e.target.value)}
-              placeholder={
-                searchField === "owner"
-                  ? "Search owner name..."
-                  : searchField === "parcel"
-                    ? "Search parcel number..."
-                    : searchField === "propertyId"
-                      ? "Search property ID..."
-                      : "Search owner, parcel, or property ID..."
-              }
-              className="h-9 border-slate-200/80 bg-background/70 pl-9 backdrop-blur dark:border-slate-800"
+              placeholder={SEARCH_PLACEHOLDER}
+              className={cn(
+                "h-9 border-slate-200/80 bg-background/70 pl-9 backdrop-blur dark:border-slate-800",
+                (search || isLoading) && "pr-9"
+              )}
+              aria-label={SEARCH_PLACEHOLDER}
             />
+            {isLoading && search ? (
+              <Loader2
+                className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 animate-spin text-muted-foreground"
+                aria-hidden
+              />
+            ) : search ? (
+              <button
+                type="button"
+                onClick={() => onSearchChange("")}
+                className="absolute top-1/2 right-2.5 flex size-5 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
+                aria-label="Clear search"
+              >
+                <X className="size-3.5" />
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -301,8 +314,12 @@ export function QcRegistryTable({
           columns={columns}
           data={data}
           isLoading={isLoading}
-          emptyTitle="No QC records found"
-          emptyDescription="Adjust scope, search, or pipeline tab to see registry records."
+          emptyTitle={search.trim() ? "No results found" : "No QC records found"}
+          emptyDescription={
+            search.trim()
+              ? "Try a different parcel number, property ID, or owner name."
+              : "Adjust scope, search, or pipeline tab to see registry records."
+          }
           stickyFirstColumns={2}
           pagination={{
             page,

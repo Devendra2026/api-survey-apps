@@ -6,10 +6,23 @@ import type { ColumnDef } from "@tanstack/react-table"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { Card, CardContent } from "@workspace/ui/components/card"
+import { Input } from "@workspace/ui/components/input"
 import { Progress } from "@workspace/ui/components/progress"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
 import { cn } from "@workspace/ui/lib/utils"
-import { Eye } from "lucide-react"
+import { Eye, Loader2, Search, X } from "lucide-react"
 import Link from "next/link"
+
+export type SurveyRegistrySearchField = "all" | "owner" | "parcel" | "propertyId"
+
+const SEARCH_PLACEHOLDER = "Search by Parcel Number, Property ID, or Owner Name"
+
+const SEARCH_FIELD_OPTIONS: Array<{ value: SurveyRegistrySearchField; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "owner", label: "Owner name" },
+  { value: "parcel", label: "Parcel number" },
+  { value: "propertyId", label: "Property ID" },
+]
 
 const TAB_ITEMS: Array<{ id: SurveyRegistryTab; label: string; countKey: keyof SurveyRegistryCounts }> = [
   { id: "all", label: "All", countKey: "all" },
@@ -110,6 +123,8 @@ export function SurveyRegistryTable({
   isError,
   search,
   onSearchChange,
+  searchField,
+  onSearchFieldChange,
   tab,
   onTabChange,
   counts,
@@ -126,6 +141,8 @@ export function SurveyRegistryTable({
   isError?: boolean
   search: string
   onSearchChange: (value: string) => void
+  searchField: SurveyRegistrySearchField
+  onSearchFieldChange: (value: SurveyRegistrySearchField) => void
   tab: SurveyRegistryTab
   onTabChange: (tab: SurveyRegistryTab) => void
   counts?: SurveyRegistryCounts
@@ -142,6 +159,49 @@ export function SurveyRegistryTable({
   return (
     <Card className="border-slate-100 shadow-sm dark:border-slate-800">
       <CardContent className="space-y-4 pt-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Select value={searchField} onValueChange={(v) => onSearchFieldChange(v as SurveyRegistrySearchField)}>
+            <SelectTrigger className="h-9 w-full border-slate-200/80 bg-background/70 sm:w-44 dark:border-slate-800">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SEARCH_FIELD_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <div className="relative max-w-md min-w-0 flex-1">
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => onSearchChange(e.target.value)}
+              placeholder={SEARCH_PLACEHOLDER}
+              className={cn(
+                "h-9 border-slate-200/80 bg-background/70 pl-9 backdrop-blur dark:border-slate-800",
+                (search || isLoading) && "pr-9"
+              )}
+              aria-label={SEARCH_PLACEHOLDER}
+            />
+            {isLoading && search ? (
+              <Loader2
+                className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 animate-spin text-muted-foreground"
+                aria-hidden
+              />
+            ) : search ? (
+              <button
+                type="button"
+                onClick={() => onSearchChange("")}
+                className="absolute top-1/2 right-2.5 flex size-5 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
+                aria-label="Clear search"
+              >
+                <X className="size-3.5" />
+              </button>
+            ) : null}
+          </div>
+        </div>
+
         <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto pb-1">
           {TAB_ITEMS.map((item) => {
             const count = counts?.[item.countKey] ?? 0
@@ -178,12 +238,13 @@ export function SurveyRegistryTable({
           columns={columns}
           data={data}
           isLoading={isLoading}
-          searchPlaceholder="Search surveyor..."
-          searchValue={search}
-          onSearchChange={onSearchChange}
           toolbar={toolbar}
-          emptyTitle="No surveys found"
-          emptyDescription="Adjust scope or filters to see registry records."
+          emptyTitle={search.trim() ? "No results found" : "No surveys found"}
+          emptyDescription={
+            search.trim()
+              ? "Try a different parcel number, property ID, or owner name."
+              : "Adjust scope or filters to see registry records."
+          }
           stickyFirstColumns={2}
           pagination={{
             page,

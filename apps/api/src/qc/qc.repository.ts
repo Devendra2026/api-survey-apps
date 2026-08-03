@@ -235,6 +235,8 @@ export class QcRepository {
             ? [{ parcelNumber: { sort: query.sortOrder === "desc" ? "desc" : "asc", nulls: "last" } }, { id: "asc" }]
             : [{ createdAt: query.sortOrder === "asc" ? "asc" : "desc" }]
 
+    const searching = Boolean(query.search?.trim())
+
     const [rows, total, counts, scope] = await Promise.all([
       this.prisma.db.survey.findMany({
         where,
@@ -251,7 +253,8 @@ export class QcRepository {
         },
       }),
       this.prisma.db.survey.count({ where }),
-      this.getRegistryCounts(user, query),
+      // Skip 5 tab-count queries while searching — client keeps prior badges via keepPreviousData
+      searching ? Promise.resolve(null) : this.getRegistryCounts(user, query),
       this.resolveRegistryScopeLabel(query),
     ])
 

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, jest } from "@jest/globals"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
-import { QcRepository } from "./qc.repository.js"
+import { SurveyRegistryRepository } from "./survey-registry.repository.js"
 
 function getSearchOr(findMany: jest.Mock): Array<Record<string, unknown>> {
   const call = findMany.mock.calls[0]?.[0] as {
@@ -10,21 +10,21 @@ function getSearchOr(findMany: jest.Mock): Array<Record<string, unknown>> {
   return (base?.OR ?? []) as Array<Record<string, unknown>>
 }
 
-describe("QcRepository listRegistry search", () => {
+describe("SurveyRegistryRepository list search", () => {
   const user: AuthenticatedUser = {
     id: "u1",
     clerkUserId: "c1",
-    email: "qc@test.com",
-    fullName: "QC",
+    email: "survey@test.com",
+    fullName: "Survey Admin",
     phone: null,
     isActive: true,
-    permissions: ["survey:approve"],
+    permissions: ["survey:view"],
     tenantRoles: [
       {
         id: "tr1",
         roleId: "r1",
-        roleName: "QC_SUPERVISOR",
-        permissions: ["survey:approve"],
+        roleName: "ADMIN",
+        permissions: ["survey:view"],
         stateId: null,
         districtId: null,
         ulbId: null,
@@ -36,7 +36,7 @@ describe("QcRepository listRegistry search", () => {
 
   let findMany: jest.Mock
   let count: jest.Mock
-  let repo: QcRepository
+  let repo: SurveyRegistryRepository
 
   beforeEach(() => {
     findMany = jest.fn()
@@ -49,15 +49,14 @@ describe("QcRepository listRegistry search", () => {
         ward: { findUnique: jest.fn() },
       },
     }
-    const wardCatalog = { listScopedWards: jest.fn<() => Promise<unknown[]>>(() => Promise.resolve([])) }
-    repo = new QcRepository(prisma as never, wardCatalog as never)
+    repo = new SurveyRegistryRepository(prisma as never)
   })
 
-  it("all / omitted searchField uses propertyId, owner, and parcel only (no ward/surveyor)", async () => {
+  it("all / omitted searchField uses propertyId, owner, and parcel only (no surveyor)", async () => {
     findMany.mockResolvedValue([] as never)
     count.mockResolvedValue(0 as never)
 
-    await repo.listRegistry(user, { search: "00001", page: 1, limit: 50 })
+    await repo.list(user, { search: "00001", page: 1, limit: 50 })
 
     const or = getSearchOr(findMany)
     expect(or).toEqual(
@@ -73,7 +72,6 @@ describe("QcRepository listRegistry search", () => {
         },
       ])
     )
-    expect(or.some((c) => "wardNumber" in c)).toBe(false)
     expect(or.some((c) => "assignedTo" in c)).toBe(false)
     expect(or.some((c) => "createdBy" in c)).toBe(false)
   })
@@ -82,10 +80,9 @@ describe("QcRepository listRegistry search", () => {
     findMany.mockResolvedValue([] as never)
     count.mockResolvedValue(0 as never)
 
-    await repo.listRegistry(user, { search: "Ram", searchField: "owner", page: 1, limit: 50 })
+    await repo.list(user, { search: "Ram", searchField: "owner", page: 1, limit: 50 })
 
-    const or = getSearchOr(findMany)
-    expect(or).toEqual([
+    expect(getSearchOr(findMany)).toEqual([
       { respondentName: { contains: "Ram", mode: "insensitive" } },
       { coOwners: { some: { name: { contains: "Ram", mode: "insensitive" } } } },
     ])
@@ -95,7 +92,7 @@ describe("QcRepository listRegistry search", () => {
     findMany.mockResolvedValue([] as never)
     count.mockResolvedValue(0 as never)
 
-    await repo.listRegistry(user, { search: "00001", searchField: "parcel", page: 1, limit: 50 })
+    await repo.list(user, { search: "00001", searchField: "parcel", page: 1, limit: 50 })
 
     const or = getSearchOr(findMany)
     expect(or).toEqual(
@@ -116,7 +113,7 @@ describe("QcRepository listRegistry search", () => {
     findMany.mockResolvedValue([] as never)
     count.mockResolvedValue(0 as never)
 
-    await repo.listRegistry(user, {
+    await repo.list(user, {
       search: "801262",
       searchField: "propertyId",
       page: 1,
@@ -126,88 +123,22 @@ describe("QcRepository listRegistry search", () => {
     expect(getSearchOr(findMany)).toEqual([{ propertyId: { contains: "801262", mode: "insensitive" } }])
   })
 
-  it("maps ownerName from primary co-owner, not respondentName", async () => {
-    findMany.mockResolvedValue([
-      {
-        id: "s1",
-        propertyId: "801262-008-00001-001-M",
-        surveyStatus: "SUBMITTED",
-        qcStatus: "PENDING",
-        parcelNumber: "00001",
-        wardNumber: "08",
-        propertyUse: "MIX_PROPERTY",
-        respondentName: "Kishan",
-        mobileNumber: "8273955117",
-        submittedAt: new Date("2026-01-01"),
-        approvedAt: null,
-        createdAt: new Date("2026-01-01"),
-        assignedTo: { id: "u2", fullName: "Surveyor" },
-        createdBy: { id: "u1", fullName: "QC" },
-        ward: { id: "w1", wardName: "Ward 08", wardNumber: "08" },
-        ulb: { id: "ulb1", name: "Etah" },
-        district: { id: "d1", name: "Etah" },
-        coOwners: [{ name: "Ramjeet Shaky" }],
-      },
-    ] as never)
-    count.mockResolvedValue(1 as never)
-
-    const result = await repo.listRegistry(user, { search: "00001", page: 1, limit: 50, status: "all" })
-
-    expect(result.items[0]?.ownerName).toBe("Ramjeet Shaky")
-    expect(findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        include: expect.objectContaining({
-          coOwners: { select: { name: true }, orderBy: { ownerIndex: "asc" }, take: 1 },
-        }),
-      })
-    )
-  })
-
-  it("falls back to respondentName when no co-owners", async () => {
-    findMany.mockResolvedValue([
-      {
-        id: "s1",
-        propertyId: "801262-008-00001-001-M",
-        surveyStatus: "SUBMITTED",
-        qcStatus: "PENDING",
-        parcelNumber: "00001",
-        wardNumber: "08",
-        propertyUse: "RESIDENTIAL",
-        respondentName: "Kishan",
-        mobileNumber: null,
-        submittedAt: null,
-        approvedAt: null,
-        createdAt: new Date("2026-01-01"),
-        assignedTo: null,
-        createdBy: { id: "u1", fullName: "QC" },
-        ward: null,
-        ulb: null,
-        district: null,
-        coOwners: [],
-      },
-    ] as never)
-    count.mockResolvedValue(1 as never)
-
-    const result = await repo.listRegistry(user, { page: 1, limit: 50, status: "all" })
-    expect(result.items[0]?.ownerName).toBe("Kishan")
-  })
-
   it("empty search does not add OR text filter", async () => {
     findMany.mockResolvedValue([] as never)
     count.mockResolvedValue(0 as never)
 
-    await repo.listRegistry(user, { page: 1, limit: 50, status: "all" })
+    await repo.list(user, { page: 1, limit: 50, tab: "all" })
 
     expect(getSearchOr(findMany)).toEqual([])
-    // findMany + page count + 5 tab counts (no search → counts run)
-    expect(count).toHaveBeenCalledTimes(6)
+    // findMany + page count + 6 tab counts (no search → counts run)
+    expect(count).toHaveBeenCalledTimes(7)
   })
 
   it("mixed-case search still uses insensitive contains", async () => {
     findMany.mockResolvedValue([] as never)
     count.mockResolvedValue(0 as never)
 
-    await repo.listRegistry(user, { search: "RaM", searchField: "owner", page: 1, limit: 50 })
+    await repo.list(user, { search: "RaM", searchField: "owner", page: 1, limit: 50 })
 
     expect(getSearchOr(findMany)).toEqual([
       { respondentName: { contains: "RaM", mode: "insensitive" } },
@@ -219,10 +150,9 @@ describe("QcRepository listRegistry search", () => {
     findMany.mockResolvedValue([] as never)
     count.mockResolvedValue(0 as never)
 
-    const result = await repo.listRegistry(user, { search: "Ram", page: 1, limit: 50, status: "all" })
+    const result = await repo.list(user, { search: "Ram", page: 1, limit: 50, tab: "all" })
 
     expect(result.counts).toBeNull()
-    // Only the page-total count — not 5 tab counts
     expect(count).toHaveBeenCalledTimes(1)
   })
 })

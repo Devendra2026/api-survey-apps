@@ -426,7 +426,8 @@ export interface QcRegistryScope {
 }
 
 export interface QcRegistryResponse extends PaginatedResult<QcRegistryRecord> {
-  counts: QcRegistryCounts
+  /** Null while searching (server skips tab counts); client keeps prior badges via keepPreviousData */
+  counts: QcRegistryCounts | null
   scope: QcRegistryScope | null
 }
 
@@ -489,7 +490,8 @@ export interface SurveyRegistryScope {
 }
 
 export interface SurveyRegistryResponse extends PaginatedResult<SurveyRegistryRecord> {
-  counts: SurveyRegistryCounts
+  /** Null while searching (server skips tab counts); client keeps prior badges via keepPreviousData */
+  counts: SurveyRegistryCounts | null
   scope: SurveyRegistryScope | null
 }
 
@@ -497,6 +499,7 @@ export interface SurveyRegistryFilters {
   page?: number
   limit?: number
   search?: string
+  searchField?: "all" | "owner" | "parcel" | "propertyId"
   tab?: SurveyRegistryTab
   districtId?: string
   ulbId?: string

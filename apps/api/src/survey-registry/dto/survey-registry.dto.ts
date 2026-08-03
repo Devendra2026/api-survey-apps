@@ -1,6 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger"
 import { Type } from "class-transformer"
-import { IsInt, IsOptional, IsString, Max, Min, MinLength } from "class-validator"
+import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator"
+
+export const SURVEY_REGISTRY_SEARCH_FIELDS = ["all", "owner", "parcel", "propertyId"] as const
+export type SurveyRegistrySearchField = (typeof SURVEY_REGISTRY_SEARCH_FIELDS)[number]
 
 export class SurveyRegistryQueryDto {
   @ApiPropertyOptional({ default: 1 })
@@ -18,10 +21,20 @@ export class SurveyRegistryQueryDto {
   @Max(200)
   limit?: number = 50
 
-  @ApiPropertyOptional({ description: "Global search (surveyor, property, owner)" })
+  @ApiPropertyOptional({ description: "Search text (owner, parcel, and/or property ID depending on searchField)" })
   @IsOptional()
   @IsString()
+  @MaxLength(100)
   search?: string
+
+  @ApiPropertyOptional({
+    description: "Which field(s) search applies to",
+    enum: SURVEY_REGISTRY_SEARCH_FIELDS,
+    default: "all",
+  })
+  @IsOptional()
+  @IsIn(SURVEY_REGISTRY_SEARCH_FIELDS)
+  searchField?: SurveyRegistrySearchField
 
   @ApiPropertyOptional({
     description: "Tab filter",

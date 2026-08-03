@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common"
 import type { Prisma, SurveyStatus } from "@workspace/database"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
+import { parcelNumberVariants } from "../common/utils/parcel-search.util.js"
 import { buildTenantWhere, resolveTenantScope } from "../common/utils/tenant-scope.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import type { SurveyRegistryQueryDto } from "./dto/survey-registry.dto.js"
@@ -48,9 +49,36 @@ function progressFor(surveyStatus: string, completionPct: number | null | undefi
 export class SurveyRegistryRepository {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** Field-scoped registry search: owner / parcel / propertyId / all (three-field OR). */
+  private registrySearchOr(search: string, searchField?: string): Prisma.SurveyWhereInput[] {
+    const contains = { contains: search, mode: "insensitive" as const }
+    const propertyIdClause: Prisma.SurveyWhereInput = { propertyId: contains }
+    const ownerClauses: Prisma.SurveyWhereInput[] = [
+      { respondentName: contains },
+      { coOwners: { some: { name: contains } } },
+    ]
+    const parcelVariants = parcelNumberVariants(search)
+    const parcelClauses: Prisma.SurveyWhereInput[] = [
+      { parcelNumber: contains },
+      ...(parcelVariants.length ? [{ parcelNumber: { in: parcelVariants } }] : []),
+    ]
+
+    switch (searchField) {
+      case "propertyId":
+        return [propertyIdClause]
+      case "owner":
+        return ownerClauses
+      case "parcel":
+        return parcelClauses
+      case "all":
+      default:
+        return [propertyIdClause, ...ownerClauses, ...parcelClauses]
+    }
+  }
+
   private baseWhere(
     user: AuthenticatedUser,
-    filters: Pick<SurveyRegistryQueryDto, "districtId" | "ulbId" | "wardId" | "surveyorId" | "search">
+    filters: Pick<SurveyRegistryQueryDto, "districtId" | "ulbId" | "wardId" | "surveyorId" | "search" | "searchField">
   ): Prisma.SurveyWhereInput {
     const scope = resolveTenantScope(user.tenantRoles)
     const tenantWhere = buildTenantWhere(scope)
@@ -65,13 +93,7 @@ export class SurveyRegistryRepository {
       ...(filters.surveyorId ? { assignedToId: filters.surveyorId } : {}),
       ...(search
         ? {
-            OR: [
-              { propertyId: { contains: search, mode: "insensitive" } },
-              { respondentName: { contains: search, mode: "insensitive" } },
-              { parcelNumber: { contains: search, mode: "insensitive" } },
-              { assignedTo: { fullName: { contains: search, mode: "insensitive" } } },
-              { createdBy: { fullName: { contains: search, mode: "insensitive" } } },
-            ],
+            OR: this.registrySearchOr(search, filters.searchField),
           }
         : {}),
     }
@@ -100,7 +122,7 @@ export class SurveyRegistryRepository {
 
   async getCounts(
     user: AuthenticatedUser,
-    filters: Pick<SurveyRegistryQueryDto, "districtId" | "ulbId" | "wardId" | "surveyorId" | "search">
+    filters: Pick<SurveyRegistryQueryDto, "districtId" | "ulbId" | "wardId" | "surveyorId" | "search" | "searchField">
   ) {
     const base = this.baseWhere(user, filters)
     const [all, draft, submitted, qcPending, qcApproved, rejected] = await Promise.all([
@@ -128,6 +150,8 @@ export class SurveyRegistryRepository {
           ? { surveyStatus: query.sortOrder === "asc" ? "asc" : "desc" }
           : { createdAt: query.sortOrder === "asc" ? "asc" : "desc" }
 
+    const searching = Boolean(query.search?.trim())
+
     const [rows, total, counts, scope] = await Promise.all([
       this.prisma.db.survey.findMany({
         where,
@@ -143,7 +167,8 @@ export class SurveyRegistryRepository {
         },
       }),
       this.prisma.db.survey.count({ where }),
-      this.getCounts(user, query),
+      // Skip tab-count queries while searching — client keeps prior badges via keepPreviousData
+      searching ? Promise.resolve(null) : this.getCounts(user, query),
       this.resolveScopeLabel(query),
     ])
 

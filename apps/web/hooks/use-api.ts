@@ -251,8 +251,9 @@ export function useQcRegistry(filters: QcRegistryFilters, enabled = true) {
 
   return useQuery({
     queryKey: ["qc", "registry", filters],
-    queryFn: () => apiGet<QcRegistryResponse>(`/qc/registry${toQcRegistryQuery(filters)}`),
+    queryFn: ({ signal }) => apiGet<QcRegistryResponse>(`/qc/registry${toQcRegistryQuery(filters)}`, { signal }),
     enabled: isLoaded && Boolean(isSignedIn) && canApprove && enabled,
+    placeholderData: keepPreviousData,
   })
 }
 
@@ -371,8 +372,9 @@ export function useRegistryData(filters: SurveyRegistryFilters, enabled = true) 
 
   return useQuery({
     queryKey: ["survey-registry", filters],
-    queryFn: () => apiGet<SurveyRegistryResponse>(`/survey-registry${toRegistryQuery(filters)}`),
+    queryFn: ({ signal }) => apiGet<SurveyRegistryResponse>(`/survey-registry${toRegistryQuery(filters)}`, { signal }),
     enabled: isLoaded && Boolean(isSignedIn) && canView && enabled,
+    placeholderData: keepPreviousData,
   })
 }
 

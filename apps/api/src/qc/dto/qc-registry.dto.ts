@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from "@nestjs/swagger"
 import { Type } from "class-transformer"
-import { IsIn, IsInt, IsOptional, IsString, Max, Min } from "class-validator"
+import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from "class-validator"
 
 export const QC_REGISTRY_SEARCH_FIELDS = ["all", "owner", "parcel", "propertyId"] as const
 export type QcRegistrySearchField = (typeof QC_REGISTRY_SEARCH_FIELDS)[number]
@@ -24,6 +24,7 @@ export class QcRegistryQueryDto {
   @ApiPropertyOptional({ description: "Search text (owner, parcel, and/or property ID depending on searchField)" })
   @IsOptional()
   @IsString()
+  @MaxLength(100)
   search?: string
 
   @ApiPropertyOptional({

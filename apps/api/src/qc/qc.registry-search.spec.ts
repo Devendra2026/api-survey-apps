@@ -2,6 +2,14 @@ import { beforeEach, describe, expect, it, jest } from "@jest/globals"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { QcRepository } from "./qc.repository.js"
 
+function getSearchOr(findMany: jest.Mock): Array<Record<string, unknown>> {
+  const call = findMany.mock.calls[0]?.[0] as {
+    where: { AND: Array<{ OR?: unknown[] }> }
+  }
+  const base = call.where.AND[0]
+  return (base?.OR ?? []) as Array<Record<string, unknown>>
+}
+
 describe("QcRepository listRegistry search", () => {
   const user: AuthenticatedUser = {
     id: "u1",
@@ -45,18 +53,51 @@ describe("QcRepository listRegistry search", () => {
     repo = new QcRepository(prisma as never, wardCatalog as never)
   })
 
-  it("includes parcelNumber in-variants and coOwners.some.name in search OR", async () => {
+  it("all / omitted searchField uses propertyId, owner, and parcel only (no ward/surveyor)", async () => {
     findMany.mockResolvedValue([] as never)
     count.mockResolvedValue(0 as never)
 
     await repo.listRegistry(user, { search: "00001", page: 1, limit: 50 })
 
-    expect(findMany).toHaveBeenCalled()
-    const call = findMany.mock.calls[0]?.[0] as {
-      where: { AND: Array<{ OR?: unknown[] }> }
-    }
-    const base = call.where.AND[0]
-    const or = base?.OR as Array<Record<string, unknown>>
+    const or = getSearchOr(findMany)
+    expect(or).toEqual(
+      expect.arrayContaining([
+        { propertyId: { contains: "00001", mode: "insensitive" } },
+        { respondentName: { contains: "00001", mode: "insensitive" } },
+        { coOwners: { some: { name: { contains: "00001", mode: "insensitive" } } } },
+        { parcelNumber: { contains: "00001", mode: "insensitive" } },
+        {
+          parcelNumber: {
+            in: expect.arrayContaining(["1", "01", "001", "0001", "00001"]),
+          },
+        },
+      ])
+    )
+    expect(or.some((c) => "wardNumber" in c)).toBe(false)
+    expect(or.some((c) => "assignedTo" in c)).toBe(false)
+    expect(or.some((c) => "createdBy" in c)).toBe(false)
+  })
+
+  it("searchField=owner matches respondentName and coOwners only", async () => {
+    findMany.mockResolvedValue([] as never)
+    count.mockResolvedValue(0 as never)
+
+    await repo.listRegistry(user, { search: "Ram", searchField: "owner", page: 1, limit: 50 })
+
+    const or = getSearchOr(findMany)
+    expect(or).toEqual([
+      { respondentName: { contains: "Ram", mode: "insensitive" } },
+      { coOwners: { some: { name: { contains: "Ram", mode: "insensitive" } } } },
+    ])
+  })
+
+  it("searchField=parcel matches parcel contains and variants", async () => {
+    findMany.mockResolvedValue([] as never)
+    count.mockResolvedValue(0 as never)
+
+    await repo.listRegistry(user, { search: "00001", searchField: "parcel", page: 1, limit: 50 })
+
+    const or = getSearchOr(findMany)
     expect(or).toEqual(
       expect.arrayContaining([
         { parcelNumber: { contains: "00001", mode: "insensitive" } },
@@ -65,9 +106,24 @@ describe("QcRepository listRegistry search", () => {
             in: expect.arrayContaining(["1", "01", "001", "0001", "00001"]),
           },
         },
-        { coOwners: { some: { name: { contains: "00001", mode: "insensitive" } } } },
       ])
     )
+    expect(or.some((c) => "propertyId" in c)).toBe(false)
+    expect(or.some((c) => "respondentName" in c)).toBe(false)
+  })
+
+  it("searchField=propertyId matches propertyId only", async () => {
+    findMany.mockResolvedValue([] as never)
+    count.mockResolvedValue(0 as never)
+
+    await repo.listRegistry(user, {
+      search: "801262",
+      searchField: "propertyId",
+      page: 1,
+      limit: 50,
+    })
+
+    expect(getSearchOr(findMany)).toEqual([{ propertyId: { contains: "801262", mode: "insensitive" } }])
   })
 
   it("maps ownerName from primary co-owner, not respondentName", async () => {

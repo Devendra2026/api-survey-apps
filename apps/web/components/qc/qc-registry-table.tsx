@@ -9,9 +9,19 @@ import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { Card, CardContent } from "@workspace/ui/components/card"
 import { Input } from "@workspace/ui/components/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
 import { cn } from "@workspace/ui/lib/utils"
 import { Eye, Search } from "lucide-react"
 import Link from "next/link"
+
+export type QcRegistrySearchField = "all" | "owner" | "parcel" | "propertyId"
+
+const SEARCH_FIELD_OPTIONS: Array<{ value: QcRegistrySearchField; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "owner", label: "Owner name" },
+  { value: "parcel", label: "Parcel number" },
+  { value: "propertyId", label: "Property ID" },
+]
 
 const TAB_ITEMS: Array<{
   id: QcRegistryTab
@@ -163,6 +173,8 @@ export function QcRegistryTable({
   isError,
   search,
   onSearchChange,
+  searchField,
+  onSearchFieldChange,
   tab,
   onTabChange,
   counts,
@@ -178,6 +190,8 @@ export function QcRegistryTable({
   isError?: boolean
   search: string
   onSearchChange: (value: string) => void
+  searchField: QcRegistrySearchField
+  onSearchFieldChange: (value: QcRegistrySearchField) => void
   tab: QcRegistryTab
   onTabChange: (tab: QcRegistryTab) => void
   counts?: QcRegistryCounts
@@ -202,14 +216,36 @@ export function QcRegistryTable({
           </div>
         </div>
 
-        <div className="relative max-w-md">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Search property ID, owner, parcel, or ward..."
-            className="h-9 border-slate-200/80 bg-background/70 pl-9 backdrop-blur dark:border-slate-800"
-          />
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Select value={searchField} onValueChange={(v) => onSearchFieldChange(v as QcRegistrySearchField)}>
+            <SelectTrigger className="h-9 w-full border-slate-200/80 bg-background/70 sm:w-44 dark:border-slate-800">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SEARCH_FIELD_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <div className="relative max-w-md min-w-0 flex-1">
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => onSearchChange(e.target.value)}
+              placeholder={
+                searchField === "owner"
+                  ? "Search owner name..."
+                  : searchField === "parcel"
+                    ? "Search parcel number..."
+                    : searchField === "propertyId"
+                      ? "Search property ID..."
+                      : "Search owner, parcel, or property ID..."
+              }
+              className="h-9 border-slate-200/80 bg-background/70 pl-9 backdrop-blur dark:border-slate-800"
+            />
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto pb-1">

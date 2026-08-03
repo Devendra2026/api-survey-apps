@@ -1,7 +1,7 @@
 "use client"
 
 import { emptyQcScope, QcRegistryHeader, type QcRegistryScopeState } from "@/components/qc/qc-registry-header"
-import { QcRegistryTable } from "@/components/qc/qc-registry-table"
+import { QcRegistryTable, type QcRegistrySearchField } from "@/components/qc/qc-registry-table"
 import { EmptyState } from "@/components/shared/page-elements"
 import { useDistricts, useQcRegistry, useUlbs, useWards } from "@/hooks/use-api"
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
@@ -25,6 +25,7 @@ function QcReviewRegistryPageInner() {
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(50)
   const [search, setSearch] = useState("")
+  const [searchField, setSearchField] = useState<QcRegistrySearchField>("all")
   const [tab, setTab] = useState<QcRegistryTab>("pendingApproved")
   const debouncedSearch = useDebouncedValue(search, 400)
 
@@ -69,6 +70,7 @@ function QcReviewRegistryPageInner() {
       page,
       limit,
       search: debouncedSearch || undefined,
+      searchField,
       status: tab,
       districtId: scope.districtId || undefined,
       ulbId: scope.ulbId || undefined,
@@ -76,7 +78,7 @@ function QcReviewRegistryPageInner() {
       sortBy: wardScoped ? "parcelNumber" : "createdAt",
       sortOrder: (wardScoped ? "asc" : "desc") as "asc" | "desc",
     }
-  }, [page, limit, debouncedSearch, tab, scope.districtId, scope.ulbId, scope.wardId])
+  }, [page, limit, debouncedSearch, searchField, tab, scope.districtId, scope.ulbId, scope.wardId])
 
   const registryQuery = useQcRegistry(filters, Boolean(canApprove))
 
@@ -121,6 +123,11 @@ function QcReviewRegistryPageInner() {
           search={search}
           onSearchChange={(value) => {
             setSearch(value)
+            setPage(1)
+          }}
+          searchField={searchField}
+          onSearchFieldChange={(value) => {
+            setSearchField(value)
             setPage(1)
           }}
           tab={tab}

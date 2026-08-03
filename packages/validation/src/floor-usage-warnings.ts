@@ -136,6 +136,29 @@ export function evaluateMixedUseFloorWarnings(input: FloorUsageWarningInput): Fl
     byPosition.set(floor.floorPosition, list)
   }
 
+  // Mixed-use: sum of usage areas on one floorPosition must not exceed plot/plinth (soft).
+  for (const [floorPosition, rows] of byPosition) {
+    const floorTotal = sumFloorAreas(rows)
+    if (plot != null && floorTotal > plot + AREA_TOLERANCE_SQ_FT) {
+      warnings.push(
+        warn(
+          "FLOOR_AREA_EXCEEDS_PLOT",
+          `Total area on this floor exceeds plot area (${floorTotal} sq ft on ${floorPosition} > ${plot} sq ft plot).`,
+          { floorPosition }
+        )
+      )
+    }
+    if (plinth != null && floorTotal > plinth + AREA_TOLERANCE_SQ_FT) {
+      warnings.push(
+        warn(
+          "FLOOR_AREA_EXCEEDS_PLINTH",
+          `Total area on this floor exceeds plinth area (${floorTotal} sq ft on ${floorPosition} > ${plinth} sq ft plinth).`,
+          { floorPosition }
+        )
+      )
+    }
+  }
+
   for (const floor of floors) {
     if (toFiniteArea(floor.areaSqFt) != null) continue
     const siblings = byPosition.get(floor.floorPosition) ?? []

@@ -434,6 +434,7 @@ export interface QcRegistryFilters {
   page?: number
   limit?: number
   search?: string
+  searchField?: "all" | "owner" | "parcel" | "propertyId"
   status?: QcRegistryTab
   districtId?: string
   ulbId?: string

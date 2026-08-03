@@ -105,4 +105,32 @@ describe("evaluateMixedUseFloorWarnings", () => {
     })
     expect(warnings.some((w) => w.code === "FLOOR_AREA_EXCEEDS_PLOT")).toBe(false)
   })
+
+  it("warns per floorPosition when mixed usages on one floor exceed plot", () => {
+    const warnings = evaluateMixedUseFloorWarnings({
+      propertyUse: "MIX_PROPERTY",
+      plotAreaSqFt: 1000,
+      totalBuiltAreaSqFt: 1100,
+      floors: [
+        { floorPosition: "GROUND_FLOOR", usageFactor: "RESIDENTIAL", areaSqFt: 650 },
+        { floorPosition: "GROUND_FLOOR", usageFactor: "COMMERCIAL", areaSqFt: 450 },
+      ],
+    })
+    const perFloor = warnings.find((w) => w.code === "FLOOR_AREA_EXCEEDS_PLOT" && w.floorPosition === "GROUND_FLOOR")
+    expect(perFloor).toBeDefined()
+    expect(perFloor?.message).toMatch(/Total area on this floor exceeds plot area/)
+  })
+
+  it("does not emit per-floor plot warning when floor total is within plot", () => {
+    const warnings = evaluateMixedUseFloorWarnings({
+      propertyUse: "MIX_PROPERTY",
+      plotAreaSqFt: 1000,
+      totalBuiltAreaSqFt: 1000,
+      floors: [
+        { floorPosition: "GROUND_FLOOR", usageFactor: "RESIDENTIAL", areaSqFt: 650 },
+        { floorPosition: "GROUND_FLOOR", usageFactor: "COMMERCIAL", areaSqFt: 350 },
+      ],
+    })
+    expect(warnings.some((w) => w.code === "FLOOR_AREA_EXCEEDS_PLOT" && w.floorPosition)).toBe(false)
+  })
 })

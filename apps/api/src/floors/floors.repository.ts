@@ -1,12 +1,26 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common"
-import type { Prisma } from "@workspace/database"
+import type { FloorPosition, Prisma } from "@workspace/database"
 import { UsageFactor } from "@workspace/database"
 import type { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
 import { sqFtToSqMeter } from "../common/utils/decimal.util.js"
 import { buildOrderBy, getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
+import { isPrismaUniqueConflict } from "../common/utils/survey-identity.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import type { CreateFloorDto, UpdateFloorDto } from "./dto/related.dto.js"
 import { warningsFromSurveyRow, type FloorUsageWarning } from "./floor-usage-warnings.util.js"
+
+const AREA_TOLERANCE_SQ_FT = 0.01
+
+/** Hard-fail message for duplicate (surveyId, floorPosition, usageFactor). Same floor + different usage is allowed. */
+function duplicateFloorUsageMessage(floorPosition: string, usageFactor: string): string {
+  return `Duplicate floor usage: ${floorPosition} + ${usageFactor} already exists on this survey`
+}
+
+function toAreaNumber(value: unknown): number {
+  if (value == null) return 0
+  const n = typeof value === "number" ? value : Number(value)
+  return Number.isFinite(n) ? n : 0
+}
 
 @Injectable()
 export class FloorsRepository {
@@ -33,6 +47,54 @@ export class FloorsRepository {
     return floor
   }
 
+  /**
+   * Mixed-use hard check: sum of usage areas on one floorPosition and across the survey
+   * must not exceed plot area when plot is set. Soft warnings still cover other cases.
+   */
+  private async assertAreasWithinPlot(
+    tx: Prisma.TransactionClient,
+    args: {
+      surveyId: string
+      floorPosition: FloorPosition
+      nextAreaSqFt: number
+      excludeFloorId?: string
+    }
+  ) {
+    const survey = await tx.survey.findUnique({
+      where: { id: args.surveyId },
+      select: { plotAreaSqFt: true },
+    })
+    if (!survey) throw new NotFoundException("Survey not found")
+
+    const plot = survey.plotAreaSqFt != null ? toAreaNumber(survey.plotAreaSqFt) : null
+    if (plot == null) return
+
+    const floors = await tx.floor.findMany({
+      where: {
+        surveyId: args.surveyId,
+        ...(args.excludeFloorId ? { NOT: { id: args.excludeFloorId } } : {}),
+      },
+      select: { floorPosition: true, areaSqFt: true },
+    })
+
+    let surveyTotal = args.nextAreaSqFt
+    let floorTotal = args.nextAreaSqFt
+    for (const row of floors) {
+      const area = toAreaNumber(row.areaSqFt)
+      surveyTotal += area
+      if (row.floorPosition === args.floorPosition) floorTotal += area
+    }
+
+    if (floorTotal > plot + AREA_TOLERANCE_SQ_FT) {
+      throw new BadRequestException(
+        `Total area on this floor exceeds plot area (${floorTotal} sq ft on ${args.floorPosition} > ${plot} sq ft plot)`
+      )
+    }
+    if (surveyTotal > plot + AREA_TOLERANCE_SQ_FT) {
+      throw new BadRequestException(`Total floor area exceeds plot area (${surveyTotal} sq ft > ${plot} sq ft plot)`)
+    }
+  }
+
   async create(data: CreateFloorDto) {
     if (!data.usageFactor) {
       throw new BadRequestException("Usage factor is required")
@@ -45,32 +107,47 @@ export class FloorsRepository {
       },
     })
     if (dup) {
-      throw new BadRequestException(
-        `Duplicate floor usage: ${data.floorPosition} + ${data.usageFactor} already exists on this survey`
-      )
+      throw new BadRequestException(duplicateFloorUsageMessage(data.floorPosition, data.usageFactor))
     }
 
-    return this.prisma.db.$transaction(async (tx) => {
-      const floor = await tx.floor.create({
-        data: {
+    try {
+      return await this.prisma.db.$transaction(async (tx) => {
+        // Approach B: one Floor row per (floorPosition, usageFactor); siblings share floorPosition.
+        await this.assertAreasWithinPlot(tx, {
           surveyId: data.surveyId,
           floorPosition: data.floorPosition,
-          usageFactor: data.usageFactor,
-          usageType: data.usageType,
-          constructionType: data.constructionType,
-          occupancy: data.occupancy,
-          areaSqFt: data.areaSqFt,
-        },
+          nextAreaSqFt: toAreaNumber(data.areaSqFt),
+        })
+
+        const floor = await tx.floor.create({
+          data: {
+            surveyId: data.surveyId,
+            floorPosition: data.floorPosition,
+            usageFactor: data.usageFactor,
+            usageType: data.usageType,
+            constructionType: data.constructionType,
+            occupancy: data.occupancy,
+            areaSqFt: data.areaSqFt,
+          },
+        })
+        const areas = await this.recalculateAreas(tx, data.surveyId)
+        return { ...floor, areas }
       })
-      const areas = await this.recalculateAreas(tx, data.surveyId)
-      return { ...floor, areas }
-    })
+    } catch (error) {
+      if (error instanceof BadRequestException || error instanceof NotFoundException) throw error
+      if (isPrismaUniqueConflict(error)) {
+        throw new BadRequestException(duplicateFloorUsageMessage(data.floorPosition, data.usageFactor))
+      }
+      throw error
+    }
   }
 
   async update(id: string, data: UpdateFloorDto) {
     const existing = await this.findById(id)
     const nextPosition = data.floorPosition ?? existing.floorPosition
     const nextUsage = data.usageFactor ?? existing.usageFactor
+    const nextArea = data.areaSqFt !== undefined ? toAreaNumber(data.areaSqFt) : toAreaNumber(existing.areaSqFt)
+
     if (
       (data.floorPosition && data.floorPosition !== existing.floorPosition) ||
       (data.usageFactor && data.usageFactor !== existing.usageFactor)
@@ -84,27 +161,40 @@ export class FloorsRepository {
         },
       })
       if (dup) {
-        throw new BadRequestException(
-          `Duplicate floor usage: ${nextPosition} + ${nextUsage} already exists on this survey`
-        )
+        throw new BadRequestException(duplicateFloorUsageMessage(nextPosition, nextUsage))
       }
     }
 
-    return this.prisma.db.$transaction(async (tx) => {
-      const floor = await tx.floor.update({
-        where: { id },
-        data: {
-          floorPosition: data.floorPosition,
-          usageFactor: data.usageFactor,
-          usageType: data.usageType,
-          constructionType: data.constructionType,
-          occupancy: data.occupancy,
-          areaSqFt: data.areaSqFt,
-        },
+    try {
+      return await this.prisma.db.$transaction(async (tx) => {
+        await this.assertAreasWithinPlot(tx, {
+          surveyId: existing.surveyId,
+          floorPosition: nextPosition,
+          nextAreaSqFt: nextArea,
+          excludeFloorId: id,
+        })
+
+        const floor = await tx.floor.update({
+          where: { id },
+          data: {
+            floorPosition: data.floorPosition,
+            usageFactor: data.usageFactor,
+            usageType: data.usageType,
+            constructionType: data.constructionType,
+            occupancy: data.occupancy,
+            areaSqFt: data.areaSqFt,
+          },
+        })
+        const areas = await this.recalculateAreas(tx, existing.surveyId)
+        return { ...floor, areas }
       })
-      const areas = await this.recalculateAreas(tx, existing.surveyId)
-      return { ...floor, areas }
-    })
+    } catch (error) {
+      if (error instanceof BadRequestException || error instanceof NotFoundException) throw error
+      if (isPrismaUniqueConflict(error)) {
+        throw new BadRequestException(duplicateFloorUsageMessage(nextPosition, nextUsage))
+      }
+      throw error
+    }
   }
 
   async delete(id: string) {

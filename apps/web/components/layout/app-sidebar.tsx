@@ -190,7 +190,7 @@ export function AppSidebar({ collapsed, variant = "desktop" }: { collapsed: bool
           aria-label="SDV EDUTECH — Survey Operations"
         >
           <Image
-            src="/sdv-edutech-logo.png"
+            src="/logo.png"
             alt="SDV EDUTECH"
             width={collapsed ? 40 : 220}
             height={collapsed ? 40 : 64}

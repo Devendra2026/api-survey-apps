@@ -98,11 +98,37 @@ export class QcRepository {
     }
   }
 
+  /** Field-scoped registry search: owner / parcel / propertyId / all (three-field OR). */
+  private registrySearchOr(search: string, searchField?: string): Prisma.SurveyWhereInput[] {
+    const contains = { contains: search, mode: "insensitive" as const }
+    const propertyIdClause: Prisma.SurveyWhereInput = { propertyId: contains }
+    const ownerClauses: Prisma.SurveyWhereInput[] = [
+      { respondentName: contains },
+      { coOwners: { some: { name: contains } } },
+    ]
+    const parcelVariants = parcelNumberVariants(search)
+    const parcelClauses: Prisma.SurveyWhereInput[] = [
+      { parcelNumber: contains },
+      ...(parcelVariants.length ? [{ parcelNumber: { in: parcelVariants } }] : []),
+    ]
+
+    switch (searchField) {
+      case "propertyId":
+        return [propertyIdClause]
+      case "owner":
+        return ownerClauses
+      case "parcel":
+        return parcelClauses
+      case "all":
+      default:
+        return [propertyIdClause, ...ownerClauses, ...parcelClauses]
+    }
+  }
+
   private registryBaseWhere(user: AuthenticatedUser, query: QcRegistryQueryDto): Prisma.SurveyWhereInput {
     const scope = resolveTenantScope(user.tenantRoles)
     const tenantWhere = buildTenantWhere(scope)
     const search = query.search?.trim()
-    const parcelVariants = search ? parcelNumberVariants(search) : []
 
     return {
       deletedAt: null,
@@ -113,16 +139,7 @@ export class QcRepository {
       ...(query.wardId ? { wardId: query.wardId } : {}),
       ...(search
         ? {
-            OR: [
-              { propertyId: { contains: search, mode: "insensitive" } },
-              { respondentName: { contains: search, mode: "insensitive" } },
-              { parcelNumber: { contains: search, mode: "insensitive" } },
-              ...(parcelVariants.length ? [{ parcelNumber: { in: parcelVariants } }] : []),
-              { wardNumber: { contains: search, mode: "insensitive" } },
-              { assignedTo: { fullName: { contains: search, mode: "insensitive" } } },
-              { createdBy: { fullName: { contains: search, mode: "insensitive" } } },
-              { coOwners: { some: { name: { contains: search, mode: "insensitive" } } } },
-            ],
+            OR: this.registrySearchOr(search, query.searchField),
           }
         : {}),
     }

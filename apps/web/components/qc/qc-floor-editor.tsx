@@ -72,6 +72,32 @@ function labelEnum(value: string) {
   return value.replaceAll("_", " ")
 }
 
+/** Usage factors already present on a floor position (mixed-use rows). */
+function usedUsageFactors(floors: QcSurveyFloorEditable[], floorPosition: string): Set<string> {
+  const used = new Set<string>()
+  for (const floor of floors) {
+    if (floor.floorPosition === floorPosition && floor.usageFactor) {
+      used.add(floor.usageFactor)
+    }
+  }
+  return used
+}
+
+/** Prefer next unused usage for mixed-use adds (Res → Com → …). */
+function nextUnusedUsageFactor(floors: QcSurveyFloorEditable[], floorPosition: string): string {
+  const used = usedUsageFactors(floors, floorPosition)
+  const next = USAGE_FACTOR_OPTIONS.find((o) => !used.has(o))
+  return next ?? "RESIDENTIAL"
+}
+
+function findFloorByPositionAndUsage(
+  floors: QcSurveyFloorEditable[],
+  floorPosition: string,
+  usageFactor: string
+): QcSurveyFloorEditable | undefined {
+  return floors.find((f) => f.floorPosition === floorPosition && f.usageFactor === usageFactor)
+}
+
 export function QcFloorEditor({
   surveyId,
   editMode,
@@ -107,7 +133,12 @@ export function QcFloorEditor({
   const startAdd = () => {
     setEditingId(null)
     setAdding(true)
-    setForm(emptyForm())
+    const floorPosition = "GROUND_FLOOR"
+    setForm({
+      ...emptyForm(),
+      floorPosition,
+      usageFactor: nextUnusedUsageFactor(editableFloors, floorPosition),
+    })
   }
 
   const startEdit = (floor: QcSurveyFloorEditable) => {
@@ -120,6 +151,16 @@ export function QcFloorEditor({
     setAdding(false)
     setEditingId(null)
     setForm(emptyForm())
+  }
+
+  const onFloorPositionChange = (floorPosition: string) => {
+    setForm((f) => {
+      const used = usedUsageFactors(editableFloors, floorPosition)
+      // Keep current usage if still free on the new floor; otherwise pick next free.
+      const usageFactor =
+        f.usageFactor && !used.has(f.usageFactor) ? f.usageFactor : nextUnusedUsageFactor(editableFloors, floorPosition)
+      return { ...f, floorPosition, usageFactor }
+    })
   }
 
   const save = async () => {
@@ -145,8 +186,15 @@ export function QcFloorEditor({
     }
     try {
       if (adding) {
-        await floorsApi.create.mutateAsync(body)
-        toast.success("Floor created")
+        // Same floor + usage already exists → update that row (avoids duplicate toast on retry).
+        const existing = findFloorByPositionAndUsage(editableFloors, form.floorPosition, form.usageFactor)
+        if (existing) {
+          await floorsApi.update.mutateAsync({ id: existing.id, body })
+          toast.success("Floor usage updated")
+        } else {
+          await floorsApi.create.mutateAsync(body)
+          toast.success("Floor created")
+        }
       } else if (editingId) {
         await floorsApi.update.mutateAsync({ id: editingId, body })
         toast.success("Floor updated")
@@ -295,7 +343,7 @@ export function QcFloorEditor({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <div className="space-y-1">
               <p className="text-[10px] font-semibold tracking-[0.14em] text-slate-500 uppercase">Floor</p>
-              <Select value={form.floorPosition} onValueChange={(v) => setForm((f) => ({ ...f, floorPosition: v }))}>
+              <Select value={form.floorPosition} onValueChange={onFloorPositionChange}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -338,11 +386,16 @@ export function QcFloorEditor({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none">—</SelectItem>
-                  {USAGE_FACTOR_OPTIONS.map((o) => (
-                    <SelectItem key={o} value={o}>
-                      {labelEnum(o)}
-                    </SelectItem>
-                  ))}
+                  {USAGE_FACTOR_OPTIONS.map((o) => {
+                    const taken =
+                      adding && usedUsageFactors(editableFloors, form.floorPosition).has(o) && form.usageFactor !== o
+                    return (
+                      <SelectItem key={o} value={o} disabled={taken}>
+                        {labelEnum(o)}
+                        {taken ? " (already on this floor)" : ""}
+                      </SelectItem>
+                    )
+                  })}
                 </SelectContent>
               </Select>
             </div>

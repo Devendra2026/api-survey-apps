@@ -50,6 +50,13 @@ function rowValues(sheet: ExcelJS.Worksheet, rowNumber: number): string[] {
   return values.slice(1).map((value) => cellText(value))
 }
 
+async function loadFromBuffer(buffer: Buffer): Promise<ExcelJS.Workbook> {
+  const workbook = new ExcelJS.Workbook()
+  // ExcelJS typings expect Buffer; Node 24 Buffer generics disagree with @types/node.
+  await workbook.xlsx.load(buffer as unknown as ArrayBuffer)
+  return workbook
+}
+
 async function loadGolden(path: string): Promise<ExcelJS.Workbook | null> {
   try {
     const workbook = new ExcelJS.Workbook()
@@ -62,8 +69,7 @@ async function loadGolden(path: string): Promise<ExcelJS.Workbook | null> {
 
 describe("Excel report templates", () => {
   it("renders the exact Convex multi-sheet contract", async () => {
-    const workbook = new ExcelJS.Workbook()
-    await workbook.xlsx.load(await renderConvexFullWorkbook([bundle]))
+    const workbook = await loadFromBuffer(await renderConvexFullWorkbook([bundle]))
 
     expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["Surveys", "CoOwners", "Floors", "Photos", "Guide"])
     expect(workbook.getWorksheet("Surveys")?.getRow(1).values).toContain("Survey ID")
@@ -75,8 +81,7 @@ describe("Excel report templates", () => {
     const golden = await loadGolden("C:/sdv-books/docs/surveys_full_2026-07-10.xlsx")
     if (!golden) return
 
-    const generated = new ExcelJS.Workbook()
-    await generated.xlsx.load(await renderConvexFullWorkbook([bundle]))
+    const generated = await loadFromBuffer(await renderConvexFullWorkbook([bundle]))
 
     expect(generated.worksheets.map((sheet) => sheet.name)).toEqual(golden.worksheets.map((sheet) => sheet.name))
     for (const name of ["Surveys", "CoOwners", "Floors", "Photos"] as const) {
@@ -85,8 +90,7 @@ describe("Excel report templates", () => {
   })
 
   it("renders Bakewar's Survey Data header order", async () => {
-    const workbook = new ExcelJS.Workbook()
-    await workbook.xlsx.load(await renderNagarPanchayatWorkbook([bundle]))
+    const workbook = await loadFromBuffer(await renderNagarPanchayatWorkbook([bundle]))
 
     const sheet = workbook.getWorksheet("Survey Data")
     expect(sheet?.getRow(1).values).toEqual(
@@ -99,19 +103,18 @@ describe("Excel report templates", () => {
     const golden = await loadGolden("E:/Sales/sdv-edutech/sdv-docs/Nagar-Panchayat-Bakewar-survey-data.xlsx")
     if (!golden) return
 
-    const generated = new ExcelJS.Workbook()
-    await generated.xlsx.load(await renderNagarPanchayatWorkbook([bundle]))
+    const generated = await loadFromBuffer(await renderNagarPanchayatWorkbook([bundle]))
     const goldenSheet = golden.worksheets[0]
     const generatedSheet = generated.getWorksheet("Survey Data")
     expect(goldenSheet).toBeDefined()
     expect(generatedSheet).toBeDefined()
-    expect(rowValues(generatedSheet!, 1)).toEqual(rowValues(goldenSheet, 1))
-    expect(rowValues(generatedSheet!, 1)).toHaveLength(45)
+    if (!goldenSheet || !generatedSheet) return
+    expect(rowValues(generatedSheet, 1)).toEqual(rowValues(goldenSheet, 1))
+    expect(rowValues(generatedSheet, 1)).toHaveLength(45)
   })
 
   it("renders Survey Data verification sheet without tax demand columns", async () => {
-    const workbook = new ExcelJS.Workbook()
-    await workbook.xlsx.load(
+    const workbook = await loadFromBuffer(
       await renderSurveyDataWorkbook([
         { ...bundle, qcStatus: "APPROVED" },
         { ...bundle, id: "survey-2", propertyId: "p-2", qcStatus: "PENDING" },
@@ -134,8 +137,7 @@ describe("Excel report templates", () => {
   })
 
   it("renders QC Final wide sheet with blank tax placeholders", async () => {
-    const workbook = new ExcelJS.Workbook()
-    await workbook.xlsx.load(await renderQcFinalWideWorkbook([bundle]))
+    const workbook = await loadFromBuffer(await renderQcFinalWideWorkbook([bundle]))
 
     const sheet = workbook.getWorksheet("Survey Data")!
     expect(sheet.getCell("Q1").value).toBe("Floors")
@@ -147,10 +149,8 @@ describe("Excel report templates", () => {
   })
 
   it("streaming Survey Data matches buffer renderer key header cells", async () => {
-    const streamed = new ExcelJS.Workbook()
-    await streamed.xlsx.load(await renderSurveyDataWorkbookStreaming([bundle]))
-    const buffered = new ExcelJS.Workbook()
-    await buffered.xlsx.load(await renderSurveyDataWorkbook([bundle]))
+    const streamed = await loadFromBuffer(await renderSurveyDataWorkbookStreaming([bundle]))
+    const buffered = await loadFromBuffer(await renderSurveyDataWorkbook([bundle]))
 
     const streamedSheet = streamed.getWorksheet("Survey Data")!
     const bufferedSheet = buffered.getWorksheet("Survey Data")!
@@ -166,8 +166,7 @@ describe("Excel report templates", () => {
       ...bundle,
       floors: [{ position: 0, floorPosition: "FIFTH_FLOOR_PLUS", areaSqFt: 500, usageFactor: "RESIDENTIAL" }],
     }
-    const workbook = new ExcelJS.Workbook()
-    await workbook.xlsx.load(await renderSurveyDataWorkbook([legacy]))
+    const workbook = await loadFromBuffer(await renderSurveyDataWorkbook([legacy]))
     const sheet = workbook.getWorksheet("Survey Data")!
     expect(sheet.getCell("AD5").value).toBe(500)
   })

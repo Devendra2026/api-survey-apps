@@ -39,6 +39,11 @@ export interface StorageHealthCheck {
 export interface StorageService {
   uploadObject(input: UploadObjectInput): Promise<StorageUploadResult>
   deleteObject(key: string): Promise<void>
+  getObjectStream(key: string): Promise<{
+    body: import("node:stream").Readable
+    contentType?: string
+    contentLength?: number
+  }>
   getSignedDownloadUrl(key: string, expiresInSeconds?: number): Promise<string>
   getSignedUploadUrl(input: SignedUploadUrlInput): Promise<string>
   isConfigured(): boolean

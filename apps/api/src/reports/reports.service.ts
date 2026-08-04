@@ -225,6 +225,53 @@ export class ReportsService {
     return { jobId: job.id, filename: job.filename ?? `${job.id}.xlsx`, rowCount: job.rowCount, url }
   }
 
+  /**
+   * Stream export bytes through the API (same-origin). Avoids browser "Failed to fetch"
+   * against private MinIO hosts / missing S3 CORS.
+   */
+  async openJobFileStream(user: AuthenticatedUser, jobId: string) {
+    const job = await this.prisma.db.exportJob.findFirst({
+      where: { id: jobId, createdById: user.id, status: JobStatus.SUCCEEDED, objectKey: { not: null } },
+      select: { id: true, objectKey: true, filename: true, format: true, reportType: true },
+    })
+    if (!job?.objectKey) throw new NotFoundException("Completed export job not found")
+
+    const object = await this.storageService.getObjectStream(job.objectKey)
+    await this.prisma.db.$transaction([
+      this.prisma.db.exportJob.update({
+        where: { id: job.id },
+        data: { downloadCount: { increment: 1 } },
+      }),
+      this.prisma.db.securityAudit.create({
+        data: {
+          action: "EXPORT_FILE_STREAMED",
+          actorId: user.id,
+          targetType: "ExportJob",
+          targetId: job.id,
+          metadata: { via: "api-proxy" },
+        },
+      }),
+    ])
+
+    const filename = job.filename ?? `${job.id}.xlsx`
+    const contentType =
+      object.contentType ??
+      (filename.endsWith(".zip")
+        ? "application/zip"
+        : filename.endsWith(".pdf")
+          ? "application/pdf"
+          : filename.endsWith(".csv")
+            ? "text/csv"
+            : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    return {
+      stream: object.body,
+      filename,
+      contentType,
+      contentLength: object.contentLength,
+    }
+  }
+
   private assertExportSize<T extends { buffer: Buffer }>(result: T, maxBytes?: number): T {
     if (maxBytes && result.buffer.byteLength > maxBytes) {
       throw new BadRequestException("Synchronous exports are capped at 2MB. Retry without ?sync=true.")

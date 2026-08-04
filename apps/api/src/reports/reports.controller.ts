@@ -1,6 +1,6 @@
-import { Controller, Get, Param, Query, Res, StreamableFile, BadRequestException } from "@nestjs/common"
-import { Throttle } from "@nestjs/throttler"
+import { BadRequestException, Controller, Get, Param, Query, Res, StreamableFile } from "@nestjs/common"
 import { ApiBearerAuth, ApiOperation, ApiPropertyOptional, ApiTags } from "@nestjs/swagger"
+import { Throttle } from "@nestjs/throttler"
 import { SurveyStatus } from "@workspace/database"
 import { IsBooleanString, IsDateString, IsEnum, IsIn, IsOptional, IsString } from "class-validator"
 import type { Response } from "express"
@@ -217,6 +217,21 @@ export class ReportsController {
   @ApiOperation({ summary: "Get a signed URL for a completed export job" })
   downloadJob(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.reportsService.getJobDownload(user, id)
+  }
+
+  @Get("jobs/:id/file")
+  @RequirePermission(PERMISSIONS.REPORT_EXPORT)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @ApiOperation({
+    summary: "Stream a completed export file through the API (avoids MinIO/S3 CORS Failed to fetch)",
+  })
+  async streamJobFile(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
+    const file = await this.reportsService.openJobFileStream(user, id)
+    return new StreamableFile(file.stream, {
+      type: file.contentType,
+      disposition: `attachment; filename="${file.filename.replace(/"/g, "")}"`,
+      length: file.contentLength,
+    })
   }
 
   @Get("jobs/:id")

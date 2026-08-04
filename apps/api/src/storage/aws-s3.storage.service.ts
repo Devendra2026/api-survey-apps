@@ -14,6 +14,7 @@ export class AwsS3StorageService extends S3CompatibleStorage {
       bucket: nonEmpty(configService, "AWS_S3_BUCKET"),
       region: nonEmpty(configService, "AWS_REGION") ?? "ap-south-1",
       endpoint: nonEmpty(configService, "AWS_S3_ENDPOINT"),
+      publicEndpoint: nonEmpty(configService, "AWS_S3_PUBLIC_URL"),
       forcePathStyle: boolValue(configService, "AWS_S3_FORCE_PATH_STYLE"),
       accessKeyId,
       secretAccessKey,

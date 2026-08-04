@@ -7,12 +7,7 @@ import { useHydrateGeoScopeFromSearchParams } from "@/hooks/use-hydrate-geo-scop
 import { apiGet, apiPost } from "@/lib/api/client"
 import type { DemandNoticeDocument, DemandNoticeRegisterRow } from "@/lib/demand-notice/types"
 import { formatInr } from "@/lib/demand-notice/types"
-import {
-  downloadFromUrl,
-  enqueueReportExport,
-  getExportJobDownload,
-  waitForExportJob,
-} from "@/lib/reports/export-download"
+import { downloadExportJobFile, enqueueReportExport, waitForExportJob } from "@/lib/reports/export-download"
 import { useAuthStore } from "@/stores/app-store"
 import { useQuery } from "@tanstack/react-query"
 import { Button } from "@workspace/ui/components/button"
@@ -111,9 +106,8 @@ function DemandNoticesPanelPageInner() {
 
       const { jobId } = await enqueueReportExport("pdf", params)
       toast.info("Generating ward demand notice PDF…")
-      await waitForExportJob(jobId, { timeoutMs: 10 * 60_000 })
-      const download = await getExportJobDownload(jobId)
-      await downloadFromUrl(download.url, download.filename)
+      const job = await waitForExportJob(jobId, { timeoutMs: 10 * 60_000 })
+      await downloadExportJobFile(jobId, job.filename || `demand-notices-${scope.wardId}.pdf`)
       toast.success("Ward PDF downloaded")
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Ward PDF failed")

@@ -24,6 +24,11 @@ describe("StorageService MIME validation", () => {
           mimeType: input.mimeType,
         }),
       deleteObject: () => Promise.resolve(undefined),
+      getObjectStream: () =>
+        Promise.resolve({
+          body: { pipe: () => undefined } as unknown as NodeJS.ReadableStream,
+          contentType: "application/octet-stream",
+        }),
       getSignedDownloadUrl: () => Promise.resolve("https://signed.example.com/photo"),
       getSignedUploadUrl: () => Promise.resolve("https://signed.example.com/upload"),
       healthCheck: () =>

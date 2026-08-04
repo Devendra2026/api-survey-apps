@@ -6,9 +6,8 @@ import { exportReport, useCommandCenterKPIs, useDashboardSummary, useUlbs } from
 import { useHydrateGeoScopeFromSearchParams } from "@/hooks/use-hydrate-geo-scope"
 import type { CommandCenterFilters } from "@/lib/api/types"
 import {
-  downloadFromUrl,
+  downloadExportJobFile,
   enqueueReportExport,
-  getExportJobDownload,
   isSyncExportCapError,
   waitForExportJob,
 } from "@/lib/reports/export-download"
@@ -242,11 +241,7 @@ function ReportsPageInner() {
         }
       },
     })
-    const download = await getExportJobDownload(job.id)
-    await downloadFromUrl(
-      download.url,
-      download.filename || `${reportType}-export.${format === "xlsx" ? "xlsx" : format}`
-    )
+    await downloadExportJobFile(job.id, job.filename || `${reportType}-export.${format === "xlsx" ? "xlsx" : format}`)
   }
 
   async function handleDistrictWardZip() {

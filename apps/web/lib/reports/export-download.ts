@@ -1,4 +1,5 @@
-import { apiGet } from "@/lib/api/client"
+import { apiClient, apiGet } from "@/lib/api/client"
+import axios from "axios"
 
 export type ExportJobStatus = "QUEUED" | "PROCESSING" | "SUCCEEDED" | "FAILED" | "CANCELLED"
 
@@ -67,18 +68,72 @@ export async function waitForExportJob(
   throw new Error("Export is taking longer than expected. Check back shortly or retry with a narrower filter scope.")
 }
 
-export async function downloadFromUrl(url: string, filename: string) {
-  const response = await fetch(url)
-  if (!response.ok) {
-    throw new Error(`Download failed (${response.status})`)
-  }
-  const blob = await response.blob()
+function triggerBlobDownload(blob: Blob, filename: string) {
   const href = URL.createObjectURL(blob)
   const a = document.createElement("a")
   a.href = href
   a.download = filename
+  a.rel = "noopener"
+  document.body.appendChild(a)
   a.click()
+  a.remove()
   URL.revokeObjectURL(href)
+}
+
+/**
+ * Download a completed export via the API proxy (authenticated, same-origin).
+ * Avoids browser "Failed to fetch" against private MinIO / missing S3 CORS.
+ */
+export async function downloadExportJobFile(jobId: string, filename: string) {
+  try {
+    const response = await apiClient.get<Blob>(`/reports/jobs/${jobId}/file`, {
+      responseType: "blob",
+      timeout: 15 * 60_000,
+    })
+    triggerBlobDownload(response.data, filename)
+  } catch (error) {
+    if (axios.isAxiosError(error) && error.response?.data instanceof Blob) {
+      const text = await error.response.data.text()
+      try {
+        const parsed = JSON.parse(text) as { message?: string }
+        throw new Error(parsed.message || `Download failed (${error.response.status})`)
+      } catch (inner) {
+        if (inner instanceof Error && inner.message.startsWith("Download failed")) throw inner
+        if (inner instanceof Error && !inner.message.includes("JSON")) throw inner
+        throw new Error(text.slice(0, 240) || `Download failed (${error.response.status})`)
+      }
+    }
+    if (axios.isAxiosError(error) && !error.response) {
+      throw new Error("Network error while downloading export. Confirm the API is reachable and try again.")
+    }
+    throw error
+  }
+}
+
+/** @deprecated Prefer downloadExportJobFile for production — signed URL fetch often hits CORS/private hosts. */
+export async function downloadFromUrl(url: string, filename: string) {
+  try {
+    const response = await fetch(url)
+    if (!response.ok) {
+      throw new Error(`Download failed (${response.status})`)
+    }
+    const blob = await response.blob()
+    triggerBlobDownload(blob, filename)
+  } catch (error) {
+    // Fallback: navigate without fetch (still fails if URL host is unreachable).
+    if (error instanceof TypeError || (error instanceof Error && /failed to fetch/i.test(error.message))) {
+      const a = document.createElement("a")
+      a.href = url
+      a.download = filename
+      a.rel = "noopener"
+      a.target = "_blank"
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      return
+    }
+    throw error
+  }
 }
 
 export function isSyncExportCapError(message: string): boolean {

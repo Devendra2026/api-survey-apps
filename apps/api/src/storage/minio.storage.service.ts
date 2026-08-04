@@ -18,6 +18,7 @@ export class MinioStorageService extends S3CompatibleStorage {
       bucket: configured ? bucket : undefined,
       region: nonEmpty(configService, "MINIO_REGION") ?? "us-east-1",
       endpoint,
+      publicEndpoint: nonEmpty(configService, "MINIO_PUBLIC_URL"),
       forcePathStyle: true,
       accessKeyId,
       secretAccessKey,

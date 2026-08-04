@@ -4,6 +4,7 @@ import { MigrationJobType } from "@workspace/database"
 import { emptyEtlJobStats } from "@workspace/etl-core"
 import { JOB_NAMES, JOB_QUEUE_NAMES, type EtlSurveyBatchPayload, type EtlSurveyImportPayload } from "@workspace/jobs"
 import type { Job, Queue } from "bullmq"
+import { createHash } from "node:crypto"
 import { PrismaService } from "../database/prisma.service.js"
 import { EtlOrchestratorService } from "./etl-orchestrator.service.js"
 import { toQueueError } from "./queue-error.js"
@@ -80,6 +81,9 @@ export class EtlSurveyImportProcessor extends WorkerHost {
       })
 
       if (!page.isDone) {
+        // Hash the full cursor — truncating opaque Convex cursors caused duplicate
+        // BullMQ jobIds across pages and stalled/retried the same cursor.
+        const cursorKey = createHash("sha256").update(page.continueCursor).digest("hex").slice(0, 32)
         await this.surveyQueue.add(
           JOB_NAMES.importSurveyBatch,
           {
@@ -87,8 +91,11 @@ export class EtlSurveyImportProcessor extends WorkerHost {
             cursor: page.continueCursor,
           },
           {
-            jobId: `${payload.migrationJobId}-batch-${page.continueCursor.slice(0, 24)}`,
-            delay: 500,
+            jobId: `${payload.migrationJobId}-batch-${cursorKey}`,
+            // Back off between pages so Convex is not hammered every ~500ms.
+            delay: page.ids.length === 0 ? 3_000 : 2_000,
+            removeOnComplete: true,
+            removeOnFail: { count: 2_000 },
           }
         )
       } else {

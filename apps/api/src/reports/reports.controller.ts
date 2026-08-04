@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, Res, StreamableFile } from "@nestjs/common"
+import { Controller, Get, Param, Query, Res, StreamableFile, BadRequestException } from "@nestjs/common"
 import { Throttle } from "@nestjs/throttler"
 import { ApiBearerAuth, ApiOperation, ApiPropertyOptional, ApiTags } from "@nestjs/swagger"
 import { SurveyStatus } from "@workspace/database"
@@ -39,6 +39,7 @@ class ExportQueryDto {
       "summary",
       "convex_full",
       "survey_data",
+      "district_ward_zip",
       "nagar_panchayat",
       "qc_final",
       "demand_notices",
@@ -54,6 +55,7 @@ class ExportQueryDto {
     "summary",
     "convex_full",
     "survey_data",
+    "district_ward_zip",
     "nagar_panchayat",
     "qc_final",
     "demand_notices",
@@ -172,6 +174,10 @@ export class ReportsController {
 
     if (query.sync !== "true") {
       return this.reportsService.enqueueExport(user, query.format, query.reportType, filters)
+    }
+
+    if (query.reportType === "district_ward_zip") {
+      throw new BadRequestException("district_ward_zip export cannot run synchronously. Retry without ?sync=true.")
     }
 
     const result = await this.reportsService.exportSync(user, query.format, query.reportType, filters)

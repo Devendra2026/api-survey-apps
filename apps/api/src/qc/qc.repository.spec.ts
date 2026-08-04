@@ -85,12 +85,24 @@ describe("QcRepository.qcCorrectSurvey", () => {
       survey: {
         update: jest.fn().mockResolvedValue({} as never),
         findFirstOrThrow: jest.fn().mockResolvedValue({} as never),
+        findUnique: jest.fn().mockResolvedValue({ propertyUse: survey.propertyUse } as never),
       },
       floor: {
         findFirst: jest.fn(),
         update: jest.fn(),
         upsert: jest.fn().mockResolvedValue({ id: "f-new" } as never),
-        findMany: jest.fn().mockResolvedValue([{ areaSqFt: 120 } as never] as never),
+        findMany: jest.fn().mockResolvedValue([
+          {
+            floorPosition: "GROUND_FLOOR",
+            usageFactor: "RESIDENTIAL",
+            areaSqFt: { toString: () => "80" },
+          },
+          {
+            floorPosition: "FIRST_FLOOR",
+            usageFactor: "COMMERCIAL",
+            areaSqFt: { toString: () => "40" },
+          },
+        ] as never),
         deleteMany: jest.fn().mockResolvedValue({ count: 0 } as never),
       },
       coOwner: {

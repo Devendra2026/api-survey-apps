@@ -1,20 +1,41 @@
 import { Injectable, Logger } from "@nestjs/common"
 import { ConfigService } from "@nestjs/config"
-import { JobStatus, type Prisma, SurveyStatus } from "@workspace/database"
+import { JobStatus, Prisma, SurveyStatus } from "@workspace/database"
 import {
   renderConvexFullWorkbook,
   renderNagarPanchayatWorkbook,
   renderQcFinalWorkbook,
   renderSurveyDataWorkbook,
+  sanitizeExportPathSegment,
+  streamSurveyDataWorkbookToFile,
+  wardSurveyDataZipEntry,
   type SurveyExportBundle,
 } from "@workspace/excel-reports"
 import type { ExportFiltersPayload, ExportJobPayload, ExportReportType } from "@workspace/jobs"
+import { ZipArchive } from "archiver"
 import ExcelJS from "exceljs"
+import { createWriteStream } from "node:fs"
+import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import PDFDocument from "pdfkit"
 import { PrismaService } from "../database/prisma.service.js"
 import { ObjectStorageService } from "../storage/object-storage.service.js"
 import { buildTenantWhere, resolveTenantScope } from "../tenant/tenant-scope.js"
 import { renderWardDemandNoticePdf } from "./demand-notice-pdf.js"
+
+const EXPORT_BATCH_SIZE = 500
+const DEFAULT_EXPORT_MAX_ROWS = 500_000
+
+type ExportFloorRow = {
+  surveyId: string
+  floorPosition: string
+  usageFactor: string | null
+  usageType: string | null
+  constructionType: string | null
+  occupancy: string | null
+  areaSqFt: Prisma.Decimal | null
+}
 
 type ExportRow = {
   id: string
@@ -30,6 +51,75 @@ type ExportRow = {
   submittedAt: Date | null
   approvedAt: Date | null
   createdAt: Date
+}
+
+/** Floors are loaded via raw SQL (text cast) so legacy FIFTH_FLOOR_PLUS does not crash Prisma enum decoding. */
+const SURVEY_EXPORT_SELECT = {
+  id: true,
+  propertyId: true,
+  surveyStatus: true,
+  stateId: true,
+  districtId: true,
+  ulbId: true,
+  wardId: true,
+  respondentName: true,
+  mobileNumber: true,
+  totalBuiltAreaSqFt: true,
+  submittedAt: true,
+  approvedAt: true,
+  createdAt: true,
+  localId: true,
+  propertyIdOld: true,
+  parcelNumber: true,
+  unitSubNo: true,
+  sectorNo: true,
+  constructedYear: true,
+  isSlum: true,
+  wardNumber: true,
+  relationshipWithOwner: true,
+  alternateMobile: true,
+  familySize: true,
+  houseDoorNo: true,
+  locality: true,
+  colony: true,
+  city: true,
+  pinCode: true,
+  assessmentYear: true,
+  ownershipType: true,
+  propertyUse: true,
+  propertyType: true,
+  situation: true,
+  roadType: true,
+  taxRateZone: true,
+  plotAreaSqFt: true,
+  plotAreaSqMeter: true,
+  plinthAreaSqFt: true,
+  plinthAreaSqMeter: true,
+  totalBuiltAreaSqMeter: true,
+  waterConnection: true,
+  sourceOfWater: true,
+  sanitationType: true,
+  solidWasteCollection: true,
+  electricityConsumerNo: true,
+  latitude: true,
+  longitude: true,
+  gpsAccuracyMeters: true,
+  capturedAt: true,
+  gpsProvider: true,
+  gpsMockLocation: true,
+  qcStatus: true,
+  serverVersion: true,
+  clientUpdatedAt: true,
+  createdBy: { select: { fullName: true, email: true } },
+  ward: { select: { wardName: true, wardNumber: true } },
+  ulb: { select: { name: true, code: true } },
+  district: { select: { name: true, code: true } },
+  coOwners: { select: { name: true, fatherOrHusbandName: true, mobile: true, alternateMobile: true } },
+  photos: { select: { photoType: true, url: true, capturedAt: true, sizeKB: true, width: true, height: true } },
+} satisfies Prisma.SurveySelect
+
+function normalizeFloorPosition(raw: string): string {
+  return raw === "FIFTH_FLOOR_PLUS" ? "FIFTH_FLOOR" : raw
 }
 
 @Injectable()
@@ -49,26 +139,50 @@ export class ExportWorkerService {
     })
     await updateProgress(10)
 
+    let uploadedKey: string | null = null
     try {
       if (payload.reportType === "demand_notices" && payload.format === "pdf") {
         const artifact = await this.renderDemandNoticeWardPdf(payload)
         await updateProgress(75)
-        await this.finishUpload(payload, artifact, artifact.rowCount)
+        uploadedKey = await this.finishUpload(payload, artifact, artifact.rowCount)
         await updateProgress(100)
         this.logger.log(`Export job ${payload.jobId} completed demand_notices rows=${artifact.rowCount}`)
         return
       }
 
-      const rows = await this.findRows(payload)
+      if (payload.reportType === "district_ward_zip") {
+        const artifact = await this.renderDistrictWardZip(payload, updateProgress)
+        uploadedKey = await this.finishUpload(payload, artifact, artifact.rowCount)
+        await updateProgress(100)
+        this.logger.log(`Export job ${payload.jobId} completed district_ward_zip rows=${artifact.rowCount}`)
+        return
+      }
+
+      if (payload.reportType === "survey_data" && payload.format === "xlsx") {
+        const artifact = await this.renderSurveyDataStreaming(payload, updateProgress)
+        uploadedKey = await this.finishUpload(payload, artifact, artifact.rowCount)
+        await updateProgress(100)
+        this.logger.log(`Export job ${payload.jobId} completed survey_data rows=${artifact.rowCount}`)
+        return
+      }
+
+      const rows = await this.findRows(payload, { take: 10_000 })
       await updateProgress(35)
 
       const artifact = await this.renderArtifact(payload, rows)
       await updateProgress(75)
 
-      await this.finishUpload(payload, artifact, rows.length)
+      uploadedKey = await this.finishUpload(payload, artifact, rows.length)
       await updateProgress(100)
       this.logger.log(`Export job ${payload.jobId} completed rows=${rows.length}`)
     } catch (err) {
+      if (uploadedKey) {
+        try {
+          await this.storageService.deleteObject(uploadedKey)
+        } catch (cleanupErr) {
+          this.logger.warn(`Failed to delete partial export ${uploadedKey}: ${String(cleanupErr)}`)
+        }
+      }
       await this.prisma.db.exportJob.update({
         where: { id: payload.jobId },
         data: {
@@ -85,7 +199,7 @@ export class ExportWorkerService {
     payload: ExportJobPayload,
     artifact: { contentType: string; filename: string; buffer: Buffer },
     rowCount: number
-  ) {
+  ): Promise<string> {
     const objectKey = ["exports", payload.createdById, payload.jobId, artifact.filename].join("/")
     const uploaded = await this.storageService.putObject({
       key: objectKey,
@@ -111,6 +225,243 @@ export class ExportWorkerService {
         finishedAt: new Date(),
       },
     })
+    return uploaded.key
+  }
+
+  private exportMaxRows(): number {
+    const raw = this.config.get<string>("EXPORT_MAX_ROWS")
+    const parsed = raw ? Number.parseInt(raw, 10) : DEFAULT_EXPORT_MAX_ROWS
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_EXPORT_MAX_ROWS
+  }
+
+  private buildSurveyWhere(payload: ExportJobPayload, extra: Prisma.SurveyWhereInput = {}): Prisma.SurveyWhereInput {
+    const scope = resolveTenantScope(payload.tenantRoles)
+    const tenantWhere = buildTenantWhere(scope)
+    const filters = payload.filters
+    const dateFilter: Prisma.SurveyWhereInput = {}
+    if (filters.dateFrom || filters.dateTo) {
+      dateFilter.createdAt = {
+        ...(filters.dateFrom ? { gte: new Date(filters.dateFrom) } : {}),
+        ...(filters.dateTo ? { lte: new Date(filters.dateTo) } : {}),
+      }
+    }
+
+    return {
+      deletedAt: null,
+      ...(tenantWhere ?? {}),
+      ...(toSurveyStatus(filters.surveyStatus) ? { surveyStatus: toSurveyStatus(filters.surveyStatus) } : {}),
+      ...(filters.qcStatus ? { qcStatus: filters.qcStatus as never } : {}),
+      ...(filters.stateId ? { stateId: filters.stateId } : {}),
+      ...(filters.districtId ? { districtId: filters.districtId } : {}),
+      ...(filters.ulbId ? { ulbId: filters.ulbId } : {}),
+      ...(filters.wardId ? { wardId: filters.wardId } : {}),
+      ...(filters.surveyorId ? { createdById: filters.surveyorId } : {}),
+      ...(filters.selectedIds?.length ? { id: { in: filters.selectedIds } } : {}),
+      ...dateFilter,
+      ...(filters.search
+        ? {
+            OR: [
+              { propertyId: { contains: filters.search, mode: "insensitive" } },
+              { respondentName: { contains: filters.search, mode: "insensitive" } },
+            ],
+          }
+        : {}),
+      ...extra,
+    }
+  }
+
+  private async assertRowBudget(where: Prisma.SurveyWhereInput): Promise<number> {
+    const count = await this.prisma.db.survey.count({ where })
+    if (count === 0) {
+      throw new Error("No surveys match filters")
+    }
+    const maxRows = this.exportMaxRows()
+    if (count > maxRows) {
+      throw new Error(
+        `Export too large (${count.toLocaleString("en-IN")} surveys). Narrow district/filters (max ${maxRows.toLocaleString("en-IN")}).`
+      )
+    }
+    return count
+  }
+
+  private async loadFloorsBySurveyId(surveyIds: string[]): Promise<Map<string, SurveyExportBundle["floors"]>> {
+    const bySurvey = new Map<string, SurveyExportBundle["floors"]>()
+    if (surveyIds.length === 0) return bySurvey
+
+    const rows = await this.prisma.db.$queryRaw<ExportFloorRow[]>`
+      SELECT
+        f."surveyId",
+        f."floorPosition"::text AS "floorPosition",
+        f."usageFactor"::text AS "usageFactor",
+        f."usageType"::text AS "usageType",
+        f."constructionType"::text AS "constructionType",
+        f."occupancy",
+        f."areaSqFt"
+      FROM "floors" f
+      WHERE f."surveyId" IN (${Prisma.join(surveyIds)})
+    `
+
+    for (const row of rows) {
+      const floor = {
+        floorPosition: normalizeFloorPosition(row.floorPosition),
+        usageFactor: row.usageFactor,
+        usageType: row.usageType,
+        constructionType: row.constructionType,
+        occupancy: row.occupancy,
+        areaSqFt: row.areaSqFt,
+      }
+      const list = bySurvey.get(row.surveyId) ?? []
+      list.push(floor)
+      bySurvey.set(row.surveyId, list)
+    }
+    return bySurvey
+  }
+
+  private async attachFloors<T extends { id: string }>(
+    surveys: T[]
+  ): Promise<Array<T & { floors: SurveyExportBundle["floors"] }>> {
+    const floorsBySurvey = await this.loadFloorsBySurveyId(surveys.map((survey) => survey.id))
+    return surveys.map((survey) => ({
+      ...survey,
+      floors: floorsBySurvey.get(survey.id) ?? [],
+    }))
+  }
+
+  private async *iterateSurveyBundles(where: Prisma.SurveyWhereInput): AsyncGenerator<SurveyExportBundle> {
+    let cursor: string | undefined
+    for (;;) {
+      const batch = await this.prisma.db.survey.findMany({
+        where: cursor ? { AND: [where, { id: { gt: cursor } }] } : where,
+        orderBy: { id: "asc" },
+        take: EXPORT_BATCH_SIZE,
+        select: SURVEY_EXPORT_SELECT,
+      })
+      if (batch.length === 0) break
+      const withFloors = await this.attachFloors(batch)
+      for (const row of withFloors) {
+        yield row
+      }
+      cursor = batch[batch.length - 1].id
+      if (batch.length < EXPORT_BATCH_SIZE) break
+    }
+  }
+
+  private async renderSurveyDataStreaming(
+    payload: ExportJobPayload,
+    updateProgress: (progress: number) => Promise<void>
+  ) {
+    const where = this.buildSurveyWhere(payload)
+    const total = await this.assertRowBudget(where)
+    await updateProgress(20)
+
+    const dir = await mkdtemp(join(tmpdir(), "export-survey-data-"))
+    const filename = join(dir, "survey-data.xlsx")
+    try {
+      const { rowCount } = await streamSurveyDataWorkbookToFile(filename, this.iterateSurveyBundles(where))
+      await updateProgress(80)
+      const buffer = await readFile(filename)
+      const scopeLabel = [
+        payload.filters.ulbId ? `ulb-${payload.filters.ulbId.slice(0, 8)}` : null,
+        payload.filters.wardId ? `ward-${payload.filters.wardId.slice(0, 8)}` : null,
+        payload.filters.districtId ? `district-${payload.filters.districtId.slice(0, 8)}` : null,
+      ]
+        .filter(Boolean)
+        .join("-")
+      return {
+        contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename: `survey-data${scopeLabel ? `-${scopeLabel}` : ""}.xlsx`,
+        buffer,
+        rowCount: rowCount || total,
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }
+
+  private async renderDistrictWardZip(payload: ExportJobPayload, updateProgress: (progress: number) => Promise<void>) {
+    const districtId = payload.filters.districtId
+    if (!districtId) throw new Error("districtId is required for district_ward_zip export")
+
+    const where = this.buildSurveyWhere(payload)
+    const totalRows = await this.assertRowBudget(where)
+    await updateProgress(15)
+
+    const district = await this.prisma.db.district.findUnique({
+      where: { id: districtId },
+      select: { code: true, name: true },
+    })
+
+    const wards = await this.prisma.db.ward.findMany({
+      where: {
+        deletedAt: null,
+        ...(payload.filters.wardId ? { id: payload.filters.wardId } : {}),
+        ulb: {
+          districtId,
+          ...(payload.filters.ulbId ? { id: payload.filters.ulbId } : {}),
+        },
+      },
+      select: {
+        id: true,
+        wardNumber: true,
+        wardName: true,
+        ulb: { select: { code: true, name: true } },
+      },
+      orderBy: [{ ulb: { code: "asc" } }, { wardNumber: "asc" }],
+    })
+
+    const dir = await mkdtemp(join(tmpdir(), "export-district-zip-"))
+    const zipPath = join(dir, "wards.zip")
+    const archive = new ZipArchive({ zlib: { level: 6 } })
+    const output = createWriteStream(zipPath)
+    const outputDone = new Promise<void>((resolve, reject) => {
+      output.on("close", () => resolve())
+      output.on("error", reject)
+      archive.on("error", reject)
+    })
+    archive.pipe(output)
+
+    let wardsWithData = 0
+    let exportedRows = 0
+
+    try {
+      for (const [index, ward] of wards.entries()) {
+        const wardWhere = this.buildSurveyWhere(payload, { wardId: ward.id })
+        const wardCount = await this.prisma.db.survey.count({ where: wardWhere })
+        if (wardCount === 0) {
+          await updateProgress(15 + Math.floor(((index + 1) / Math.max(wards.length, 1)) * 70))
+          continue
+        }
+
+        const wardFile = join(
+          dir,
+          `${sanitizeExportPathSegment(ward.ulb.code)}-${sanitizeExportPathSegment(ward.wardNumber)}.xlsx`
+        )
+        const { rowCount } = await streamSurveyDataWorkbookToFile(wardFile, this.iterateSurveyBundles(wardWhere))
+        const entryName = wardSurveyDataZipEntry(ward.ulb.code, ward.wardNumber, ward.wardName)
+        archive.file(wardFile, { name: entryName })
+        wardsWithData += 1
+        exportedRows += rowCount
+        await updateProgress(15 + Math.floor(((index + 1) / Math.max(wards.length, 1)) * 70))
+      }
+
+      if (wardsWithData === 0) {
+        throw new Error("No surveys match filters")
+      }
+
+      await archive.finalize()
+      await outputDone
+
+      const buffer = await readFile(zipPath)
+      const districtCode = sanitizeExportPathSegment(district?.code ?? districtId.slice(0, 8))
+      return {
+        contentType: "application/zip",
+        filename: `survey-data-district-${districtCode}-wards.zip`,
+        buffer,
+        rowCount: exportedRows || totalRows,
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   }
 
   private async renderDemandNoticeWardPdf(payload: ExportJobPayload) {
@@ -154,116 +505,14 @@ export class ExportWorkerService {
     }
   }
 
-  private async findRows(payload: ExportJobPayload): Promise<ExportRow[]> {
-    const scope = resolveTenantScope(payload.tenantRoles)
-    const tenantWhere = buildTenantWhere(scope)
-    const filters = payload.filters
-    const dateFilter: Prisma.SurveyWhereInput = {}
-    if (filters.dateFrom || filters.dateTo) {
-      dateFilter.createdAt = {
-        ...(filters.dateFrom ? { gte: new Date(filters.dateFrom) } : {}),
-        ...(filters.dateTo ? { lte: new Date(filters.dateTo) } : {}),
-      }
-    }
-
-    return this.prisma.db.survey.findMany({
-      where: {
-        deletedAt: null,
-        ...(tenantWhere ?? {}),
-        ...(toSurveyStatus(filters.surveyStatus) ? { surveyStatus: toSurveyStatus(filters.surveyStatus) } : {}),
-        ...(filters.qcStatus ? { qcStatus: filters.qcStatus as never } : {}),
-        ...(filters.stateId ? { stateId: filters.stateId } : {}),
-        ...(filters.districtId ? { districtId: filters.districtId } : {}),
-        ...(filters.ulbId ? { ulbId: filters.ulbId } : {}),
-        ...(filters.wardId ? { wardId: filters.wardId } : {}),
-        ...(filters.surveyorId ? { createdById: filters.surveyorId } : {}),
-        ...(filters.selectedIds?.length ? { id: { in: filters.selectedIds } } : {}),
-        ...dateFilter,
-        ...(filters.search
-          ? {
-              OR: [
-                { propertyId: { contains: filters.search, mode: "insensitive" } },
-                { respondentName: { contains: filters.search, mode: "insensitive" } },
-              ],
-            }
-          : {}),
-      },
+  private async findRows(payload: ExportJobPayload, options: { take?: number } = {}): Promise<ExportRow[]> {
+    const rows = await this.prisma.db.survey.findMany({
+      where: this.buildSurveyWhere(payload),
       orderBy: { createdAt: "desc" },
-      take: 10000,
-      select: {
-        id: true,
-        propertyId: true,
-        surveyStatus: true,
-        stateId: true,
-        districtId: true,
-        ulbId: true,
-        wardId: true,
-        respondentName: true,
-        mobileNumber: true,
-        totalBuiltAreaSqFt: true,
-        submittedAt: true,
-        approvedAt: true,
-        createdAt: true,
-        localId: true,
-        propertyIdOld: true,
-        parcelNumber: true,
-        unitSubNo: true,
-        sectorNo: true,
-        constructedYear: true,
-        isSlum: true,
-        wardNumber: true,
-        relationshipWithOwner: true,
-        alternateMobile: true,
-        familySize: true,
-        houseDoorNo: true,
-        locality: true,
-        colony: true,
-        city: true,
-        pinCode: true,
-        assessmentYear: true,
-        ownershipType: true,
-        propertyUse: true,
-        propertyType: true,
-        situation: true,
-        roadType: true,
-        taxRateZone: true,
-        plotAreaSqFt: true,
-        plotAreaSqMeter: true,
-        plinthAreaSqFt: true,
-        plinthAreaSqMeter: true,
-        totalBuiltAreaSqMeter: true,
-        waterConnection: true,
-        sourceOfWater: true,
-        sanitationType: true,
-        solidWasteCollection: true,
-        electricityConsumerNo: true,
-        latitude: true,
-        longitude: true,
-        gpsAccuracyMeters: true,
-        capturedAt: true,
-        gpsProvider: true,
-        gpsMockLocation: true,
-        qcStatus: true,
-        serverVersion: true,
-        clientUpdatedAt: true,
-        createdBy: { select: { fullName: true, email: true } },
-        ward: { select: { wardName: true, wardNumber: true } },
-        ulb: { select: { name: true, code: true } },
-        district: { select: { name: true } },
-        coOwners: { select: { name: true, fatherOrHusbandName: true, mobile: true, alternateMobile: true } },
-        floors: {
-          select: {
-            floorPosition: true,
-            usageFactor: true,
-            usageType: true,
-            constructionType: true,
-            occupancy: true,
-            areaSqFt: true,
-          },
-        },
-        photos: { select: { photoType: true, url: true, capturedAt: true, sizeKB: true, width: true, height: true } },
-      },
+      take: options.take ?? 10_000,
+      select: SURVEY_EXPORT_SELECT,
     })
+    return await this.attachFloors(rows)
   }
 
   private async renderArtifact(payload: ExportJobPayload, rows: ExportRow[]) {

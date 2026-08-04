@@ -701,9 +701,11 @@ export interface FloorUsageWarning {
     | "MIXED_USE_PROPERTY_USE_MISMATCH"
     | "FLOOR_AREA_EXCEEDS_PLOT"
     | "FLOOR_AREA_EXCEEDS_PLINTH"
+    | "FLOOR_AREA_UNUSUALLY_HIGH"
     | "BUILT_UP_MISMATCH"
     | "MISSING_FLOOR_AREA"
     | "USAGE_FACTOR_MIXED_AMBIGUOUS"
+    | "OPEN_LAND_HAS_FLOORS"
   severity: "warning"
   message: string
   floorPosition?: string

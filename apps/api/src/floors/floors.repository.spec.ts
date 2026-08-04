@@ -35,7 +35,7 @@ describe("FloorsRepository mixed-use floors", () => {
         floor: { create: typeof create; findMany: typeof findMany }
         survey: { findUnique: typeof surveyFindUnique; update: typeof surveyUpdate }
       }) => Promise<unknown>
-      // assertAreasWithinPlot + recalculateAreas each call findMany
+      // assertAreasWithinPlot + recalculateAreas each call findMany / findUnique
       findMany
         .mockResolvedValueOnce(existingFloors)
         .mockResolvedValueOnce([...(existingFloors as object[]), created] as never)
@@ -53,8 +53,8 @@ describe("FloorsRepository mixed-use floors", () => {
   }
 
   beforeEach(() => {
-    jest.clearAllMocks()
-    surveyFindUnique.mockResolvedValue({ plotAreaSqFt: 1000 })
+    jest.resetAllMocks()
+    surveyFindUnique.mockResolvedValue({ plotAreaSqFt: 1000, propertyUse: "RESIDENTIAL", propertyType: null })
   })
 
   it("throws when usage factor is missing", async () => {
@@ -103,13 +103,15 @@ describe("FloorsRepository mixed-use floors", () => {
 
   it("rejects when mixed usages on the same floor exceed plot area", async () => {
     findFirst.mockResolvedValue(null)
-    surveyFindUnique.mockResolvedValue({ plotAreaSqFt: 600 })
+    surveyFindUnique.mockResolvedValue({ plotAreaSqFt: 600, propertyUse: "MIX_PROPERTY" })
     transaction.mockImplementation(async (fn: unknown) => {
       const run = fn as (tx: {
         floor: { create: typeof create; findMany: typeof findMany }
         survey: { findUnique: typeof surveyFindUnique; update: typeof surveyUpdate }
       }) => Promise<unknown>
-      findMany.mockResolvedValue([{ floorPosition: FloorPosition.GROUND_FLOOR, areaSqFt: 300 }] as never)
+      findMany.mockResolvedValue([
+        { floorPosition: FloorPosition.GROUND_FLOOR, areaSqFt: 300, usageFactor: UsageFactor.RESIDENTIAL },
+      ] as never)
       return run({
         floor: { create, findMany },
         survey: { findUnique: surveyFindUnique, update: surveyUpdate },
@@ -126,18 +128,44 @@ describe("FloorsRepository mixed-use floors", () => {
     ).rejects.toThrow(/Total area on this floor exceeds plot area/)
   })
 
-  it("rejects when survey-wide floor areas exceed plot area", async () => {
+  it("allows multi-story stacking when each floor is within plot", async () => {
     findFirst.mockResolvedValue(null)
-    surveyFindUnique.mockResolvedValue({ plotAreaSqFt: 1000 })
+    surveyFindUnique.mockResolvedValue({ plotAreaSqFt: 750, propertyUse: "RESIDENTIAL" })
+    mockSuccessfulCreateTx(
+      {
+        id: "f6",
+        surveyId: "s1",
+        floorPosition: FloorPosition.SIXTH_FLOOR,
+        usageFactor: UsageFactor.RESIDENTIAL,
+        areaSqFt: 750,
+      },
+      [
+        { floorPosition: FloorPosition.GROUND_FLOOR, areaSqFt: 750, usageFactor: UsageFactor.RESIDENTIAL },
+        { floorPosition: FloorPosition.FIRST_FLOOR, areaSqFt: 750, usageFactor: UsageFactor.RESIDENTIAL },
+        { floorPosition: FloorPosition.SECOND_FLOOR, areaSqFt: 750, usageFactor: UsageFactor.RESIDENTIAL },
+        { floorPosition: FloorPosition.THIRD_FLOOR, areaSqFt: 750, usageFactor: UsageFactor.RESIDENTIAL },
+        { floorPosition: FloorPosition.FOURTH_FLOOR, areaSqFt: 750, usageFactor: UsageFactor.RESIDENTIAL },
+        { floorPosition: FloorPosition.FIFTH_FLOOR, areaSqFt: 750, usageFactor: UsageFactor.RESIDENTIAL },
+      ]
+    )
+
+    const result = await repo.create({
+      surveyId: "s1",
+      floorPosition: FloorPosition.SIXTH_FLOOR,
+      usageFactor: UsageFactor.RESIDENTIAL,
+      areaSqFt: 750,
+    })
+    expect(result.id).toBe("f6")
+  })
+
+  it("rejects floor CRUD when property use is OPEN_LAND", async () => {
+    findFirst.mockResolvedValue(null)
+    surveyFindUnique.mockResolvedValue({ plotAreaSqFt: 750, propertyUse: "OPEN_LAND" })
     transaction.mockImplementation(async (fn: unknown) => {
       const run = fn as (tx: {
         floor: { create: typeof create; findMany: typeof findMany }
         survey: { findUnique: typeof surveyFindUnique; update: typeof surveyUpdate }
       }) => Promise<unknown>
-      findMany.mockResolvedValue([
-        { floorPosition: FloorPosition.GROUND_FLOOR, areaSqFt: 600 },
-        { floorPosition: FloorPosition.FIRST_FLOOR, areaSqFt: 400 },
-      ] as never)
       return run({
         floor: { create, findMany },
         survey: { findUnique: surveyFindUnique, update: surveyUpdate },
@@ -147,16 +175,39 @@ describe("FloorsRepository mixed-use floors", () => {
     await expect(
       repo.create({
         surveyId: "s1",
-        floorPosition: FloorPosition.SECOND_FLOOR,
+        floorPosition: FloorPosition.GROUND_FLOOR,
         usageFactor: UsageFactor.RESIDENTIAL,
-        areaSqFt: 50,
+        areaSqFt: 100,
       })
-    ).rejects.toThrow(/Total floor area exceeds plot area/)
+    ).rejects.toThrow(/OPEN_LAND/)
+  })
+
+  it("ignores OPEN_LAND area when checking per-floor footprint", async () => {
+    findFirst.mockResolvedValue(null)
+    surveyFindUnique.mockResolvedValue({ plotAreaSqFt: 600, propertyUse: "RESIDENTIAL" })
+    mockSuccessfulCreateTx(
+      {
+        id: "f4",
+        surveyId: "s1",
+        floorPosition: FloorPosition.GROUND_FLOOR,
+        usageFactor: UsageFactor.RESIDENTIAL,
+        areaSqFt: 600,
+      },
+      [{ floorPosition: FloorPosition.OPEN_LAND, areaSqFt: 600, usageFactor: UsageFactor.OPEN_LAND }]
+    )
+
+    const result = await repo.create({
+      surveyId: "s1",
+      floorPosition: FloorPosition.GROUND_FLOOR,
+      usageFactor: UsageFactor.RESIDENTIAL,
+      areaSqFt: 600,
+    })
+    expect(result.id).toBe("f4")
   })
 
   it("skips plot hard-check when plot area is unset", async () => {
     findFirst.mockResolvedValue(null)
-    surveyFindUnique.mockResolvedValue({ plotAreaSqFt: null })
+    surveyFindUnique.mockResolvedValue({ plotAreaSqFt: null, propertyUse: "RESIDENTIAL" })
     mockSuccessfulCreateTx({
       id: "f3",
       surveyId: "s1",

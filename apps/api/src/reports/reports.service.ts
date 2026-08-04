@@ -112,6 +112,9 @@ export class ReportsService {
   }
 
   exportSync(user: AuthenticatedUser, format: ExportFormat, reportType: ExportReportType, filters: ExportFilters) {
+    if (reportType === "district_ward_zip") {
+      throw new BadRequestException("district_ward_zip export cannot run synchronously. Retry without ?sync=true.")
+    }
     return this.export(user, format, reportType, filters, {
       maxRows: SYNC_EXPORT_MAX_ROWS,
       maxBytes: SYNC_EXPORT_MAX_BYTES,
@@ -132,6 +135,15 @@ export class ReportsService {
         throw new BadRequestException("wardId is required for demand_notices PDF export")
       }
       filters = { ...filters, qcStatus: "APPROVED" }
+    }
+
+    if (reportType === "district_ward_zip") {
+      if (format !== "xlsx") {
+        throw new BadRequestException("district_ward_zip export requires format=xlsx")
+      }
+      if (!filters.districtId) {
+        throw new BadRequestException("districtId is required for district_ward_zip export")
+      }
     }
 
     const normalizedFilters = this.normalizeFilters(filters)

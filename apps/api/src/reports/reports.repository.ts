@@ -1,11 +1,25 @@
 import { Injectable } from "@nestjs/common"
-import type { Prisma, SurveyStatus } from "@workspace/database"
+import { Prisma, type SurveyStatus } from "@workspace/database"
 import type { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { buildOrderBy, getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
 import { buildTenantWhere, resolveTenantScope } from "../common/utils/tenant-scope.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import type { ExportFilters } from "./export.types.js"
+
+type ExportFloorRow = {
+  surveyId: string
+  floorPosition: string
+  usageFactor: string | null
+  usageType: string | null
+  constructionType: string | null
+  occupancy: string | null
+  areaSqFt: Prisma.Decimal | null
+}
+
+function normalizeFloorPosition(raw: string): string {
+  return raw === "FIFTH_FLOOR_PLUS" ? "FIFTH_FLOOR" : raw
+}
 
 @Injectable()
 export class ReportsRepository {
@@ -77,7 +91,7 @@ export class ReportsRepository {
       }
     }
 
-    return this.prisma.db.survey.findMany({
+    const surveys = await this.prisma.db.survey.findMany({
       where: {
         deletedAt: null,
         ...(tenantWhere ?? {}),
@@ -162,18 +176,57 @@ export class ReportsRepository {
         ulb: { select: { name: true, code: true } },
         district: { select: { name: true } },
         coOwners: { select: { name: true, fatherOrHusbandName: true, mobile: true, alternateMobile: true } },
-        floors: {
-          select: {
-            floorPosition: true,
-            usageFactor: true,
-            usageType: true,
-            constructionType: true,
-            occupancy: true,
-            areaSqFt: true,
-          },
-        },
         photos: { select: { photoType: true, url: true, capturedAt: true, sizeKB: true, width: true, height: true } },
       },
     })
+
+    const floorsBySurvey = await this.loadFloorsBySurveyId(surveys.map((survey) => survey.id))
+    return surveys.map((survey) => ({
+      ...survey,
+      floors: floorsBySurvey.get(survey.id) ?? [],
+    }))
+  }
+
+  /** Text-cast floors so legacy FIFTH_FLOOR_PLUS rows do not crash Prisma enum decoding. */
+  private async loadFloorsBySurveyId(surveyIds: string[]) {
+    const bySurvey = new Map<
+      string,
+      Array<{
+        floorPosition: string
+        usageFactor: string | null
+        usageType: string | null
+        constructionType: string | null
+        occupancy: string | null
+        areaSqFt: Prisma.Decimal | null
+      }>
+    >()
+    if (surveyIds.length === 0) return bySurvey
+
+    const rows = await this.prisma.db.$queryRaw<ExportFloorRow[]>`
+      SELECT
+        f."surveyId",
+        f."floorPosition"::text AS "floorPosition",
+        f."usageFactor"::text AS "usageFactor",
+        f."usageType"::text AS "usageType",
+        f."constructionType"::text AS "constructionType",
+        f."occupancy",
+        f."areaSqFt"
+      FROM "floors" f
+      WHERE f."surveyId" IN (${Prisma.join(surveyIds)})
+    `
+
+    for (const row of rows) {
+      const list = bySurvey.get(row.surveyId) ?? []
+      list.push({
+        floorPosition: normalizeFloorPosition(row.floorPosition),
+        usageFactor: row.usageFactor,
+        usageType: row.usageType,
+        constructionType: row.constructionType,
+        occupancy: row.occupancy,
+        areaSqFt: row.areaSqFt,
+      })
+      bySurvey.set(row.surveyId, list)
+    }
+    return bySurvey
   }
 }

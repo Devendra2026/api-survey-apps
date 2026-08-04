@@ -37,6 +37,7 @@ export type ExportReportType =
   | "summary"
   | "convex_full"
   | "survey_data"
+  | "district_ward_zip"
   | "nagar_panchayat"
   | "qc_final"
   | "demand_notices"

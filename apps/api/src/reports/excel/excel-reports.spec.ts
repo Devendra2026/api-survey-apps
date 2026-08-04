@@ -3,7 +3,10 @@ import {
   renderConvexFullWorkbook,
   renderNagarPanchayatWorkbook,
   renderSurveyDataWorkbook,
+  renderSurveyDataWorkbookStreaming,
+  sanitizeExportPathSegment,
   type SurveyExportBundle,
+  wardSurveyDataZipEntry,
 } from "@workspace/excel-reports"
 import ExcelJS from "exceljs"
 
@@ -142,5 +145,37 @@ describe("Excel report templates", () => {
       expect.arrayContaining(["Property ID", "Owner", "Ward", "QC Status", "Surveyor"])
     )
     expect(sheet?.rowCount).toBe(2)
+  })
+
+  it("streaming Survey Data matches buffer renderer key header cells", async () => {
+    const streamed = new ExcelJS.Workbook()
+    await streamed.xlsx.load(await renderSurveyDataWorkbookStreaming([bundle]))
+    const buffered = new ExcelJS.Workbook()
+    await buffered.xlsx.load(await renderSurveyDataWorkbook([bundle]))
+
+    const streamedSheet = streamed.getWorksheet("Survey Data")!
+    const bufferedSheet = buffered.getWorksheet("Survey Data")!
+    expect(cellText(streamedSheet.getCell("Q1").value)).toBe(cellText(bufferedSheet.getCell("Q1").value))
+    expect(cellText(streamedSheet.getCell("AO1").value)).toBe(cellText(bufferedSheet.getCell("AO1").value))
+    expect(cellText(streamedSheet.getCell("BJ1").value)).toBe(cellText(bufferedSheet.getCell("BJ1").value))
+    expect(cellText(streamedSheet.getCell("B5").value)).toBe(bundle.propertyId)
+    expect(cellText(streamedSheet.getCell("C5").value)).toBe("Asha Devi")
+  })
+
+  it("maps legacy FIFTH_FLOOR_PLUS into Survey Data floor columns", async () => {
+    const legacy = {
+      ...bundle,
+      floors: [{ position: 0, floorPosition: "FIFTH_FLOOR_PLUS", areaSqFt: 500, usageFactor: "RESIDENTIAL" }],
+    }
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.load(await renderSurveyDataWorkbook([legacy]))
+    const sheet = workbook.getWorksheet("Survey Data")!
+    // Fifth floor residential is column AD (30) on data row 5 — same slot as FIFTH_FLOOR
+    expect(sheet.getCell("AD5").value).toBe(500)
+  })
+
+  it("builds safe per-ward ZIP entry paths", () => {
+    expect(sanitizeExportPathSegment("Ward 1 / A")).toBe("Ward-1-A")
+    expect(wardSurveyDataZipEntry("801262", "001", "Ward 1")).toBe("801262/001-Ward-1.xlsx")
   })
 })

@@ -1,4 +1,7 @@
 import ExcelJS from "exceljs"
+import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { createWorkbook, display, number, text, toBuffer } from "./convex-full.js"
 import type { SurveyExportBundle } from "./types.js"
 
@@ -41,7 +44,9 @@ const FLOOR_POSITIONS: Record<string, number> = {
   SECOND_FLOOR: 3,
   THIRD_FLOOR: 4,
   FOURTH_FLOOR: 5,
+  FIFTH_FLOOR: 6,
   FIFTH_FLOOR_PLUS: 6,
+  SIXTH_FLOOR: 7,
   OPEN_LAND: 9,
 }
 
@@ -50,13 +55,51 @@ export async function renderSurveyDataWorkbook(rows: SurveyExportBundle[]): Prom
   const sheet = workbook.addWorksheet("Survey Data", { views: [{ state: "frozen", ySplit: 4 }] })
   addHeaders(sheet)
   for (const [index, row] of rows.entries()) sheet.addRow(toSurveyDataRow(row, index + 1))
-  sheet.columns.forEach((column, index) => {
-    column.width = index < 16 ? 18 : index === 16 ? 20 : 14
-  })
-  sheet.getColumn(3).width = 24
-  sheet.getColumn(4).width = 24
-  sheet.getColumn(17).width = 28
+  applyColumnWidths(sheet)
   return toBuffer(workbook)
+}
+
+/** Stream Survey Data rows to an .xlsx file (memory-efficient for large exports). */
+export async function streamSurveyDataWorkbookToFile(
+  filename: string,
+  rows: AsyncIterable<SurveyExportBundle> | Iterable<SurveyExportBundle>
+): Promise<{ rowCount: number }> {
+  const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
+    filename,
+    useStyles: true,
+    useSharedStrings: false,
+  })
+  workbook.creator = "Municipal Property Tax Survey"
+  const sheet = workbook.addWorksheet("Survey Data", { views: [{ state: "frozen", ySplit: 4 }] })
+  addHeaders(sheet)
+  for (let rowNumber = 1; rowNumber <= 4; rowNumber += 1) {
+    sheet.getRow(rowNumber).commit()
+  }
+  applyColumnWidths(sheet)
+
+  let rowCount = 0
+  for await (const row of rows) {
+    rowCount += 1
+    sheet.addRow(toSurveyDataRow(row, rowCount)).commit()
+  }
+
+  await sheet.commit()
+  await workbook.commit()
+  return { rowCount }
+}
+
+/** Buffer wrapper used by tests / small sync paths; streams via a temp file. */
+export async function renderSurveyDataWorkbookStreaming(
+  rows: AsyncIterable<SurveyExportBundle> | Iterable<SurveyExportBundle>
+): Promise<Buffer> {
+  const dir = await mkdtemp(join(tmpdir(), "survey-data-"))
+  const filename = join(dir, "survey-data.xlsx")
+  try {
+    await streamSurveyDataWorkbookToFile(filename, rows)
+    return await readFile(filename)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 }
 
 export function toSurveyDataRow(row: SurveyExportBundle, serialNumber: number): unknown[] {
@@ -98,8 +141,48 @@ export function toSurveyDataRow(row: SurveyExportBundle, serialNumber: number): 
   ]
 }
 
+export function sanitizeExportPathSegment(value: string): string {
+  return (
+    value
+      .trim()
+      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 80) || "unknown"
+  )
+}
+
+export function wardSurveyDataZipEntry(ulbCode: string, wardNumber: string, wardName: string): string {
+  return [
+    sanitizeExportPathSegment(ulbCode),
+    `${sanitizeExportPathSegment(wardNumber)}-${sanitizeExportPathSegment(wardName)}.xlsx`,
+  ].join("/")
+}
+
+function applyColumnWidths(sheet: ExcelJS.Worksheet): void {
+  sheet.columns.forEach((column, index) => {
+    column.width = index < 16 ? 18 : index === 16 ? 20 : 14
+  })
+  sheet.getColumn(3).width = 24
+  sheet.getColumn(4).width = 24
+  sheet.getColumn(17).width = 28
+}
+
 function addHeaders(sheet: ExcelJS.Worksheet): void {
-  const row1 = [...FIXED_HEADERS, "Floors", ...new Array(20).fill(""), "Plot Area SqFt", "Plinth Area SqFt", "Total Built Up Area SqFt", "Total Demand", ...new Array(20).fill(""), "Total Tax Demand", "", ""]
+  const row1 = [
+    ...FIXED_HEADERS,
+    "Floors",
+    ...new Array(20).fill(""),
+    "Plot Area SqFt",
+    "Plinth Area SqFt",
+    "Total Built Up Area SqFt",
+    "Total Demand",
+    ...new Array(20).fill(""),
+    "Total Tax Demand",
+    "",
+    "",
+  ]
   const row2 = [
     ...FIXED_HEADERS,
     "",
@@ -116,7 +199,9 @@ function addHeaders(sheet: ExcelJS.Worksheet): void {
   const row3 = [
     ...FIXED_HEADERS,
     "",
-    ...FLOOR_GROUPS.flatMap((group) => (group === "Open Land (Plot)" ? ["Open Land", ""] : ["Residential", "Non-Residential"])),
+    ...FLOOR_GROUPS.flatMap((group) =>
+      group === "Open Land (Plot)" ? ["Open Land", ""] : ["Residential", "Non-Residential"]
+    ),
     "Plot Area SqFt",
     "Plinth Area SqFt",
     "Total Built Up Area SqFt",
@@ -133,16 +218,43 @@ function addHeaders(sheet: ExcelJS.Worksheet): void {
   const row4 = [
     ...FIXED_HEADERS,
     "Floor",
-    ...FLOOR_GROUPS.flatMap((group) => (group === "Open Land (Plot)" ? ["Open Land", "Open Land"] : ["Residential", "Non-Residential"])),
+    ...FLOOR_GROUPS.flatMap((group) =>
+      group === "Open Land (Plot)" ? ["Open Land", "Open Land"] : ["Residential", "Non-Residential"]
+    ),
     "Plot Area SqFt",
     "Plinth Area SqFt",
     "Total Built Up Area SqFt",
-    ...["RCC", "T.Rate", "Tax", "TEEN", "T.Rate", "Tax", "KATCHA", "T.Rate", "Tax", "RCC", "T.Rate", "Tax", "TEEN", "T.Rate", "Tax", "KATCHA", "T.Rate", "Tax", "Plot Area", "Plot T.Rete", "Plot Tax"],
+    ...[
+      "RCC",
+      "T.Rate",
+      "Tax",
+      "TEEN",
+      "T.Rate",
+      "Tax",
+      "KATCHA",
+      "T.Rate",
+      "Tax",
+      "RCC",
+      "T.Rate",
+      "Tax",
+      "TEEN",
+      "T.Rate",
+      "Tax",
+      "KATCHA",
+      "T.Rate",
+      "Tax",
+      "Plot Area",
+      "Plot T.Rete",
+      "Plot Tax",
+    ],
     "Total Tax 10%",
     "Total Water Tax 7.5%",
     "Total Drainage Tax 2.5%",
   ]
-  sheet.addRows([row1, row2, row3, row4])
+  sheet.addRow(row1)
+  sheet.addRow(row2)
+  sheet.addRow(row3)
+  sheet.addRow(row4)
 
   for (let column = 1; column <= 16; column += 1) sheet.mergeCells(1, column, 4, column)
   sheet.mergeCells("Q1:AK1")

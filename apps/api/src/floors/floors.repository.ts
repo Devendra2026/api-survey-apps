@@ -1,6 +1,11 @@
+/**
+ * Floors repository — CRUD with per-floor plot footprint hard checks and built-up recalculation.
+ */
+
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common"
 import type { FloorPosition, Prisma } from "@workspace/database"
 import { UsageFactor } from "@workspace/database"
+import { countableFloorAreaForPlotCheck, isOpenLandPropertyUse, sumBuiltUpArea } from "@workspace/validation"
 import type { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
 import { sqFtToSqMeter } from "../common/utils/decimal.util.js"
 import { buildOrderBy, getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
@@ -48,23 +53,33 @@ export class FloorsRepository {
   }
 
   /**
-   * Mixed-use hard check: sum of usage areas on one floorPosition and across the survey
-   * must not exceed plot area when plot is set. Soft warnings still cover other cases.
+   * Hard check vs plot when plot is set.
+   *
+   * Countable area = floor row areas only (do not add survey.totalBuiltAreaSqFt — it is
+   * derived from the same rows). OPEN_LAND floorPosition or usageFactor is excluded.
+   * Per floorPosition: countable sum ≤ plot (footprint). Survey-wide FAR caps are not enforced.
    */
   private async assertAreasWithinPlot(
     tx: Prisma.TransactionClient,
     args: {
       surveyId: string
       floorPosition: FloorPosition
+      usageFactor: string
       nextAreaSqFt: number
       excludeFloorId?: string
     }
   ) {
     const survey = await tx.survey.findUnique({
       where: { id: args.surveyId },
-      select: { plotAreaSqFt: true },
+      select: { plotAreaSqFt: true, propertyUse: true },
     })
     if (!survey) throw new NotFoundException("Survey not found")
+
+    if (isOpenLandPropertyUse(survey.propertyUse)) {
+      throw new BadRequestException(
+        "Cannot add or edit floors when Property Use is OPEN_LAND. Built-up stays N/A for open plots."
+      )
+    }
 
     const plot = survey.plotAreaSqFt != null ? toAreaNumber(survey.plotAreaSqFt) : null
     if (plot == null) return
@@ -74,24 +89,20 @@ export class FloorsRepository {
         surveyId: args.surveyId,
         ...(args.excludeFloorId ? { NOT: { id: args.excludeFloorId } } : {}),
       },
-      select: { floorPosition: true, areaSqFt: true },
+      select: { floorPosition: true, usageFactor: true, areaSqFt: true },
     })
 
-    let surveyTotal = args.nextAreaSqFt
-    let floorTotal = args.nextAreaSqFt
+    const nextCountable = countableFloorAreaForPlotCheck(args.nextAreaSqFt, args.floorPosition, args.usageFactor)
+    let floorTotal = nextCountable
     for (const row of floors) {
-      const area = toAreaNumber(row.areaSqFt)
-      surveyTotal += area
-      if (row.floorPosition === args.floorPosition) floorTotal += area
+      if (row.floorPosition !== args.floorPosition) continue
+      floorTotal += countableFloorAreaForPlotCheck(toAreaNumber(row.areaSqFt), row.floorPosition, row.usageFactor)
     }
 
     if (floorTotal > plot + AREA_TOLERANCE_SQ_FT) {
       throw new BadRequestException(
         `Total area on this floor exceeds plot area (${floorTotal} sq ft on ${args.floorPosition} > ${plot} sq ft plot)`
       )
-    }
-    if (surveyTotal > plot + AREA_TOLERANCE_SQ_FT) {
-      throw new BadRequestException(`Total floor area exceeds plot area (${surveyTotal} sq ft > ${plot} sq ft plot)`)
     }
   }
 
@@ -116,6 +127,7 @@ export class FloorsRepository {
         await this.assertAreasWithinPlot(tx, {
           surveyId: data.surveyId,
           floorPosition: data.floorPosition,
+          usageFactor: data.usageFactor,
           nextAreaSqFt: toAreaNumber(data.areaSqFt),
         })
 
@@ -170,6 +182,7 @@ export class FloorsRepository {
         await this.assertAreasWithinPlot(tx, {
           surveyId: existing.surveyId,
           floorPosition: nextPosition,
+          usageFactor: nextUsage,
           nextAreaSqFt: nextArea,
           excludeFloorId: id,
         })
@@ -207,16 +220,29 @@ export class FloorsRepository {
   }
 
   async recalculateAreas(tx: Prisma.TransactionClient, surveyId: string) {
+    const survey = await tx.survey.findUnique({
+      where: { id: surveyId },
+      select: { propertyUse: true },
+    })
     const floors = await tx.floor.findMany({ where: { surveyId } })
+
     let totalBuilt = 0
     let residential = 0
     let commercial = 0
 
-    for (const f of floors) {
-      const area = f.areaSqFt ? Number(f.areaSqFt) : 0
-      totalBuilt += area
-      if (f.usageFactor === UsageFactor.RESIDENTIAL) residential += area
-      if (f.usageFactor === UsageFactor.COMMERCIAL) commercial += area
+    if (!isOpenLandPropertyUse(survey?.propertyUse)) {
+      totalBuilt = sumBuiltUpArea(
+        floors.map((f) => ({
+          floorPosition: f.floorPosition,
+          usageFactor: f.usageFactor,
+          areaSqFt: f.areaSqFt != null ? Number(f.areaSqFt) : 0,
+        }))
+      )
+      for (const f of floors) {
+        const area = countableFloorAreaForPlotCheck(f.areaSqFt ? Number(f.areaSqFt) : 0, f.floorPosition, f.usageFactor)
+        if (f.usageFactor === UsageFactor.RESIDENTIAL) residential += area
+        if (f.usageFactor === UsageFactor.COMMERCIAL) commercial += area
+      }
     }
 
     await tx.survey.update({

@@ -1,8 +1,9 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common"
 import { OwnershipType, type CoOwner, type Prisma } from "@workspace/database"
-import { formatPropertyId, padParcelNo } from "@workspace/validation"
+import { formatPropertyId, isOpenLandPropertyUse, padParcelNo, sumBuiltUpArea } from "@workspace/validation"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { WardCatalogService } from "../common/services/ward-catalog.service.js"
+import { sqFtToSqMeter } from "../common/utils/decimal.util.js"
 import { getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
 import { parcelNumberVariants } from "../common/utils/parcel-search.util.js"
 import { resolvePrimaryOwnerName } from "../common/utils/primary-owner.util.js"
@@ -668,6 +669,10 @@ export class QcRepository {
     if (patch.assessmentYear !== undefined) scalarData.assessmentYear = patch.assessmentYear
     if (patch.plotAreaSqFt !== undefined) scalarData.plotAreaSqFt = patch.plotAreaSqFt
     if (patch.plinthAreaSqFt !== undefined) scalarData.plinthAreaSqFt = patch.plinthAreaSqFt
+    if (patch.propertyUse !== undefined && isOpenLandPropertyUse(patch.propertyUse)) {
+      scalarData.totalBuiltAreaSqFt = 0
+      scalarData.totalBuiltAreaSqMeter = 0
+    }
     if (patch.waterConnection !== undefined) scalarData.waterConnection = patch.waterConnection
     if (patch.sourceOfWater !== undefined) scalarData.sourceOfWater = patch.sourceOfWater
     if (patch.sanitationType !== undefined) scalarData.sanitationType = patch.sanitationType
@@ -804,14 +809,26 @@ export class QcRepository {
         if (patch.floors !== undefined) {
           await this.syncFloors(tx, id, patch.floors)
 
+          const surveyForUse = await tx.survey.findUnique({
+            where: { id },
+            select: { propertyUse: true },
+          })
           const floors = await tx.floor.findMany({ where: { surveyId: id } })
-          const totalBuilt = floors.reduce((sum, f) => {
-            const area = f.areaSqFt != null ? Number(f.areaSqFt.toString()) : 0
-            return sum + (Number.isNaN(area) ? 0 : area)
-          }, 0)
+          const totalBuilt = isOpenLandPropertyUse(surveyForUse?.propertyUse)
+            ? 0
+            : sumBuiltUpArea(
+                floors.map((f) => ({
+                  floorPosition: f.floorPosition,
+                  usageFactor: f.usageFactor,
+                  areaSqFt: f.areaSqFt != null ? Number(f.areaSqFt.toString()) : 0,
+                }))
+              )
           await tx.survey.update({
             where: { id },
-            data: { totalBuiltAreaSqFt: totalBuilt },
+            data: {
+              totalBuiltAreaSqFt: totalBuilt,
+              totalBuiltAreaSqMeter: sqFtToSqMeter(totalBuilt),
+            },
           })
         }
 

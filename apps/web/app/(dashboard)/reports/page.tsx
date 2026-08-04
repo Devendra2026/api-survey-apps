@@ -224,18 +224,52 @@ function ReportsPageInner() {
     URL.revokeObjectURL(href)
   }
 
-  async function exportViaBackgroundJob(format: "xlsx" | "csv" | "pdf", reportType: string) {
-    toast.info("Large export — generating in the background…")
+  async function exportViaBackgroundJob(
+    format: "xlsx" | "csv" | "pdf",
+    reportType: string,
+    options: { timeoutMs?: number; preparingMessage?: string } = {}
+  ) {
+    toast.info(options.preparingMessage ?? "Large export — generating in the background…")
     const enqueued = await enqueueReportExport(format, {
       ...scopeParams,
       reportType,
     })
-    const job = await waitForExportJob(enqueued.jobId)
+    const job = await waitForExportJob(enqueued.jobId, {
+      timeoutMs: options.timeoutMs,
+      onTick: (current) => {
+        if (current.status === "PROCESSING") {
+          toast.message("Preparing export…", { id: `export-${enqueued.jobId}` })
+        }
+      },
+    })
     const download = await getExportJobDownload(job.id)
     await downloadFromUrl(
       download.url,
       download.filename || `${reportType}-export.${format === "xlsx" ? "xlsx" : format}`
     )
+  }
+
+  async function handleDistrictWardZip() {
+    if (!hasPermission("report:export")) {
+      toast.error("Export permission required")
+      return
+    }
+    if (!filters.districtId) {
+      toast.error("Select a district to download all wards as a ZIP")
+      return
+    }
+    setExporting("district_ward_zip:xlsx")
+    try {
+      await exportViaBackgroundJob("xlsx", "district_ward_zip", {
+        timeoutMs: 15 * 60_000,
+        preparingMessage: "Preparing ward ZIP — this can take several minutes…",
+      })
+      toast.success("District ward ZIP downloaded")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Export failed")
+    } finally {
+      setExporting(null)
+    }
   }
 
   async function handleExport(format: "xlsx" | "csv" | "pdf", reportType: string) {
@@ -249,7 +283,9 @@ function ReportsPageInner() {
       const knownLarge = typeof surveysCount === "number" && surveysCount > 450
 
       if (knownLarge) {
-        await exportViaBackgroundJob(format, reportType)
+        await exportViaBackgroundJob(format, reportType, {
+          timeoutMs: reportType === "survey_data" ? 15 * 60_000 : undefined,
+        })
         toast.success(`${reportType.split("_").join(" ")} ${format.toUpperCase()} downloaded`)
         return
       }
@@ -272,7 +308,9 @@ function ReportsPageInner() {
 
       const message = await readExportErrorMessage(response)
       if (response.status === 400 && isSyncExportCapError(message)) {
-        await exportViaBackgroundJob(format, reportType)
+        await exportViaBackgroundJob(format, reportType, {
+          timeoutMs: reportType === "survey_data" ? 15 * 60_000 : undefined,
+        })
         toast.success(`${reportType.split("_").join(" ")} ${format.toUpperCase()} downloaded`)
         return
       }
@@ -370,6 +408,30 @@ function ReportsPageInner() {
                 )}
                 Export Excel
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="cursor-pointer gap-1.5"
+                disabled={!canExport || exporting !== null || !filters.districtId}
+                title={
+                  filters.districtId
+                    ? "Download one Survey Data Excel per ward as a ZIP"
+                    : "Select a district to enable ZIP download"
+                }
+                onClick={() => void handleDistrictWardZip()}
+              >
+                {exporting === "district_ward_zip:xlsx" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                ) : (
+                  <Download className="h-4 w-4" aria-hidden />
+                )}
+                Download all wards (ZIP)
+              </Button>
+              {!filters.districtId ? (
+                <p className="col-span-full text-[11px] text-muted-foreground">
+                  Select a district to download all ULB wards as a ZIP.
+                </p>
+              ) : null}
               {canImport ? (
                 <Button asChild variant="outline" size="sm" className="cursor-pointer gap-1.5">
                   <Link href="/import">

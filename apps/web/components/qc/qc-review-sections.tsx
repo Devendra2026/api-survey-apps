@@ -22,8 +22,17 @@ import { Input } from "@workspace/ui/components/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@workspace/ui/components/table"
 import { cn } from "@workspace/ui/lib/utils"
+import { isOpenLandPropertyUse, sumBuiltUpArea } from "@workspace/validation"
 import { AlertTriangle } from "lucide-react"
 import { useMemo } from "react"
+
+const SQ_FT_TO_SQ_M = 0.09290304
+
+function formatLiveBuiltUpArea(sqFt: number): string {
+  if (!Number.isFinite(sqFt) || sqFt <= 0) return "0"
+  const sqM = Math.round(sqFt * SQ_FT_TO_SQ_M * 1e6) / 1e6
+  return `${sqFt} (${sqM} sq m)`
+}
 
 function GlassSection({
   title,
@@ -202,6 +211,21 @@ export function QcReviewSections({
   }
 
   const floorsSorted = useMemo(() => sortByLeadingNumberAsc(survey.floors, (f) => f.sNo), [survey.floors])
+
+  const propertyUse = draft.propertyUse ?? survey.editable.propertyUse
+  const isOpenLand = isOpenLandPropertyUse(propertyUse)
+
+  const liveBuiltUpArea = useMemo(() => {
+    if (isOpenLand) return "N/A"
+    const sqFt = sumBuiltUpArea(
+      survey.editable.floors.map((f) => ({
+        floorPosition: f.floorPosition,
+        usageFactor: f.usageFactor,
+        areaSqFt: f.areaSqFt,
+      }))
+    )
+    return formatLiveBuiltUpArea(sqFt)
+  }, [isOpenLand, survey.editable.floors])
 
   const auditColumns = useMemo<ColumnDef<SurveyAuditHistoryItem>[]>(
     () => [
@@ -605,7 +629,7 @@ export function QcReviewSections({
             />
           </EditableField>
           <div className={cn(glassInsetClass, "p-3")}>
-            <SurveyViewField label="Built-Up Area" value={survey.builtUpArea} />
+            <SurveyViewField label="Built-Up Area" value={liveBuiltUpArea} />
           </div>
         </div>
 
@@ -614,7 +638,9 @@ export function QcReviewSections({
           editMode={editMode}
           displayFloors={floorsSorted}
           editableFloors={survey.editable.floors}
-          builtUpArea={survey.builtUpArea}
+          builtUpArea={liveBuiltUpArea}
+          disabled={isOpenLand}
+          disabledReason="Property Use is OPEN_LAND — built-up is N/A. Remove leftover floors if any remain."
         />
       </GlassSection>
 

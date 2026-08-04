@@ -3,13 +3,17 @@
  * Never throws — callers attach the returned warnings to API responses / QC UI.
  */
 
+import { isOpenLandPropertyUse, sumBuiltUpArea, unusuallyHighBuiltUpThreshold } from "./floor-plot-area.js"
+
 export const FLOOR_USAGE_WARNING_CODES = [
   "MIXED_USE_PROPERTY_USE_MISMATCH",
   "FLOOR_AREA_EXCEEDS_PLOT",
   "FLOOR_AREA_EXCEEDS_PLINTH",
+  "FLOOR_AREA_UNUSUALLY_HIGH",
   "BUILT_UP_MISMATCH",
   "MISSING_FLOOR_AREA",
   "USAGE_FACTOR_MIXED_AMBIGUOUS",
+  "OPEN_LAND_HAS_FLOORS",
 ] as const
 
 export type FloorUsageWarningCode = (typeof FLOOR_USAGE_WARNING_CODES)[number]
@@ -60,13 +64,9 @@ function toFiniteArea(value: number | null | undefined): number | null {
   return value
 }
 
-function sumFloorAreas(floors: FloorUsageWarningFloorInput[]): number {
-  let sum = 0
-  for (const floor of floors) {
-    const area = toFiniteArea(floor.areaSqFt)
-    if (area != null) sum += area
-  }
-  return sum
+/** Sum of areas that count toward plot / built-up (excludes OPEN_LAND position or usage). */
+function sumCountableFloorAreas(floors: FloorUsageWarningFloorInput[]): number {
+  return sumBuiltUpArea(floors)
 }
 
 function distinctUsageFactors(floors: FloorUsageWarningFloorInput[]): string[] {
@@ -89,12 +89,21 @@ export function evaluateMixedUseFloorWarnings(input: FloorUsageWarningInput): Fl
   const floors = input.floors ?? []
   const warnings: FloorUsageWarning[] = []
 
+  if (isOpenLandPropertyUse(input.propertyUse) && floors.length > 0) {
+    warnings.push(
+      warn(
+        "OPEN_LAND_HAS_FLOORS",
+        "Property Use is OPEN_LAND but floor rows still exist. Clear floors so built-up stays N/A."
+      )
+    )
+  }
+
   if (floors.length === 0) {
     return warnings
   }
 
   const usages = distinctUsageFactors(floors)
-  if (usages.length >= 2 && input.propertyUse !== MIX_PROPERTY) {
+  if (usages.length >= 2 && input.propertyUse !== MIX_PROPERTY && !isOpenLandPropertyUse(input.propertyUse)) {
     warnings.push(
       warn(
         "MIXED_USE_PROPERTY_USE_MISMATCH",
@@ -103,27 +112,23 @@ export function evaluateMixedUseFloorWarnings(input: FloorUsageWarningInput): Fl
     )
   }
 
-  const areaSum = sumFloorAreas(floors)
+  const countableAreaSum = sumCountableFloorAreas(floors)
   const plot = toFiniteArea(input.plotAreaSqFt)
-  if (plot != null && areaSum > plot + AREA_TOLERANCE_SQ_FT) {
+  if (plot != null && countableAreaSum > unusuallyHighBuiltUpThreshold(plot) + AREA_TOLERANCE_SQ_FT) {
     warnings.push(
-      warn("FLOOR_AREA_EXCEEDS_PLOT", `Total floor area (${areaSum} sq ft) exceeds plot area (${plot} sq ft).`)
-    )
-  }
-
-  const plinth = toFiniteArea(input.plinthAreaSqFt)
-  if (plinth != null && areaSum > plinth + AREA_TOLERANCE_SQ_FT) {
-    warnings.push(
-      warn("FLOOR_AREA_EXCEEDS_PLINTH", `Total floor area (${areaSum} sq ft) exceeds plinth area (${plinth} sq ft).`)
+      warn(
+        "FLOOR_AREA_UNUSUALLY_HIGH",
+        `Total built-up (${countableAreaSum} sq ft) is unusually high vs plot (${plot} sq ft). Confirm multi-story areas are correct.`
+      )
     )
   }
 
   const storedBuilt = toFiniteArea(input.totalBuiltAreaSqFt)
-  if (storedBuilt != null && !nearlyEqual(storedBuilt, areaSum)) {
+  if (storedBuilt != null && !nearlyEqual(storedBuilt, countableAreaSum)) {
     warnings.push(
       warn(
         "BUILT_UP_MISMATCH",
-        `Stored built-up area (${storedBuilt} sq ft) does not match sum of floor areas (${areaSum} sq ft).`
+        `Stored built-up area (${storedBuilt} sq ft) does not match sum of floor areas (${countableAreaSum} sq ft).`
       )
     )
   }
@@ -136,9 +141,10 @@ export function evaluateMixedUseFloorWarnings(input: FloorUsageWarningInput): Fl
     byPosition.set(floor.floorPosition, list)
   }
 
-  // Mixed-use: sum of usage areas on one floorPosition must not exceed plot/plinth (soft).
+  // Per floorPosition: countable footprint must not exceed plot/plinth (soft).
+  const plinth = toFiniteArea(input.plinthAreaSqFt)
   for (const [floorPosition, rows] of byPosition) {
-    const floorTotal = sumFloorAreas(rows)
+    const floorTotal = sumCountableFloorAreas(rows)
     if (plot != null && floorTotal > plot + AREA_TOLERANCE_SQ_FT) {
       warnings.push(
         warn(

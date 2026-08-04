@@ -20,7 +20,8 @@ const FLOOR_POSITION_OPTIONS = [
   "SECOND_FLOOR",
   "THIRD_FLOOR",
   "FOURTH_FLOOR",
-  "FIFTH_FLOOR_PLUS",
+  "FIFTH_FLOOR",
+  "SIXTH_FLOOR",
   "OPEN_LAND",
 ] as const
 
@@ -104,12 +105,17 @@ export function QcFloorEditor({
   displayFloors,
   editableFloors,
   builtUpArea,
+  disabled = false,
+  disabledReason,
 }: {
   surveyId: string
   editMode: boolean
   displayFloors: SurveyFloorRow[]
   editableFloors: QcSurveyFloorEditable[]
   builtUpArea: string
+  /** When true (e.g. open-land property use), hide add/edit controls. */
+  disabled?: boolean
+  disabledReason?: string
 }) {
   const floorsApi = useFloorMutations(surveyId)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -117,11 +123,13 @@ export function QcFloorEditor({
   const [form, setForm] = useState<FloorForm>(emptyForm)
 
   const busy = floorsApi.create.isPending || floorsApi.update.isPending || floorsApi.remove.isPending
+  const canEdit = editMode && !disabled
 
   const derivedFloorTotals = useMemo(() => {
     const byPosition = new Map<string, number>()
     for (const floor of editableFloors) {
       if (floor.areaSqFt == null || !Number.isFinite(floor.areaSqFt)) continue
+      if (floor.floorPosition === "OPEN_LAND" || floor.usageFactor === "OPEN_LAND") continue
       byPosition.set(floor.floorPosition, (byPosition.get(floor.floorPosition) ?? 0) + floor.areaSqFt)
     }
     return [...byPosition.entries()].map(([floorPosition, totalSqFt]) => ({
@@ -131,6 +139,7 @@ export function QcFloorEditor({
   }, [editableFloors])
 
   const startAdd = () => {
+    if (disabled) return
     setEditingId(null)
     setAdding(true)
     const floorPosition = "GROUND_FLOOR"
@@ -267,9 +276,15 @@ export function QcFloorEditor({
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">
-        Mixed use: add one row per usage on the same floor (e.g. Ground + Residential and Ground + Commercial).
-      </p>
+      {disabled ? (
+        <p className="text-xs text-amber-800 dark:text-amber-200">
+          {disabledReason ?? "Floor editing is disabled for this Property Use. Remove any leftover floors if needed."}
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Mixed use: add one row per usage on the same floor (e.g. Ground + Residential and Ground + Commercial).
+        </p>
+      )}
       {derivedFloorTotals.length > 0 ? (
         <p className="text-xs text-muted-foreground">
           Derived floor totals:{" "}
@@ -299,15 +314,17 @@ export function QcFloorEditor({
                   <TableCell>{floor.areaSqFt != null ? String(floor.areaSqFt) : "—"}</TableCell>
                   <TableCell>
                     <div className="flex gap-1">
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        disabled={busy}
-                        onClick={() => startEdit(floor)}
-                      >
-                        <Pencil className="size-3.5" />
-                      </Button>
+                      {canEdit ? (
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          disabled={busy}
+                          onClick={() => startEdit(floor)}
+                        >
+                          <Pencil className="size-3.5" />
+                        </Button>
+                      ) : null}
                       <Button
                         type="button"
                         size="icon"
@@ -332,12 +349,13 @@ export function QcFloorEditor({
         </Table>
       </div>
 
-      {!adding && !editingId ? (
+      {canEdit && !adding && !editingId ? (
         <Button type="button" size="sm" variant="outline" onClick={startAdd} disabled={busy}>
           <Plus className="size-3.5" />
           Add floor
         </Button>
-      ) : (
+      ) : null}
+      {canEdit && (adding || editingId) ? (
         <div className={cn(glassInsetClass, "space-y-3 p-4")}>
           <p className="text-sm font-medium">{adding ? "Add floor" : "Edit floor"}</p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -436,7 +454,7 @@ export function QcFloorEditor({
             </Button>
           </div>
         </div>
-      )}
+      ) : null}
 
       <p className="mt-3 text-sm font-medium text-slate-700 dark:text-slate-200">TOTAL BUILT-UP AREA: {builtUpArea}</p>
     </div>

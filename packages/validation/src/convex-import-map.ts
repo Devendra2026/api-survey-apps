@@ -137,10 +137,13 @@ const FLOOR_POSITION: Record<string, string> = {
   fourth: "FOURTH_FLOOR",
   fourth_floor: "FOURTH_FLOOR",
   "4": "FOURTH_FLOOR",
-  fifth: "FIFTH_FLOOR_PLUS",
-  fifth_floor: "FIFTH_FLOOR_PLUS",
-  fifth_floor_plus: "FIFTH_FLOOR_PLUS",
-  "5": "FIFTH_FLOOR_PLUS",
+  fifth: "FIFTH_FLOOR",
+  fifth_floor: "FIFTH_FLOOR",
+  fifth_floor_plus: "FIFTH_FLOOR",
+  "5": "FIFTH_FLOOR",
+  sixth: "SIXTH_FLOOR",
+  sixth_floor: "SIXTH_FLOOR",
+  "6": "SIXTH_FLOOR",
   open_land: "OPEN_LAND",
   open_land_plot: "OPEN_LAND",
 }
@@ -151,7 +154,8 @@ const FLOOR_POSITION_BY_INDEX = [
   "SECOND_FLOOR",
   "THIRD_FLOOR",
   "FOURTH_FLOOR",
-  "FIFTH_FLOOR_PLUS",
+  "FIFTH_FLOOR",
+  "SIXTH_FLOOR",
 ] as const
 
 const USAGE_FACTOR: Record<string, string> = {
@@ -258,7 +262,7 @@ export function mapFloorPositionByIndex(index: number | null | undefined): strin
   if (index == null || !Number.isFinite(index)) return undefined
   const i = Math.trunc(index)
   if (i < 0) return "BASEMENT"
-  if (i >= FLOOR_POSITION_BY_INDEX.length) return "FIFTH_FLOOR_PLUS"
+  if (i >= FLOOR_POSITION_BY_INDEX.length) return "SIXTH_FLOOR"
   return FLOOR_POSITION_BY_INDEX[i]
 }
 export function mapUsageFactor(raw?: string | null) {

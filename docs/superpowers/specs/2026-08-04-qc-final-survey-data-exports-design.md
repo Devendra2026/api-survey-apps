@@ -1,42 +1,45 @@
 # QC Final + Survey Data Excel Reports
 
 **Date:** 2026-08-04  
-**Status:** Approved  
-**App:** `api-survey-apps`  
-**Approach:** Harden existing `qc_final` and `survey_data` report types
+**Status:** Approved (Approach 1 — independent pipelines)  
+**App:** `api-survey-apps`
 
 ## Problem
 
-QC needs two independent Excel exports with correct business logic: a ward-wise Final QC Report (approved only) and a Survey Data export without tax demand columns for pre-demand verification. Today APPROVED filtering is only in the QC Final renderer, Survey Data still includes blank tax columns, QC Final is not wired in the Reports UI, and filenames are generic.
+QC Final and Survey Data were sharing mixed templates and filter rules. Each report needs its own query filters, sheet layout, filename, and validation.
 
 ## Locked decisions
 
-| Decision              | Choice                                                                                                 |
-| --------------------- | ------------------------------------------------------------------------------------------------------ |
-| Approach              | Harden existing `qc_final` / `survey_data` (no new report-type aliases)                                |
-| QC Final scope        | Requires `wardId`; force `qcStatus=APPROVED` in API/worker WHERE                                       |
-| QC Final tax cols     | Keep Property/Water/Drainage/Total Annual Demand as **blank placeholders**                             |
-| Survey Data tax       | Remove all Tax Demand headers and blank tax columns; keep wide floor/area layout                       |
-| Survey Data QC filter | Respect UI filters only — do not force APPROVED                                                        |
-| Filenames             | `QC_Final_Report_<WardName>.xlsx`; `Survey_<Ward\|Ulb\|District>.xlsx` (fallback `Survey_Export.xlsx`) |
-| UI                    | Reports: QC Final Excel disabled without ward; Survey Report stays `survey_data`                       |
-| Download              | Existing API file proxy                                                                                |
+| Decision             | Choice                                                                                                   |
+| -------------------- | -------------------------------------------------------------------------------------------------------- |
+| Approach             | Two independent template modules + two worker pipelines                                                  |
+| QC Final scope       | Require `wardId`; force `qcStatus=APPROVED`                                                              |
+| QC Final template    | Wide 64-col `survey.xlsx` layout; tax headers present; **tax cells blank** (rates filled later in panel) |
+| Survey Data scope    | Require `wardId`; **strip/ignore** `qcStatus` (export all statuses)                                      |
+| Survey Data template | 40-col verification layout (`Survey_Ward-1_Etah.xlsx`); no tax demand columns                            |
+| Filenames            | `QC_Final_Report_<Ward>_<District>.xlsx`; `Survey_<Ward>_<District>.xlsx`                                |
+| UI                   | Both Excel buttons disabled without ward; ZIP remains district-gated                                     |
+| Download             | Existing API file proxy                                                                                  |
 
 ## Architecture
 
 ```
-Reports UI → GET /reports/export (qc_final | survey_data)
-  → ExportJob → Worker (filter rules + template)
+Reports UI (ward required)
+  → API applyReportFilterRules
+  → ExportJob → Worker
+      qc_final  → WHERE ward+APPROVED → qc-final-wide (64col) → QC_Final_Report_<Ward>_<District>.xlsx
+      survey_data → WHERE ward (no QC) → survey-data (40col) → Survey_<Ward>_<District>.xlsx
   → GET /reports/jobs/:id/file
 ```
 
-## Filtering comments (canonical)
+## Filtering (canonical)
 
-- **qc_final:** Ward-wise approved data only — reject missing ward; force APPROVED. Exclude pending/rejected/draft via QC status.
-- **survey_data:** Export all matching filters (no tax demand fields in template). Do not force qcStatus.
+- **qc_final:** Ward-wise approved data only — reject missing ward; force APPROVED.
+- **survey_data:** Ward-wise all QC statuses — reject missing ward; never apply qcStatus.
+- Both: assert exported data row count === DB count for the query.
 
 ## Out of scope
 
 - Computing real tax demand values
-- District ZIP packaging changes beyond inheriting the updated Survey Data template
-- QC registry Excel button (Reports only)
+- District ZIP packaging changes beyond inheriting the no-tax Survey Data template
+- QC registry Excel button

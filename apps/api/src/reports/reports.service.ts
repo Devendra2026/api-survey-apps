@@ -1,9 +1,10 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common"
 import { ExportFormat as DbExportFormat, JobStatus, type Prisma, type SurveyStatus } from "@workspace/database"
 import {
+  buildExportFilename,
   renderConvexFullWorkbook,
   renderNagarPanchayatWorkbook,
-  renderQcFinalWorkbook,
+  renderQcFinalWideWorkbook,
   renderSurveyDataWorkbook,
   type SurveyExportBundle,
 } from "@workspace/excel-reports"
@@ -63,6 +64,7 @@ export class ReportsService {
     | { format: ExportFormat; reportType: ExportReportType; count: number; data: unknown }
     | { contentType: string; filename: string; buffer: Buffer }
   > {
+    filters = this.applyReportFilterRules(reportType, filters)
     const rows = await this.reportsRepository.exportSurveys(
       user,
       filters,
@@ -93,7 +95,7 @@ export class ReportsService {
       return this.assertExportSize(
         {
           contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          filename: `${reportType}-export.xlsx`,
+          filename: await this.resolveExportFilename(reportType, filters),
           buffer,
         },
         options.maxBytes
@@ -145,6 +147,10 @@ export class ReportsService {
         throw new BadRequestException("districtId is required for district_ward_zip export")
       }
     }
+
+    // QC Final: ward-wise approved data only — reject missing ward; force APPROVED.
+    // survey_data: do not force qcStatus — export all matching filters (no tax columns in template).
+    filters = this.applyReportFilterRules(reportType, filters)
 
     const normalizedFilters = this.normalizeFilters(filters)
     const job = await this.prisma.db.exportJob.create({
@@ -279,6 +285,69 @@ export class ReportsService {
     return result
   }
 
+  /** QC Final: ward + APPROVED. Survey Data: ward required; never apply qcStatus. */
+  private applyReportFilterRules(reportType: ExportReportType, filters: ExportFilters): ExportFilters {
+    if (reportType === "qc_final") {
+      if (!filters.wardId) {
+        throw new BadRequestException("wardId is required for qc_final export")
+      }
+      return { ...filters, qcStatus: "APPROVED" }
+    }
+    if (reportType === "survey_data") {
+      if (!filters.wardId) {
+        throw new BadRequestException("wardId is required for survey_data export")
+      }
+      const rest = { ...filters }
+      delete rest.qcStatus
+      return rest
+    }
+    return filters
+  }
+
+  private async resolveExportFilename(reportType: ExportReportType, filters: ExportFilters): Promise<string> {
+    if (reportType !== "qc_final" && reportType !== "survey_data") {
+      return `${reportType}-export.xlsx`
+    }
+
+    const geo = await this.resolveWardDistrictNames(filters.wardId, filters.districtId)
+    return buildExportFilename({
+      report: reportType,
+      wardName: geo.wardName,
+      districtName: geo.districtName,
+    })
+  }
+
+  private async resolveWardDistrictNames(
+    wardId?: string,
+    districtId?: string
+  ): Promise<{ wardName?: string; districtName?: string }> {
+    if (!wardId) {
+      const district = districtId
+        ? await this.prisma.db.district.findUnique({ where: { id: districtId }, select: { name: true } })
+        : null
+      return { districtName: district?.name }
+    }
+
+    const ward = await this.prisma.db.ward.findUnique({
+      where: { id: wardId },
+      select: {
+        wardName: true,
+        ulb: { select: { district: { select: { name: true } } } },
+      },
+    })
+
+    let districtName = ward?.ulb.district.name
+    if (!districtName && districtId) {
+      const district = await this.prisma.db.district.findUnique({
+        where: { id: districtId },
+        select: { name: true },
+      })
+      districtName = district?.name
+    }
+
+    return { wardName: ward?.wardName, districtName }
+  }
+
   private normalizeFilters(filters: ExportFilters): ExportFiltersPayload {
     return Object.fromEntries(
       Object.entries(filters).filter(
@@ -363,7 +432,7 @@ export class ReportsService {
     if (reportType === "convex_full") return renderConvexFullWorkbook(bundles)
     if (reportType === "nagar_panchayat") return renderNagarPanchayatWorkbook(bundles)
     if (reportType === "survey_data") return renderSurveyDataWorkbook(bundles)
-    if (reportType === "qc_final") return renderQcFinalWorkbook(bundles)
+    if (reportType === "qc_final") return renderQcFinalWideWorkbook(bundles)
     const workbook = new ExcelJS.Workbook()
     workbook.creator = "Municipal Property Tax Survey API"
     const sheet = workbook.addWorksheet(reportType)

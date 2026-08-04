@@ -8,13 +8,21 @@ export {
   type WorkbookRow,
 } from "./convex-workbook-parser.js"
 export { NAGAR_PANCHAYAT_HEADERS, renderNagarPanchayatWorkbook } from "./nagar-panchayat.js"
-export { QC_FINAL_HEADERS, QC_FINAL_REPORT_SHEET, renderQcFinalWorkbook } from "./qc-final.js"
 export {
+  renderQcFinalWideWorkbook,
+  renderQcFinalWideWorkbookStreaming,
+  streamQcFinalWideWorkbookToFile,
+  toQcFinalWideRow,
+} from "./qc-final-wide.js"
+export {
+  assertExportRowCount,
+  buildExportFilename,
   renderSurveyDataWorkbook,
   renderSurveyDataWorkbookStreaming,
   sanitizeExportPathSegment,
   streamSurveyDataWorkbookToFile,
   toSurveyDataRow,
   wardSurveyDataZipEntry,
+  type BuildExportFilenameInput,
 } from "./survey-data.js"
 export type { SurveyExportBundle } from "./types.js"

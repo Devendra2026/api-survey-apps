@@ -1,7 +1,10 @@
 import { describe, expect, it } from "@jest/globals"
 import {
+  assertExportRowCount,
+  buildExportFilename,
   renderConvexFullWorkbook,
   renderNagarPanchayatWorkbook,
+  renderQcFinalWideWorkbook,
   renderSurveyDataWorkbook,
   renderSurveyDataWorkbookStreaming,
   sanitizeExportPathSegment,
@@ -106,45 +109,41 @@ describe("Excel report templates", () => {
     expect(rowValues(generatedSheet!, 1)).toHaveLength(45)
   })
 
-  it("renders the four-row merged tax worksheet header", async () => {
-    const workbook = new ExcelJS.Workbook()
-    await workbook.xlsx.load(await renderSurveyDataWorkbook([bundle]))
-
-    const sheet = workbook.getWorksheet("Survey Data")
-    expect(sheet?.getCell("Q1").value).toBe("Floors")
-    expect(sheet?.getCell("AO1").value).toBe("Total Demand")
-    expect(sheet?.getCell("BJ1").value).toBe("Total Tax Demand")
-    expect(sheet?.getCell("R2").value).toBe("Basement")
-    expect(sheet?.getCell("AJ3").value).toBe("Open Land")
-  })
-
-  it("matches golden survey_data merged header labels when available", async () => {
-    const golden = await loadGolden("E:/Sales/sdv-edutech/sdv-docs/survey_data (1).xlsx")
-    if (!golden) return
-
-    const generated = new ExcelJS.Workbook()
-    await generated.xlsx.load(await renderSurveyDataWorkbook([bundle]))
-    const goldenSheet = golden.worksheets[0]
-    const generatedSheet = generated.getWorksheet("Survey Data")!
-    expect(cellText(generatedSheet.getCell("Q1").value)).toBe(cellText(goldenSheet.getCell("Q1").value))
-    expect(cellText(generatedSheet.getCell("AO1").value)).toBe(cellText(goldenSheet.getCell("AO1").value))
-    expect(cellText(generatedSheet.getCell("BJ1").value)).toBe(cellText(goldenSheet.getCell("BJ1").value))
-  })
-
-  it("renders QC Final Report headers for approved surveys", async () => {
-    const { renderQcFinalWorkbook } = await import("@workspace/excel-reports")
+  it("renders Survey Data verification sheet without tax demand columns", async () => {
     const workbook = new ExcelJS.Workbook()
     await workbook.xlsx.load(
-      await renderQcFinalWorkbook([
+      await renderSurveyDataWorkbook([
         { ...bundle, qcStatus: "APPROVED" },
-        { ...bundle, id: "survey-2", propertyId: "801262-001-00005-001-R", qcStatus: "PENDING" },
+        { ...bundle, id: "survey-2", propertyId: "p-2", qcStatus: "PENDING" },
+        { ...bundle, id: "survey-3", propertyId: "p-3", qcStatus: "REJECTED" },
       ])
     )
-    const sheet = workbook.getWorksheet("QC Final Report")
-    expect(sheet?.getRow(1).values).toEqual(
-      expect.arrayContaining(["Property ID", "Owner", "Ward", "QC Status", "Surveyor"])
-    )
-    expect(sheet?.rowCount).toBe(2)
+
+    const sheet = workbook.getWorksheet("Survey Data")!
+    expect(sheet.getCell("Q1").value).toBe("Floors")
+    expect(sheet.getCell("AL1").value).toBe("Plot Area SqFt")
+    expect(sheet.getCell("AN1").value).toBe("Total Built Up Area SqFt")
+    expect(sheet.getCell("AO1").value).toBeNull()
+
+    const headerRow = rowValues(sheet, 1).join("|")
+    expect(headerRow).not.toContain("Total Demand")
+    expect(headerRow).not.toContain("Total Tax Demand")
+    expect(headerRow).not.toContain("Total Tax 10%")
+    // All QC statuses included (header + 3 data rows)
+    expect(sheet.rowCount).toBe(7)
+  })
+
+  it("renders QC Final wide sheet with blank tax placeholders", async () => {
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.load(await renderQcFinalWideWorkbook([bundle]))
+
+    const sheet = workbook.getWorksheet("Survey Data")!
+    expect(sheet.getCell("Q1").value).toBe("Floors")
+    expect(sheet.getCell("AO1").value).toBe("Total Demand")
+    expect(sheet.getCell("BJ1").value).toBe("Total Tax Demand")
+    expect(sheet.getCell("BL3").value).toBe("Total Drainage Tax 2.5%")
+    expect(sheet.getCell("AO5").value).toBe("")
+    expect(sheet.getCell("BJ5").value).toBe("")
   })
 
   it("streaming Survey Data matches buffer renderer key header cells", async () => {
@@ -156,8 +155,8 @@ describe("Excel report templates", () => {
     const streamedSheet = streamed.getWorksheet("Survey Data")!
     const bufferedSheet = buffered.getWorksheet("Survey Data")!
     expect(cellText(streamedSheet.getCell("Q1").value)).toBe(cellText(bufferedSheet.getCell("Q1").value))
-    expect(cellText(streamedSheet.getCell("AO1").value)).toBe(cellText(bufferedSheet.getCell("AO1").value))
-    expect(cellText(streamedSheet.getCell("BJ1").value)).toBe(cellText(bufferedSheet.getCell("BJ1").value))
+    expect(cellText(streamedSheet.getCell("AL1").value)).toBe(cellText(bufferedSheet.getCell("AL1").value))
+    expect(cellText(streamedSheet.getCell("AN1").value)).toBe(cellText(bufferedSheet.getCell("AN1").value))
     expect(cellText(streamedSheet.getCell("B5").value)).toBe(bundle.propertyId)
     expect(cellText(streamedSheet.getCell("C5").value)).toBe("Asha Devi")
   })
@@ -170,12 +169,25 @@ describe("Excel report templates", () => {
     const workbook = new ExcelJS.Workbook()
     await workbook.xlsx.load(await renderSurveyDataWorkbook([legacy]))
     const sheet = workbook.getWorksheet("Survey Data")!
-    // Fifth floor residential is column AD (30) on data row 5 — same slot as FIFTH_FLOOR
     expect(sheet.getCell("AD5").value).toBe(500)
   })
 
   it("builds safe per-ward ZIP entry paths", () => {
     expect(sanitizeExportPathSegment("Ward 1 / A")).toBe("Ward-1-A")
     expect(wardSurveyDataZipEntry("801262", "001", "Ward 1")).toBe("801262/001-Ward-1.xlsx")
+  })
+
+  it("builds QC Final and Survey Data Ward_District filenames", () => {
+    expect(buildExportFilename({ report: "qc_final", wardName: "Ward 1", districtName: "Etah" })).toBe(
+      "QC_Final_Report_Ward-1_Etah.xlsx"
+    )
+    expect(buildExportFilename({ report: "survey_data", wardName: "Ward 1", districtName: "Etah" })).toBe(
+      "Survey_Ward-1_Etah.xlsx"
+    )
+  })
+
+  it("asserts export row counts match", () => {
+    expect(() => assertExportRowCount(10, 10, "survey_data")).not.toThrow()
+    expect(() => assertExportRowCount(9, 10, "qc_final")).toThrow(/row count mismatch/)
   })
 })

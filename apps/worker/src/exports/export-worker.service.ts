@@ -2,11 +2,14 @@ import { Injectable, Logger } from "@nestjs/common"
 import { ConfigService } from "@nestjs/config"
 import { JobStatus, Prisma, SurveyStatus } from "@workspace/database"
 import {
+  assertExportRowCount,
+  buildExportFilename,
   renderConvexFullWorkbook,
   renderNagarPanchayatWorkbook,
-  renderQcFinalWorkbook,
+  renderQcFinalWideWorkbook,
   renderSurveyDataWorkbook,
   sanitizeExportPathSegment,
+  streamQcFinalWideWorkbookToFile,
   streamSurveyDataWorkbookToFile,
   wardSurveyDataZipEntry,
   type SurveyExportBundle,
@@ -166,6 +169,14 @@ export class ExportWorkerService {
         return
       }
 
+      if (payload.reportType === "qc_final" && payload.format === "xlsx") {
+        const artifact = await this.renderQcFinalStreaming(payload, updateProgress)
+        uploadedKey = await this.finishUpload(payload, artifact, artifact.rowCount)
+        await updateProgress(100)
+        this.logger.log(`Export job ${payload.jobId} completed qc_final rows=${artifact.rowCount}`)
+        return
+      }
+
       const rows = await this.findRows(payload, { take: 10_000 })
       await updateProgress(35)
 
@@ -237,7 +248,19 @@ export class ExportWorkerService {
   private buildSurveyWhere(payload: ExportJobPayload, extra: Prisma.SurveyWhereInput = {}): Prisma.SurveyWhereInput {
     const scope = resolveTenantScope(payload.tenantRoles)
     const tenantWhere = buildTenantWhere(scope)
-    const filters = payload.filters
+
+    // Independent report rules — never mix qc_final / survey_data filters.
+    let filters = { ...payload.filters }
+    if (payload.reportType === "qc_final") {
+      if (!filters.wardId) throw new Error("wardId is required for qc_final export")
+      filters = { ...filters, qcStatus: "APPROVED" }
+    } else if (payload.reportType === "survey_data") {
+      if (!filters.wardId) throw new Error("wardId is required for survey_data export")
+      const rest = { ...filters }
+      delete rest.qcStatus
+      filters = rest
+    }
+
     const dateFilter: Prisma.SurveyWhereInput = {}
     if (filters.dateFrom || filters.dateTo) {
       dateFilter.createdAt = {
@@ -268,6 +291,41 @@ export class ExportWorkerService {
         : {}),
       ...extra,
     }
+  }
+
+  private assertWrittenRowCount(written: number, expected: number, reportType: string): void {
+    assertExportRowCount(written, expected, reportType)
+  }
+
+  private async resolveGeoNames(filters: ExportFiltersPayload): Promise<{
+    wardName?: string
+    districtName?: string
+  }> {
+    if (!filters.wardId) {
+      const district = filters.districtId
+        ? await this.prisma.db.district.findUnique({ where: { id: filters.districtId }, select: { name: true } })
+        : null
+      return { districtName: district?.name }
+    }
+
+    const ward = await this.prisma.db.ward.findUnique({
+      where: { id: filters.wardId },
+      select: {
+        wardName: true,
+        ulb: { select: { district: { select: { name: true } } } },
+      },
+    })
+
+    let districtName = ward?.ulb.district.name
+    if (!districtName && filters.districtId) {
+      const district = await this.prisma.db.district.findUnique({
+        where: { id: filters.districtId },
+        select: { name: true },
+      })
+      districtName = district?.name
+    }
+
+    return { wardName: ward?.wardName, districtName }
   }
 
   private async assertRowBudget(where: Prisma.SurveyWhereInput): Promise<number> {
@@ -358,20 +416,43 @@ export class ExportWorkerService {
     const filename = join(dir, "survey-data.xlsx")
     try {
       const { rowCount } = await streamSurveyDataWorkbookToFile(filename, this.iterateSurveyBundles(where))
+      this.assertWrittenRowCount(rowCount, total, "survey_data")
       await updateProgress(80)
       const buffer = await readFile(filename)
-      const scopeLabel = [
-        payload.filters.ulbId ? `ulb-${payload.filters.ulbId.slice(0, 8)}` : null,
-        payload.filters.wardId ? `ward-${payload.filters.wardId.slice(0, 8)}` : null,
-        payload.filters.districtId ? `district-${payload.filters.districtId.slice(0, 8)}` : null,
-      ]
-        .filter(Boolean)
-        .join("-")
+      const geo = await this.resolveGeoNames(payload.filters)
       return {
         contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename: `survey-data${scopeLabel ? `-${scopeLabel}` : ""}.xlsx`,
+        filename: buildExportFilename({ report: "survey_data", ...geo }),
         buffer,
-        rowCount: rowCount || total,
+        rowCount,
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }
+
+  private async renderQcFinalStreaming(payload: ExportJobPayload, updateProgress: (progress: number) => Promise<void>) {
+    if (!payload.filters.wardId) {
+      throw new Error("wardId is required for qc_final export")
+    }
+
+    const where = this.buildSurveyWhere(payload)
+    const total = await this.assertRowBudget(where)
+    await updateProgress(20)
+
+    const dir = await mkdtemp(join(tmpdir(), "export-qc-final-"))
+    const filename = join(dir, "qc-final.xlsx")
+    try {
+      const { rowCount } = await streamQcFinalWideWorkbookToFile(filename, this.iterateSurveyBundles(where))
+      this.assertWrittenRowCount(rowCount, total, "qc_final")
+      await updateProgress(80)
+      const buffer = await readFile(filename)
+      const geo = await this.resolveGeoNames(payload.filters)
+      return {
+        contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename: buildExportFilename({ report: "qc_final", ...geo }),
+        buffer,
+        rowCount,
       }
     } finally {
       await rm(dir, { recursive: true, force: true })
@@ -599,7 +680,7 @@ export class ExportWorkerService {
     if (reportType === "convex_full") return renderConvexFullWorkbook(bundles)
     if (reportType === "nagar_panchayat") return renderNagarPanchayatWorkbook(bundles)
     if (reportType === "survey_data") return renderSurveyDataWorkbook(bundles)
-    if (reportType === "qc_final") return renderQcFinalWorkbook(bundles)
+    if (reportType === "qc_final") return renderQcFinalWideWorkbook(bundles)
     const workbook = new ExcelJS.Workbook()
     workbook.creator = "Municipal Property Tax Survey Worker"
     const sheet = workbook.addWorksheet(reportType)

@@ -272,6 +272,12 @@ function ReportsPageInner() {
       toast.error("Export permission required")
       return
     }
+    if ((reportType === "qc_final" || reportType === "survey_data") && !filters.wardId) {
+      toast.error(
+        reportType === "qc_final" ? "Select a ward to export QC Final" : "Select a ward to export Survey Data"
+      )
+      return
+    }
     const key = `${reportType}:${format}`
     setExporting(key)
     try {
@@ -279,7 +285,7 @@ function ReportsPageInner() {
 
       if (knownLarge) {
         await exportViaBackgroundJob(format, reportType, {
-          timeoutMs: reportType === "survey_data" ? 15 * 60_000 : undefined,
+          timeoutMs: reportType === "survey_data" || reportType === "qc_final" ? 15 * 60_000 : undefined,
         })
         toast.success(`${reportType.split("_").join(" ")} ${format.toUpperCase()} downloaded`)
         return
@@ -304,7 +310,7 @@ function ReportsPageInner() {
       const message = await readExportErrorMessage(response)
       if (response.status === 400 && isSyncExportCapError(message)) {
         await exportViaBackgroundJob(format, reportType, {
-          timeoutMs: reportType === "survey_data" ? 15 * 60_000 : undefined,
+          timeoutMs: reportType === "survey_data" || reportType === "qc_final" ? 15 * 60_000 : undefined,
         })
         toast.success(`${reportType.split("_").join(" ")} ${format.toUpperCase()} downloaded`)
         return
@@ -387,13 +393,14 @@ function ReportsPageInner() {
             <ReportActionCard
               icon={FileText}
               title="Survey Report"
-              description="Full mobile survey data for current filter scope."
+              description="All survey records for the selected ward (any QC status). No tax demand columns."
             >
               <Button
                 variant="outline"
                 size="sm"
                 className="cursor-pointer gap-1.5"
-                disabled={!canExport || exporting !== null}
+                disabled={!canExport || exporting !== null || !filters.wardId}
+                title={!filters.wardId ? "Select a ward to export Survey Data" : undefined}
                 onClick={() => void handleExport("xlsx", "survey_data")}
               >
                 {exporting === "survey_data:xlsx" ? (
@@ -422,6 +429,11 @@ function ReportsPageInner() {
                 )}
                 Download all wards (ZIP)
               </Button>
+              {!filters.wardId ? (
+                <p className="basis-full text-[11px] text-muted-foreground">
+                  Select a ward in Report Scope to enable Excel export.
+                </p>
+              ) : null}
               {!filters.districtId ? (
                 <p className="col-span-full text-[11px] text-muted-foreground">
                   Select a district to download all ULB wards as a ZIP.
@@ -493,11 +505,31 @@ function ReportsPageInner() {
             <ReportActionCard
               icon={LayoutTemplate}
               title="QC Final Report"
-              description="Ward-wise register of QC-approved properties with printable final reports."
+              description="Ward-wise Excel of QC-approved properties. Select a ward first. Tax demand columns stay blank."
             >
+              <Button
+                variant="outline"
+                size="sm"
+                className="cursor-pointer gap-1.5"
+                disabled={!canExport || exporting !== null || !filters.wardId}
+                title={!filters.wardId ? "Select a ward to export QC Final" : undefined}
+                onClick={() => void handleExport("xlsx", "qc_final")}
+              >
+                {exporting === "qc_final:xlsx" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                ) : (
+                  <FileSpreadsheet className="h-4 w-4" aria-hidden />
+                )}
+                Export Excel
+              </Button>
               <Button asChild variant="outline" size="sm" className="cursor-pointer gap-1.5">
                 <Link href="/qc/registry">Open Ward Register</Link>
               </Button>
+              {!filters.wardId ? (
+                <p className="basis-full text-xs text-muted-foreground">
+                  Select a ward in Report Scope to enable Excel export.
+                </p>
+              ) : null}
             </ReportActionCard>
 
             <ReportActionCard

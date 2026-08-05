@@ -44,6 +44,7 @@ type ConvexWardCatalogRow = {
 
 type ActiveWard = {
   id: string
+  ulbId: string
   wardNumber: string
   wardCode: string | null
   wardName: string
@@ -57,6 +58,20 @@ function isPrismaUniqueViolation(error: unknown): boolean {
     return true
   }
   return false
+}
+
+async function mapPool<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
+  if (items.length === 0) return
+  const n = Math.max(1, concurrency)
+  let i = 0
+  const workers = Array.from({ length: Math.min(n, items.length) }, async () => {
+    while (i < items.length) {
+      const idx = i
+      i += 1
+      await fn(items[idx]!)
+    }
+  })
+  await Promise.all(workers)
 }
 
 @Injectable()
@@ -74,26 +89,49 @@ export class WardAlignService {
       orderBy: { code: "asc" },
       select: { id: true, code: true },
     })
+    const ulbById = new Map(ulbs.map((u) => [u.id, u.code]))
+
+    // One query for all active wards (was N queries per ULB).
+    const wards = await this.prisma.db.ward.findMany({
+      where: {
+        deletedAt: null,
+        ...(ulbCode ? { ulbId: { in: ulbs.map((u) => u.id) } } : {}),
+      },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        ulbId: true,
+        wardNumber: true,
+        createdAt: true,
+        _count: { select: { surveys: { where: { deletedAt: null } } } },
+      },
+    })
+
+    const byUlb = new Map<string, typeof wards>()
+    for (const w of wards) {
+      const list = byUlb.get(w.ulbId) ?? []
+      list.push(w)
+      byUlb.set(w.ulbId, list)
+    }
 
     let duplicateGroups = 0
     let surveysRemapped = 0
     let wardsSoftDeleted = 0
     const samples: WardDedupeResult["samples"] = []
 
-    for (const ulb of ulbs) {
-      const wards = await this.prisma.db.ward.findMany({
-        where: { ulbId: ulb.id, deletedAt: null },
-        orderBy: { createdAt: "asc" },
-        select: {
-          id: true,
-          wardNumber: true,
-          createdAt: true,
-          _count: { select: { surveys: { where: { deletedAt: null } } } },
-        },
-      })
+    type MergeOp = {
+      primaryId: string
+      primaryNumber: string
+      norm: string
+      dupeIds: string[]
+      remapped: number
+    }
+    const mergeOps: MergeOp[] = []
 
-      const byNorm = new Map<string, typeof wards>()
-      for (const w of wards) {
+    for (const ulb of ulbs) {
+      const ulbWards = byUlb.get(ulb.id) ?? []
+      const byNorm = new Map<string, typeof ulbWards>()
+      for (const w of ulbWards) {
         const key = normalizeWardNumber(w.wardNumber)
         const list = byNorm.get(key) ?? []
         list.push(w)
@@ -116,32 +154,51 @@ export class WardAlignService {
 
         if (samples.length < 20) {
           samples.push({
-            ulb: ulb.code,
+            ulb: ulbById.get(ulb.id) ?? ulb.code,
             norm,
             primary: { id: primary.id, wardNumber: primary.wardNumber, surveys: primary._count.surveys },
             dupes: dupes.map((d) => ({ id: d.id, wardNumber: d.wardNumber, surveys: d._count.surveys })),
           })
         }
 
-        if (!apply) continue
+        mergeOps.push({
+          primaryId: primary.id,
+          primaryNumber: primary.wardNumber === norm ? primary.wardNumber : norm,
+          norm,
+          dupeIds: dupes.map((d) => d.id),
+          remapped: 0,
+        })
+      }
+    }
 
+    if (apply && mergeOps.length > 0) {
+      await mapPool(mergeOps, 8, async (op) => {
+        let remappedTotal = 0
         await this.prisma.db.$transaction(async (tx) => {
-          for (const dupe of dupes) {
+          for (const dupeId of op.dupeIds) {
             const remapped = await tx.survey.updateMany({
-              where: { wardId: dupe.id, deletedAt: null },
-              data: { wardId: primary.id, wardNumber: primary.wardNumber },
+              where: { wardId: dupeId, deletedAt: null },
+              data: { wardId: op.primaryId, wardNumber: op.norm },
             })
-            surveysRemapped += remapped.count
+            remappedTotal += remapped.count
             await tx.ward.update({
-              where: { id: dupe.id },
+              where: { id: dupeId },
               data: { deletedAt: new Date(), status: "DISABLED" },
             })
-            wardsSoftDeleted += 1
           }
-          if (primary.wardNumber !== norm) {
-            await tx.ward.update({ where: { id: primary.id }, data: { wardNumber: norm } })
+          if (op.primaryNumber !== op.norm) {
+            await tx.ward.update({ where: { id: op.primaryId }, data: { wardNumber: op.norm } })
           }
         })
+        op.remapped = remappedTotal
+      })
+      for (const op of mergeOps) {
+        wardsSoftDeleted += op.dupeIds.length
+        surveysRemapped += op.remapped
+      }
+    } else if (!apply) {
+      for (const op of mergeOps) {
+        wardsSoftDeleted += op.dupeIds.length
       }
     }
 
@@ -155,7 +212,6 @@ export class WardAlignService {
     }
   }
 
-  /** Soft-delete `fromId` into `intoId`: remap surveys, then soft-delete. */
   private async mergeWardInto(intoId: string, fromId: string, canonicalNumber: string): Promise<void> {
     if (intoId === fromId) return
     await this.prisma.db.$transaction(async (tx) => {
@@ -177,7 +233,6 @@ export class WardAlignService {
       throw new ServiceUnavailableException("CONVEX_SITE_URL / ETL_CONVEX_SECRET not configured")
     }
 
-    // Apply path: collapse "01"/"1" style dupes first so code updates don't hit unique indexes.
     if (apply) {
       const dedupe = await this.dedupeWards(true)
       this.logger.log(
@@ -205,12 +260,49 @@ export class WardAlignService {
       throw new BadRequestException("Unexpected Convex ward catalog response")
     }
 
+    // Batch load: all ULBs + all active wards once (was 2 queries × catalog size).
+    const [ulbs, allWards] = await Promise.all([
+      this.prisma.db.ulb.findMany({ select: { id: true, code: true } }),
+      this.prisma.db.ward.findMany({
+        where: { deletedAt: null },
+        select: { id: true, ulbId: true, wardNumber: true, wardCode: true, wardName: true },
+      }),
+    ])
+
+    const ulbByCode = new Map(ulbs.map((u) => [u.code, u.id]))
+    const wardsByUlb = new Map<string, ActiveWard[]>()
+    for (const w of allWards) {
+      const list = wardsByUlb.get(w.ulbId) ?? []
+      list.push(w)
+      wardsByUlb.set(w.ulbId, list)
+    }
+
     let created = 0
     let updated = 0
     let merged = 0
     let skipped = 0
     const missingUlbs = new Set<string>()
     const conflicts: string[] = []
+
+    type CreateOp = {
+      ulbId: string
+      wardNumber: string
+      wardName: string
+      wardCode?: string
+    }
+    type UpdateOp = {
+      id: string
+      ulbId: string
+      wardNumber: string
+      wardName: string
+      wardCode?: string
+      ulbCode: string
+    }
+    type MergePlan = { intoId: string; fromId: string; wardNumber: string; ulbId: string }
+
+    const creates: CreateOp[] = []
+    const updates: UpdateOp[] = []
+    const merges: MergePlan[] = []
 
     for (const row of catalog) {
       const wardNumber = normalizeWardNumber(String(row.wardNo ?? ""))
@@ -223,36 +315,22 @@ export class WardAlignService {
         .toUpperCase()
       const wardName = String(row.wardName || `Ward ${wardNumber}`).trim()
       const ulbCode = String(row.municipalityCode || "").trim()
-
-      const ulb = await this.prisma.db.ulb.findFirst({
-        where: { code: ulbCode },
-        select: { id: true },
-      })
-      if (!ulb) {
+      const ulbId = ulbByCode.get(ulbCode)
+      if (!ulbId) {
         missingUlbs.add(ulbCode)
         skipped += 1
         continue
       }
 
-      let active: ActiveWard[] = await this.prisma.db.ward.findMany({
-        where: { ulbId: ulb.id, deletedAt: null },
-        select: { id: true, wardNumber: true, wardCode: true, wardName: true },
-      })
-
+      const active = wardsByUlb.get(ulbId) ?? []
       const byCode = wardCode ? (active.find((w) => w.wardCode === wardCode) ?? null) : null
       const byNumber = active.find((w) => normalizeWardNumber(w.wardNumber) === wardNumber) ?? null
 
-      // Same catalog row matched two different Nest wards → merge into the code owner (or number owner).
       if (byCode && byNumber && byCode.id !== byNumber.id) {
-        const keep = byCode
-        const drop = byNumber
-        if (apply) {
-          await this.mergeWardInto(keep.id, drop.id, wardNumber)
-          merged += 1
-          active = active.filter((w) => w.id !== drop.id)
-        } else {
-          merged += 1
-        }
+        merges.push({ intoId: byCode.id, fromId: byNumber.id, wardNumber, ulbId })
+        const idx = active.findIndex((w) => w.id === byNumber.id)
+        if (idx >= 0) active.splice(idx, 1)
+        merged += 1
       }
 
       const match =
@@ -261,19 +339,14 @@ export class WardAlignService {
         null
 
       if (match) {
-        // Another ward may still hold the target number or code after preference switch.
         const numberClash = active.find((w) => w.id !== match.id && normalizeWardNumber(w.wardNumber) === wardNumber)
         const codeClash = wardCode !== "" ? active.find((w) => w.id !== match.id && w.wardCode === wardCode) : null
-
         if (numberClash || codeClash) {
           const drop = numberClash ?? codeClash!
-          if (apply) {
-            await this.mergeWardInto(match.id, drop.id, wardNumber)
-            merged += 1
-            active = active.filter((w) => w.id !== drop.id)
-          } else {
-            merged += 1
-          }
+          merges.push({ intoId: match.id, fromId: drop.id, wardNumber, ulbId })
+          const idx = active.findIndex((w) => w.id === drop.id)
+          if (idx >= 0) active.splice(idx, 1)
+          merged += 1
         }
 
         const needsUpdate =
@@ -286,91 +359,163 @@ export class WardAlignService {
           continue
         }
 
-        if (apply) {
-          try {
-            await this.prisma.db.ward.update({
-              where: { id: match.id },
-              data: {
-                wardNumber,
-                wardName,
-                ...(wardCode ? { wardCode } : {}),
-              },
-            })
-          } catch (error) {
-            if (isPrismaUniqueViolation(error)) {
-              const msg = `ULB ${ulbCode} ward ${wardNumber}${wardCode ? ` (${wardCode})` : ""}: unique conflict on update`
-              this.logger.warn(msg)
-              conflicts.push(msg)
-              // Last resort: clear conflicting code on other active wards, then retry once.
-              if (wardCode) {
-                await this.prisma.db.ward.updateMany({
-                  where: {
-                    ulbId: ulb.id,
-                    deletedAt: null,
-                    wardCode,
-                    id: { not: match.id },
-                  },
-                  data: { wardCode: null },
-                })
-              }
-              try {
-                await this.prisma.db.ward.update({
-                  where: { id: match.id },
-                  data: {
-                    wardNumber,
-                    wardName,
-                    ...(wardCode ? { wardCode } : {}),
-                  },
-                })
-              } catch (retryErr) {
-                if (isPrismaUniqueViolation(retryErr)) {
-                  throw new ConflictException(
-                    `Ward sync blocked on ULB ${ulbCode}: duplicate ward number/code for ${wardNumber}. Run Dedupe Wards (apply) first, then retry Sync.`
-                  )
-                }
-                throw retryErr
-              }
-            } else {
-              throw error
-            }
-          }
-        }
+        updates.push({
+          id: match.id,
+          ulbId,
+          wardNumber,
+          wardName,
+          ...(wardCode ? { wardCode } : {}),
+          ulbCode,
+        })
+        // Keep in-memory view consistent for later catalog rows in same ULB.
+        match.wardNumber = wardNumber
+        match.wardName = wardName
+        if (wardCode) match.wardCode = wardCode
         updated += 1
         continue
       }
 
-      if (apply) {
+      creates.push({
+        ulbId,
+        wardNumber,
+        wardName,
+        ...(wardCode ? { wardCode } : {}),
+      })
+      // Placeholder so later rows in same ULB don't try to create again.
+      active.push({
+        id: `pending:${ulbId}:${wardNumber}`,
+        ulbId,
+        wardNumber,
+        wardCode: wardCode || null,
+        wardName,
+      })
+      wardsByUlb.set(ulbId, active)
+      created += 1
+    }
+
+    if (apply) {
+      // Deduplicate merge plans (same fromId only once).
+      const seenFrom = new Set<string>()
+      const uniqueMerges = merges.filter((m) => {
+        if (seenFrom.has(m.fromId) || m.intoId === m.fromId) return false
+        seenFrom.add(m.fromId)
+        return true
+      })
+
+      await mapPool(uniqueMerges, 8, async (m) => {
+        await this.mergeWardInto(m.intoId, m.fromId, m.wardNumber)
+      })
+
+      // Clear colliding wardCodes in one pass per update target (dedupe by ulb+code).
+      const clearKeys = new Map<string, { ulbId: string; wardCode: string; keepId: string }>()
+      for (const u of updates) {
+        if (!u.wardCode) continue
+        clearKeys.set(`${u.ulbId}:${u.wardCode}`, { ulbId: u.ulbId, wardCode: u.wardCode, keepId: u.id })
+      }
+      await mapPool([...clearKeys.values()], 16, async (c) => {
+        await this.prisma.db.ward.updateMany({
+          where: {
+            ulbId: c.ulbId,
+            deletedAt: null,
+            wardCode: c.wardCode,
+            id: { not: c.keepId },
+          },
+          data: { wardCode: null },
+        })
+      })
+
+      await mapPool(updates, 24, async (u) => {
         try {
-          await this.prisma.db.ward.create({
+          await this.prisma.db.ward.update({
+            where: { id: u.id },
             data: {
-              ulbId: ulb.id,
-              wardNumber,
-              wardName,
-              ...(wardCode ? { wardCode } : {}),
-              status: "ACTIVE",
+              wardNumber: u.wardNumber,
+              wardName: u.wardName,
+              ...(u.wardCode ? { wardCode: u.wardCode } : {}),
             },
           })
         } catch (error) {
           if (isPrismaUniqueViolation(error)) {
-            const msg = `ULB ${ulbCode} ward ${wardNumber}${wardCode ? ` (${wardCode})` : ""}: unique conflict on create (skipped)`
+            const msg = `ULB ${u.ulbCode} ward ${u.wardNumber}${u.wardCode ? ` (${u.wardCode})` : ""}: unique conflict on update`
             this.logger.warn(msg)
             conflicts.push(msg)
-            skipped += 1
-            continue
+            throw new ConflictException(
+              `Ward sync blocked on ULB ${u.ulbCode}: duplicate ward number/code for ${u.wardNumber}. Run Dedupe Wards (apply) first, then retry Sync.`
+            )
           }
           throw error
         }
+      })
+
+      // Batch creates (much faster than one insert per ward).
+      const CHUNK = 100
+      for (let i = 0; i < creates.length; i += CHUNK) {
+        const chunk = creates.slice(i, i + CHUNK)
+        try {
+          await this.prisma.db.ward.createMany({
+            data: chunk.map((c) => ({
+              ulbId: c.ulbId,
+              wardNumber: c.wardNumber,
+              wardName: c.wardName,
+              ...(c.wardCode ? { wardCode: c.wardCode } : {}),
+              status: "ACTIVE" as const,
+            })),
+            skipDuplicates: true,
+          })
+        } catch (error) {
+          if (isPrismaUniqueViolation(error)) {
+            // Fallback: create one-by-one so one bad row doesn't abort the chunk.
+            for (const c of chunk) {
+              try {
+                await this.prisma.db.ward.create({
+                  data: {
+                    ulbId: c.ulbId,
+                    wardNumber: c.wardNumber,
+                    wardName: c.wardName,
+                    ...(c.wardCode ? { wardCode: c.wardCode } : {}),
+                    status: "ACTIVE",
+                  },
+                })
+              } catch (rowErr) {
+                if (isPrismaUniqueViolation(rowErr)) {
+                  conflicts.push(`ULB ${c.ulbId} ward ${c.wardNumber}: unique conflict on create (skipped)`)
+                  skipped += 1
+                  created = Math.max(0, created - 1)
+                  continue
+                }
+                throw rowErr
+              }
+            }
+          } else {
+            throw error
+          }
+        }
       }
-      created += 1
     }
 
-    const nestCounts = await this.prisma.db.ulb.findMany({
-      select: {
-        code: true,
-        _count: { select: { wards: { where: { deletedAt: null } } } },
-      },
-      orderBy: { code: "asc" },
-    })
+    // Recount from DB after writes (or from memory for dry-run).
+    const nestCounts = apply
+      ? await this.prisma.db.ulb.findMany({
+          select: {
+            code: true,
+            _count: { select: { wards: { where: { deletedAt: null } } } },
+          },
+          orderBy: { code: "asc" },
+        })
+      : ulbs.map((u) => ({
+          code: u.code,
+          _count: { wards: (wardsByUlb.get(u.id) ?? []).filter((w) => !w.id.startsWith("pending:")).length },
+        }))
+
+    // For dry-run nest counts include planned creates already pushed as pending — recount properly:
+    if (!apply) {
+      for (const u of nestCounts as Array<{ code: string; _count: { wards: number } }>) {
+        const ulbId = ulbByCode.get(u.code)
+        if (!ulbId) continue
+        const list = wardsByUlb.get(ulbId) ?? []
+        u._count.wards = list.length
+      }
+    }
 
     const convexByUlb = new Map<string, number>()
     for (const row of catalog) {
@@ -382,8 +527,9 @@ export class WardAlignService {
     const wardCountMismatches: WardSyncResult["wardCountMismatches"] = []
     for (const row of nestCounts) {
       const convexCount = convexByUlb.get(row.code) ?? 0
-      if (convexCount !== row._count.wards) {
-        wardCountMismatches.push({ ulb: row.code, nest: row._count.wards, convex: convexCount })
+      const nest = row._count.wards
+      if (convexCount !== nest) {
+        wardCountMismatches.push({ ulb: row.code, nest, convex: convexCount })
       }
     }
 
@@ -400,7 +546,6 @@ export class WardAlignService {
     }
   }
 
-  /** Remove empty duplicate UP shells; never touches states that still have districts. */
   async cleanupEmptyDuplicateStates(apply: boolean): Promise<EmptyStateCleanupResult> {
     const codes = ["01", "UP", "UP-01"]
     const states = await this.prisma.db.state.findMany({

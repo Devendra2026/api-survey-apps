@@ -60,7 +60,7 @@ export class EtlController {
 
   @Post("dedupe-wards")
   @RequirePermission(PERMISSIONS.ETL_MANAGE)
-  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @ApiOperation({ summary: "Dedupe Nest wards per ULB by normalized ward number (dry-run or apply)" })
   dedupeWards(@Body() body: AlignWardsDto) {
     return this.wardAlign.dedupeWards(body.apply, body.ulbCode)
@@ -68,7 +68,7 @@ export class EtlController {
 
   @Post("sync-wards-from-convex")
   @RequirePermission(PERMISSIONS.ETL_MANAGE)
-  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @ApiOperation({ summary: "Upsert Nest wards from Convex ward catalog (dry-run or apply)" })
   syncWardsFromConvex(@Body() body: AlignWardsDto) {
     return this.wardAlign.syncWardsFromConvex(body.apply)
@@ -76,7 +76,7 @@ export class EtlController {
 
   @Post("cleanup-empty-duplicate-states")
   @RequirePermission(PERMISSIONS.ETL_MANAGE)
-  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @ApiOperation({
     summary: "Delete empty duplicate UP state shells (01, UP, UP-01) when they have no districts",
   })

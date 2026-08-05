@@ -119,6 +119,12 @@ export class CreateWardDto {
   @MinLength(1)
   @MaxLength(200)
   wardName!: string
+
+  @ApiPropertyOptional({ description: "Convex-aligned ward code (e.g. AGR-W01)" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  wardCode?: string
 }
 
 export class UpdateWardDto {
@@ -140,4 +146,10 @@ export class UpdateWardDto {
   @MinLength(1)
   @MaxLength(200)
   wardName?: string
+
+  @ApiPropertyOptional({ description: "Convex-aligned ward code (e.g. AGR-W01)" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  wardCode?: string
 }

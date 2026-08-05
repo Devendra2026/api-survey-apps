@@ -1,9 +1,16 @@
 import { describe, expect, it } from "@jest/globals"
-import { isStuckInProgress, nextRetryCount, shouldSkipSurvey } from "../resume/resume"
+import { isStuckInProgress, nextRetryCount, shouldSkipSurvey, shouldSkipSurveyForRefresh } from "./resume.js"
 
 describe("resume engine", () => {
   it("never restarts completed surveys", () => {
     expect(shouldSkipSurvey("COMPLETED")).toBe(true)
+  })
+
+  it("refresh skips terminal Nest QC only", () => {
+    expect(shouldSkipSurveyForRefresh({ migrationStatus: "COMPLETED", nestQcStatus: "APPROVED" })).toBe(true)
+    expect(shouldSkipSurveyForRefresh({ migrationStatus: "COMPLETED", nestQcStatus: "REJECTED" })).toBe(true)
+    expect(shouldSkipSurveyForRefresh({ migrationStatus: "COMPLETED", nestQcStatus: "PENDING" })).toBe(false)
+    expect(shouldSkipSurveyForRefresh({ migrationStatus: "COMPLETED", nestQcStatus: null })).toBe(false)
   })
 
   it("detects stuck IN_PROGRESS past TTL", () => {

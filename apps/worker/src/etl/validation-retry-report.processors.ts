@@ -45,12 +45,54 @@ export class EtlValidationProcessor extends WorkerHost {
         },
       })
 
+      const statusMatrix = await this.prisma.db.survey.groupBy({
+        by: ["surveyStatus", "qcStatus"],
+        where: { deletedAt: null },
+        _count: { _all: true },
+      })
+      const bucketRows = statusMatrix.map((r) => ({
+        surveyStatus: r.surveyStatus,
+        qcStatus: r.qcStatus,
+        count: r._count._all,
+      }))
+
+      const activeWards = await this.prisma.db.ward.findMany({
+        where: { deletedAt: null },
+        select: { ulbId: true, wardNumber: true, ulb: { select: { code: true } } },
+      })
+      const normKey = (ulbId: string, wardNumber: string) => {
+        const trimmed = wardNumber.trim()
+        const norm = /^\d+$/.test(trimmed) ? String(Number.parseInt(trimmed, 10)) : trimmed
+        return `${ulbId}::${norm}`
+      }
+      const seen = new Map<string, number>()
+      for (const w of activeWards) {
+        const key = normKey(w.ulbId, w.wardNumber)
+        seen.set(key, (seen.get(key) ?? 0) + 1)
+      }
+      const duplicateNormalizedWards = [...seen.entries()]
+        .filter(([, n]) => n > 1)
+        .map(([key, n]) => ({ key, count: n }))
+
+      let convexWardCatalogSize: number | null = null
+      try {
+        const catalog = await this.orchestrator.createExtractor().listWardCatalog()
+        convexWardCatalogSize = catalog.length
+      } catch (err) {
+        this.logger.warn(`Ward catalog fetch skipped: ${err instanceof Error ? err.message : String(err)}`)
+      }
+
       const report = {
         convexSurveyCount: convexCount,
         postgresSurveyCount: pgCount,
         photoCount,
         photosMissingObjectKeyOrConvexUrl: convexUrlPhotos,
         deltaSurveys: convexCount - pgCount,
+        nestStatusMatrix: bucketRows,
+        nestActiveWardCount: activeWards.length,
+        convexWardCatalogSize,
+        duplicateNormalizedWards,
+        wardParityOk: duplicateNormalizedWards.length === 0,
         validatedAt: new Date().toISOString(),
       }
 

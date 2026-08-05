@@ -7,6 +7,7 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common"
 import { ConfigService } from "@nestjs/config"
+import { MigrationJobType } from "@workspace/database"
 import {
   ConvexEtlHttpError,
   ConvexHttpExtractor,
@@ -17,7 +18,6 @@ import {
   fingerprintSecret,
   type ConvexEtlAuthReason,
 } from "@workspace/etl-core"
-import { MigrationJobType } from "@workspace/database"
 import { randomUUID } from "node:crypto"
 import { JobsService } from "../jobs/jobs.service.js"
 import { PrismaService } from "../prisma/prisma.service.js"
@@ -112,6 +112,35 @@ export class EtlService implements OnModuleInit {
   async startIncrementalSync(userId: string, batchSize?: number) {
     this.assertEtlConfigured()
     return this.startJob(MigrationJobType.INCREMENTAL, "INCREMENTAL", userId, batchSize, null)
+  }
+
+  async startRefreshPending(userId: string, batchSize?: number) {
+    this.assertEtlConfigured()
+    const correlationId = randomUUID()
+    const size = batchSize ?? this.batchSize()
+    const migrationJob = await this.prisma.db.migrationJob.create({
+      data: {
+        type: MigrationJobType.REFRESH_PENDING,
+        status: "QUEUED",
+        batchSize: size,
+        cursor: null,
+        correlationId,
+        createdById: userId,
+        statsJson: emptyEtlJobStats(),
+      },
+    })
+
+    await this.jobs.enqueueEtlSurveyBatch({
+      migrationJobId: migrationJob.id,
+      correlationId,
+      type: "REFRESH_PENDING",
+      cursor: null,
+      batchSize: size,
+      createdById: userId,
+      refreshPending: true,
+    })
+
+    return { jobId: migrationJob.id, correlationId }
   }
 
   async retryFailed(userId: string, maxRetries?: number) {

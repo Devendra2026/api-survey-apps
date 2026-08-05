@@ -61,6 +61,27 @@ export class ConvexHttpExtractor implements ConvexExtractorPort {
     return result.count
   }
 
+  async listWardCatalog(): Promise<
+    Array<{
+      municipalityCode: string
+      municipalityName: string
+      wardNo: string
+      wardCode: string
+      wardName: string
+    }>
+  > {
+    const result = await this.post<{
+      wards: Array<{
+        municipalityCode: string
+        municipalityName: string
+        wardNo: string
+        wardCode: string
+        wardName: string
+      }>
+    }>("/etl/list-ward-catalog", {})
+    return result.wards
+  }
+
   private async post<T>(path: string, body: unknown): Promise<T> {
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
       method: "POST",

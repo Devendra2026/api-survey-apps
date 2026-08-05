@@ -37,15 +37,16 @@ import {
   rebuildPhotoKeysWithExtension,
   remediationFor,
   shouldSkipSurvey,
+  shouldSkipSurveyForRefresh,
   transformSurveyBundle,
   validateImageBuffer,
   type AttemptBudget,
   type MappedSurvey,
-  type MigrationStatus,
   type PhotoSlot,
   type TransformContext,
 } from "@workspace/etl-core"
 import type { EtlSurveyImportPayload } from "@workspace/jobs"
+import { normalizeWardNumber, wardNumbersMatch } from "@workspace/validation"
 import { PrismaService } from "../database/prisma.service.js"
 import { ObjectStorageService } from "../storage/object-storage.service.js"
 
@@ -78,11 +79,33 @@ export class EtlOrchestratorService {
     const { migrationJobId, correlationId, legacySurveyId } = payload
     const maxRetries = Number(this.config.get("ETL_MAX_RETRIES") ?? DEFAULT_ETL_MAX_RETRIES)
 
+    const refreshPending = payload.refreshPending === true || payload.type === "REFRESH_PENDING"
+
     try {
       const existing = await this.prisma.db.migrationState.findUnique({
         where: { legacySurveyId },
       })
-      if (shouldSkipSurvey(existing?.status)) {
+      const nestSurvey = await this.prisma.db.survey.findFirst({
+        where: { legacySurveyId, deletedAt: null },
+        select: { id: true, qcStatus: true },
+      })
+
+      if (nestSurvey && (nestSurvey.qcStatus === QcStatus.APPROVED || nestSurvey.qcStatus === QcStatus.REJECTED)) {
+        await this.appendLog(migrationJobId, "info", "Skipped: Nest QC already terminal", legacySurveyId, correlationId)
+        return { outcome: "skipped", imagesUploaded: 0, imagesDownloaded: 0, missingImages: 0 }
+      }
+
+      if (refreshPending) {
+        if (
+          shouldSkipSurveyForRefresh({
+            migrationStatus: existing?.status,
+            nestQcStatus: nestSurvey?.qcStatus,
+          })
+        ) {
+          await this.appendLog(migrationJobId, "info", "Skipped refresh", legacySurveyId, correlationId)
+          return { outcome: "duplicate", imagesUploaded: 0, imagesDownloaded: 0, missingImages: 0 }
+        }
+      } else if (shouldSkipSurvey(existing?.status)) {
         await this.appendLog(migrationJobId, "info", "Skipped existing survey", legacySurveyId, correlationId)
         return { outcome: "duplicate", imagesUploaded: 0, imagesDownloaded: 0, missingImages: 0 }
       }
@@ -123,7 +146,7 @@ export class EtlOrchestratorService {
 
       const transformCtx = await this.buildTransformContext()
       const transformed = transformSurveyBundle(bundle, transformCtx, {
-        existingStatus: existing?.status as MigrationStatus | null,
+        existingStatus: refreshPending ? null : (existing?.status ?? null),
       })
 
       if (transformed.ok && "skip" in transformed && transformed.skip) {
@@ -150,6 +173,32 @@ export class EtlOrchestratorService {
       }
 
       const survey = transformed.survey
+
+      // Refresh path for existing PENDING Nest rows: update fields only, no image re-download.
+      if (refreshPending && nestSurvey) {
+        const { surveyId } = await this.loadSurveyTransaction(survey, [], { statusOnlyRefresh: true })
+        await this.prisma.db.migrationState.upsert({
+          where: { legacySurveyId },
+          create: {
+            legacySurveyId,
+            status: PrismaMigrationStatus.COMPLETED,
+            surveyId,
+            lastSyncedAt: new Date(),
+            correlationId,
+          },
+          update: {
+            status: PrismaMigrationStatus.COMPLETED,
+            surveyId,
+            lastSyncedAt: new Date(),
+            lastError: null,
+            correlationId,
+          },
+        })
+        await this.markFailedImportResolved(migrationJobId, legacySurveyId)
+        await this.appendLog(migrationJobId, "info", "Refreshed pending survey status", legacySurveyId, correlationId)
+        return { outcome: "imported", imagesUploaded: 0, imagesDownloaded: 0, missingImages: 0 }
+      }
+
       const uploadedKeys: string[] = []
       let imagesDownloaded = 0
       let imagesUploaded = 0
@@ -340,6 +389,7 @@ export class EtlOrchestratorService {
 
   /**
    * Auto-provision missing ULB/ward rows so production Convex codes always resolve locally.
+   * Creates at most one canonical ward per normalized ward number (never 1 + 01 variants).
    */
   private async ensureGeoForBundle(bundle: {
     municipalityCode: string
@@ -349,12 +399,14 @@ export class EtlOrchestratorService {
     status?: string
   }): Promise<void> {
     const code = bundle.municipalityCode?.trim()
-    const wardNo = bundle.wardNo?.trim() || (bundle.status === "draft" ? ETL_DRAFT_PLACEHOLDER_WARD : "")
-    if (!code || !wardNo) return
+    const rawWardNo = bundle.wardNo?.trim() || (bundle.status === "draft" ? ETL_DRAFT_PLACEHOLDER_WARD : "")
+    if (!code || !rawWardNo) return
+
+    const wardNo = normalizeWardNumber(rawWardNo)
 
     let ulb = await this.prisma.db.ulb.findFirst({
       where: { code },
-      select: { id: true },
+      select: { id: true, code: true },
     })
 
     if (!ulb) {
@@ -375,12 +427,11 @@ export class EtlOrchestratorService {
             code,
             type: UlbType.MUNICIPAL_COUNCIL,
           },
-          select: { id: true },
+          select: { id: true, code: true },
         })
         this.logger.log(`Auto-created ULB ${code} (${name}) under district ${district.name}`)
       } catch (err) {
-        // Race / unique name: re-read by code
-        ulb = await this.prisma.db.ulb.findFirst({ where: { code }, select: { id: true } })
+        ulb = await this.prisma.db.ulb.findFirst({ where: { code }, select: { id: true, code: true } })
         if (!ulb) throw err
       }
     }
@@ -389,35 +440,22 @@ export class EtlOrchestratorService {
       where: { ulbId: ulb.id, deletedAt: null },
       select: { id: true, wardNumber: true },
     })
-    const wantNum = Number.parseInt(wardNo, 10)
-    const exists = wards.some((w) => {
-      if (w.wardNumber.trim() === wardNo) return true
-      const haveNum = Number.parseInt(w.wardNumber.trim(), 10)
-      return Number.isFinite(wantNum) && Number.isFinite(haveNum) && wantNum === haveNum
-    })
+    const exists = wards.some((w) => wardNumbersMatch(w.wardNumber, wardNo))
     if (exists) return
 
-    const padded = Number.isFinite(wantNum) && wantNum >= 0 && wantNum < 100 ? String(wantNum).padStart(2, "0") : wardNo
-    const variants = [...new Set([wardNo, padded, Number.isFinite(wantNum) ? String(wantNum) : wardNo])]
-
-    for (const wardNumber of variants) {
-      const already = await this.prisma.db.ward.findFirst({
-        where: { ulbId: ulb.id, wardNumber, deletedAt: null },
-        select: { id: true },
+    const wardCode = `${ulb.code}-W${wardNo}`.toUpperCase()
+    try {
+      await this.prisma.db.ward.create({
+        data: {
+          ulbId: ulb.id,
+          wardNumber: wardNo,
+          wardCode,
+          wardName: `Ward ${wardNo}`,
+        },
       })
-      if (already) continue
-      try {
-        await this.prisma.db.ward.create({
-          data: {
-            ulbId: ulb.id,
-            wardNumber,
-            wardName: `Ward ${wardNumber}`,
-          },
-        })
-        this.logger.log(`Auto-created ward ${wardNumber} for ULB ${code}`)
-      } catch {
-        // unique race — ignore
-      }
+      this.logger.log(`Auto-created ward ${wardNo} (${wardCode}) for ULB ${code}`)
+    } catch {
+      // unique race — ignore
     }
   }
 
@@ -429,6 +467,32 @@ export class EtlOrchestratorService {
       numItems: batchSize,
       statuses: ETL_MIGRATABLE_STATUSES,
     })
+  }
+
+  /**
+   * Cursor is an opaque Nest survey id offset for refresh-pending batches.
+   * Returns legacySurveyIds for Nest rows still PENDING QC.
+   */
+  async listPendingRefreshIds(cursor: string | null, batchSize = DEFAULT_ETL_BATCH_SIZE) {
+    const take = Math.max(1, Math.min(batchSize, 500))
+    const rows = await this.prisma.db.survey.findMany({
+      where: {
+        deletedAt: null,
+        qcStatus: QcStatus.PENDING,
+        legacySurveyId: { not: null },
+        ...(cursor ? { id: { gt: cursor } } : {}),
+      },
+      orderBy: { id: "asc" },
+      take,
+      select: { id: true, legacySurveyId: true },
+    })
+    const ids = rows.map((r) => r.legacySurveyId!).filter(Boolean)
+    const last = rows[rows.length - 1]
+    return {
+      ids,
+      continueCursor: last?.id ?? cursor ?? "",
+      isDone: rows.length < take,
+    }
   }
 
   async countConvexSurveys() {
@@ -443,7 +507,10 @@ export class EtlOrchestratorService {
         code: true,
         districtId: true,
         district: { select: { id: true, stateId: true, name: true } },
-        wards: { select: { id: true, wardNumber: true } },
+        wards: {
+          where: { deletedAt: null },
+          select: { id: true, wardNumber: true },
+        },
       },
     })
 
@@ -460,14 +527,8 @@ export class EtlOrchestratorService {
       resolveGeo: ({ municipalityCode, wardNo, districtCode }) => {
         const ulb = byCode.get(municipalityCode.trim().toUpperCase())
         if (!ulb) return null
-        const want = wardNo.trim()
-        const wantNum = Number.parseInt(want, 10)
-        const ward = ulb.wards.find((w) => {
-          const have = w.wardNumber.trim()
-          if (have === want) return true
-          const haveNum = Number.parseInt(have, 10)
-          return Number.isFinite(wantNum) && Number.isFinite(haveNum) && wantNum === haveNum
-        })
+        const want = normalizeWardNumber(wardNo)
+        const ward = ulb.wards.find((w) => wardNumbersMatch(w.wardNumber, want))
         if (!ward) return null
         return {
           stateId: ulb.district.stateId,
@@ -531,14 +592,112 @@ export class EtlOrchestratorService {
       width?: number
       height?: number
       capturedAt?: Date
-    }>
+    }>,
+    options?: { statusOnlyRefresh?: boolean }
   ): Promise<{ surveyId: string }> {
     return this.prisma.db.$transaction(async (tx) => {
       const existing = await tx.survey.findFirst({
         where: { legacySurveyId: survey.legacySurveyId, deletedAt: null },
-        select: { id: true },
+        select: { id: true, qcStatus: true },
       })
+
       if (existing) {
+        // Never overwrite Admin QC decisions.
+        if (existing.qcStatus === QcStatus.APPROVED || existing.qcStatus === QcStatus.REJECTED) {
+          return { surveyId: existing.id }
+        }
+
+        const surveyStatus = (asEnum(survey.surveyStatus, SurveyStatus) as SurveyStatus) ?? SurveyStatus.SUBMITTED
+
+        await tx.survey.update({
+          where: { id: existing.id },
+          data: {
+            localId: survey.localId,
+            parcelNumber: survey.parcelNumber,
+            unitSubNo: survey.unitSubNo,
+            sectorNo: survey.sectorNo,
+            constructedYear: survey.constructedYear,
+            isSlum: survey.isSlum,
+            wardNumber: survey.wardNumber,
+            ulbCode: survey.ulbCode,
+            districtName: survey.districtName,
+            stateId: survey.stateId,
+            districtId: survey.districtId,
+            ulbId: survey.ulbId,
+            wardId: survey.wardId,
+            respondentName: survey.respondentName,
+            relationshipWithOwner: survey.relationshipWithOwner,
+            mobileNumber: survey.mobileNumber,
+            alternateMobile: survey.alternateMobile,
+            familySize: survey.familySize,
+            houseDoorNo: survey.houseDoorNo,
+            locality: survey.locality,
+            colony: survey.colony,
+            city: survey.city,
+            pinCode: survey.pinCode,
+            assessmentYear: survey.assessmentYear as AssessmentYear,
+            ownershipType: asEnum(survey.ownershipType, OwnershipType),
+            propertyUse: asEnum(survey.propertyUse, PropertyUse),
+            propertyType: asEnum(survey.propertyType, PropertyType),
+            situation: asEnum(survey.situation, Situation),
+            roadType: asEnum(survey.roadType, RoadType),
+            taxRateZone: asEnum(survey.taxRateZone, TaxRateZone),
+            plotAreaSqFt: survey.plotAreaSqFt,
+            plotAreaSqMeter: survey.plotAreaSqMeter,
+            plinthAreaSqFt: survey.plinthAreaSqFt,
+            plinthAreaSqMeter: survey.plinthAreaSqMeter,
+            waterConnection: asEnum(survey.waterConnection, WaterConnection),
+            sourceOfWater: asEnum(survey.sourceOfWater, SourceOfWater),
+            sanitationType: asEnum(survey.sanitationType, SanitationType),
+            solidWasteCollection: survey.solidWasteCollection,
+            electricityConsumerNo: survey.electricityConsumerNo,
+            latitude: survey.latitude,
+            longitude: survey.longitude,
+            gpsAccuracyMeters: survey.gpsAccuracyMeters,
+            gpsProvider: survey.gpsProvider,
+            gpsMockLocation: survey.gpsMockLocation,
+            gpsSource: asEnum(survey.gpsSource, GpsSource),
+            capturedAt: survey.capturedAt,
+            surveyStatus,
+            // Keep Nest qcStatus PENDING while refreshing from Convex field data.
+            qcStatus: QcStatus.PENDING,
+            serverVersion: survey.serverVersion,
+            completionPct: survey.completionPct,
+            clientUpdatedAt: survey.clientUpdatedAt,
+            submittedAt: survey.submittedAt,
+          },
+        })
+
+        if (!options?.statusOnlyRefresh && photoMeta.length > 0) {
+          // Insert-only photos that are missing; do not wipe existing on refresh.
+          for (const p of photoMeta) {
+            const already = await tx.photo.findFirst({
+              where: { surveyId: existing.id, photoType: p.photoType as PhotoType },
+              select: { id: true },
+            })
+            if (already) continue
+            await tx.photo.create({
+              data: {
+                surveyId: existing.id,
+                photoType: p.photoType as PhotoType,
+                url: p.objectKey,
+                sourceUrl: p.sourceUrl,
+                objectKey: p.objectKey,
+                bucket: p.bucket,
+                storageProvider: p.provider === "MINIO" ? StorageProvider.MINIO : StorageProvider.S3,
+                mimeType: p.mimeType,
+                sizeBytes: p.sizeBytes,
+                sizeKB: Math.ceil(p.sizeBytes / 1024),
+                checksum: p.checksum,
+                width: p.width,
+                height: p.height,
+                capturedAt: p.capturedAt,
+                importStatus: "SUCCEEDED",
+              },
+            })
+          }
+        }
+
         return { surveyId: existing.id }
       }
 

@@ -1,5 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from "@nestjs/common"
 import type { Prisma } from "@workspace/database"
+import { normalizeWardNumber } from "@workspace/validation"
 import type { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { buildOrderBy, getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
@@ -9,6 +10,7 @@ import type { CreateWardDto, UpdateWardDto } from "../states/dto/geo.dto.js"
 
 const WARD_NAME_CONFLICT = "A ward with this name already exists. Please use a different name."
 const WARD_NUMBER_CONFLICT = "A ward with this number already exists in this ULB"
+const WARD_CODE_CONFLICT = "A ward with this code already exists in this ULB"
 
 function isPrismaUniqueViolation(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && (error as { code: string }).code === "P2002"
@@ -48,6 +50,27 @@ export class WardsRepository {
     }
   }
 
+  /** Rejects another active ward whose normalized number matches (e.g. "01" vs "1"). */
+  private async assertUniqueNormalizedWardNumber(
+    ulbId: string,
+    wardNumber: string,
+    excludeWardId?: string
+  ): Promise<void> {
+    const canonical = normalizeWardNumber(wardNumber)
+    const active = await this.prisma.db.ward.findMany({
+      where: {
+        ulbId,
+        deletedAt: null,
+        ...(excludeWardId ? { id: { not: excludeWardId } } : {}),
+      },
+      select: { id: true, wardNumber: true },
+    })
+    const clash = active.find((w) => normalizeWardNumber(w.wardNumber) === canonical)
+    if (clash) {
+      throw new ConflictException(WARD_NUMBER_CONFLICT)
+    }
+  }
+
   async findAll(query: PaginationQueryDto, user: AuthenticatedUser, ulbId?: string) {
     const { skip, take, page, limit } = getSkipTake(query)
     const where: Prisma.WardWhereInput = {
@@ -60,6 +83,7 @@ export class WardsRepository {
               OR: [
                 { wardName: { contains: query.search, mode: "insensitive" } },
                 { wardNumber: { contains: query.search, mode: "insensitive" } },
+                { wardCode: { contains: query.search, mode: "insensitive" } },
               ],
             }
           : {},
@@ -86,11 +110,26 @@ export class WardsRepository {
   }
 
   async create(data: CreateWardDto) {
-    await this.assertUniqueActiveWardName(data.ulbId, data.wardName)
+    const wardNumber = normalizeWardNumber(data.wardNumber)
+    const wardName = data.wardName.trim()
+    const wardCode = data.wardCode?.trim().toUpperCase() || undefined
+    await this.assertUniqueActiveWardName(data.ulbId, wardName)
+    await this.assertUniqueNormalizedWardNumber(data.ulbId, wardNumber)
     try {
-      return await this.prisma.db.ward.create({ data })
+      return await this.prisma.db.ward.create({
+        data: {
+          ulbId: data.ulbId,
+          wardNumber,
+          wardName,
+          ...(wardCode ? { wardCode } : {}),
+        },
+      })
     } catch (error) {
       if (isPrismaUniqueViolation(error)) {
+        const target = (error as { meta?: { target?: string[] } }).meta?.target
+        if (target?.includes("wardCode")) {
+          throw new ConflictException(WARD_CODE_CONFLICT)
+        }
         throw new ConflictException(WARD_NUMBER_CONFLICT)
       }
       throw error
@@ -102,10 +141,28 @@ export class WardsRepository {
     if (data.wardName !== undefined) {
       await this.assertUniqueActiveWardName(existing.ulbId, data.wardName, id)
     }
+    const wardNumber = data.wardNumber !== undefined ? normalizeWardNumber(data.wardNumber) : undefined
+    if (wardNumber !== undefined) {
+      await this.assertUniqueNormalizedWardNumber(existing.ulbId, wardNumber, id)
+    }
+    const wardCode =
+      data.wardCode !== undefined ? (data.wardCode.trim() ? data.wardCode.trim().toUpperCase() : null) : undefined
     try {
-      return await this.prisma.db.ward.update({ where: { id }, data })
+      return await this.prisma.db.ward.update({
+        where: { id },
+        data: {
+          ...(data.ulbId !== undefined ? { ulbId: data.ulbId } : {}),
+          ...(wardNumber !== undefined ? { wardNumber } : {}),
+          ...(data.wardName !== undefined ? { wardName: data.wardName.trim() } : {}),
+          ...(wardCode !== undefined ? { wardCode } : {}),
+        },
+      })
     } catch (error) {
       if (isPrismaUniqueViolation(error)) {
+        const target = (error as { meta?: { target?: string[] } }).meta?.target
+        if (target?.includes("wardCode")) {
+          throw new ConflictException(WARD_CODE_CONFLICT)
+        }
         throw new ConflictException(WARD_NUMBER_CONFLICT)
       }
       throw error

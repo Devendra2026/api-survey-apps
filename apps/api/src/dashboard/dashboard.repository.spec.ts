@@ -6,9 +6,17 @@ describe("DashboardRepository", () => {
       survey: {
         count: () => Promise.resolve(12),
         groupBy: (args: { by: string[] }) => {
-          if (args.by.includes("qcStatus")) {
+          if (args.by.length === 2 && args.by.includes("surveyStatus") && args.by.includes("qcStatus")) {
             return Promise.resolve([
-              { qcStatus: "PENDING", _count: { _all: 3 } },
+              { surveyStatus: "DRAFT", qcStatus: "PENDING", _count: { _all: 2 } },
+              { surveyStatus: "SUBMITTED", qcStatus: "PENDING", _count: { _all: 3 } },
+              { surveyStatus: "SUBMITTED", qcStatus: "APPROVED", _count: { _all: 5 } },
+              { surveyStatus: "APPROVED", qcStatus: "APPROVED", _count: { _all: 2 } },
+            ])
+          }
+          if (args.by.length === 1 && args.by[0] === "qcStatus") {
+            return Promise.resolve([
+              { qcStatus: "PENDING", _count: { _all: 5 } },
               { qcStatus: "APPROVED", _count: { _all: 7 } },
               { qcStatus: "REJECTED", _count: { _all: 2 } },
             ])
@@ -53,7 +61,16 @@ describe("DashboardRepository", () => {
   it("returns QC, GPS, and current-user job signals alongside survey totals", async () => {
     const summary = await repo.getSummary(user)
 
-    expect(summary.qcStatus).toEqual({ PENDING: 3, APPROVED: 7, REJECTED: 2 })
+    expect(summary.qcStatus).toEqual({ PENDING: 5, APPROVED: 7, REJECTED: 2 })
+    expect(summary.buckets).toEqual({
+      fieldDraft: 2,
+      pendingQc: 3,
+      approved: 7,
+      returned: 0,
+      rework: 0,
+      total: 12,
+    })
+    expect(summary.pendingApproval).toBe(3)
     expect(summary.gps).toEqual({ averageAccuracyMeters: 6.4 })
     expect(summary.jobs.imports).toEqual([{ id: "import-1", status: "PROCESSING", originalName: "batch.xlsx" }])
     expect(summary.jobs.exports).toEqual([

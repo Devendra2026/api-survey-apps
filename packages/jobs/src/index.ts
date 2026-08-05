@@ -114,7 +114,7 @@ export interface ImageMigrationPayload {
   createdById: string
 }
 
-export type EtlJobType = "FULL" | "INCREMENTAL" | "RETRY_FAILED" | "VALIDATE"
+export type EtlJobType = "FULL" | "INCREMENTAL" | "RETRY_FAILED" | "VALIDATE" | "REFRESH_PENDING"
 
 export interface EtlSurveyBatchPayload {
   migrationJobId: string
@@ -124,6 +124,8 @@ export interface EtlSurveyBatchPayload {
   batchSize: number
   force?: boolean
   createdById?: string
+  /** When true, reprocess COMPLETED imports that are still PENDING QC in Nest. */
+  refreshPending?: boolean
 }
 
 export interface EtlSurveyImportPayload {
@@ -132,6 +134,7 @@ export interface EtlSurveyImportPayload {
   legacySurveyId: string
   type: EtlJobType
   createdById?: string
+  refreshPending?: boolean
 }
 
 export interface EtlPhotoPayload {

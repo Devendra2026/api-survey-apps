@@ -93,15 +93,32 @@ describe("WardsRepository soft delete and duplicate names", () => {
     )
   })
 
+  it("normalizes ward number on create and rejects numeric spelling duplicates", async () => {
+    findFirst.mockResolvedValueOnce(null)
+    findMany.mockResolvedValueOnce([{ id: "existing", wardNumber: "01" }])
+
+    await expect(repo.create({ ulbId: "ulb1", wardNumber: "1", wardName: "Ward 1" })).rejects.toBeInstanceOf(
+      ConflictException
+    )
+    expect(create).not.toHaveBeenCalled()
+  })
+
   it("allows create when only a soft-deleted ward has the same name", async () => {
     findFirst.mockResolvedValueOnce(null)
+    findMany.mockResolvedValueOnce([])
     create.mockResolvedValueOnce({ id: "ward-new", ulbId: "ulb1", wardNumber: "10", wardName: "Abhimanyu" })
 
     await expect(repo.create({ ulbId: "ulb1", wardNumber: "10", wardName: "Abhimanyu" })).resolves.toEqual(
       expect.objectContaining({ id: "ward-new" })
     )
 
-    expect(create).toHaveBeenCalled()
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        ulbId: "ulb1",
+        wardNumber: "10",
+        wardName: "Abhimanyu",
+      }),
+    })
   })
 
   it("rejects rename to another active ward name", async () => {

@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common"
 import type { Prisma } from "@workspace/database"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
+import { tallySurveyBuckets } from "../common/utils/survey-bucket.util.js"
 import { buildTenantWhere, resolveTenantScope } from "../common/utils/tenant-scope.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 
@@ -25,6 +26,7 @@ export class DashboardRepository {
       total,
       byStatus,
       byQcStatus,
+      statusMatrix,
       recent,
       todayCreated,
       todaySubmitted,
@@ -46,6 +48,11 @@ export class DashboardRepository {
       }),
       this.prisma.db.survey.groupBy({
         by: ["qcStatus"],
+        where,
+        _count: { _all: true },
+      }),
+      this.prisma.db.survey.groupBy({
+        by: ["surveyStatus", "qcStatus"],
         where,
         _count: { _all: true },
       }),
@@ -121,6 +128,7 @@ export class DashboardRepository {
 
     const statusMap = Object.fromEntries(byStatus.map((r) => [r.surveyStatus, r._count._all]))
     const qcStatusMap = Object.fromEntries(byQcStatus.map((r) => [r.qcStatus, r._count._all]))
+    const buckets = tallySurveyBuckets(statusMatrix)
     const wards = this.toWardCounts(wardRows).slice(0, 8)
     const [districts, ulbs, wardDetails] = await Promise.all([
       this.prisma.db.district.findMany({
@@ -175,14 +183,15 @@ export class DashboardRepository {
       total,
       byStatus: statusMap,
       qcStatus: qcStatusMap,
+      buckets,
       recent,
       today: {
         created: todayCreated,
         submitted: todaySubmitted,
         approved: todayApproved,
       },
-      pendingApproval: statusMap.SUBMITTED ?? 0,
-      rejected: statusMap.REJECTED ?? 0,
+      pendingApproval: buckets.pendingQc,
+      rejected: buckets.returned,
       byDistrict,
       byUlb,
       byWard,

@@ -83,6 +83,12 @@ try {
     case "validate":
       await startAndMaybeWatch("validate", {})
       break
+    case "refresh-pending":
+    case "refresh":
+      await startAndMaybeWatch("refresh-pending", {
+        batchSize: numberFlag(flags["batch-size"], Number(process.env.ETL_BATCH_SIZE) || 100),
+      })
+      break
     case "status":
       console.log(JSON.stringify(await api("GET", "/etl/status"), null, 2))
       break
@@ -257,6 +263,7 @@ function printHelp() {
 
   pnpm etl:run full [--batch-size 20] [--force] [--watch]
   pnpm etl:run incremental [--batch-size 20] [--watch]
+  pnpm etl:run refresh-pending [--batch-size 20] [--watch]
   pnpm etl:run retry [--max-retries 5] [--watch]
   pnpm etl:run validate [--watch]
   pnpm etl:run status

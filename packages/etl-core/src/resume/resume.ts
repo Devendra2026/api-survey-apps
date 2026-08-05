@@ -6,22 +6,39 @@ export interface MigrationStateRow {
   updatedAt: Date
 }
 
-/** Surveys already imported or intentionally skipped must not be reprocessed. */
+/** Surveys already imported or intentionally skipped must not be reprocessed (default path). */
 export function shouldSkipSurvey(status: MigrationStatus | null | undefined): boolean {
   return status === "COMPLETED" || status === "SKIPPED"
 }
 
+/**
+ * Refresh-pending mode: only skip when Nest QC is already terminal.
+ * COMPLETED migration rows with PENDING Nest QC must be reprocessed.
+ */
+export function shouldSkipSurveyForRefresh(input: {
+  migrationStatus: MigrationStatus | null | undefined
+  nestQcStatus: "PENDING" | "APPROVED" | "REJECTED" | null | undefined
+}): boolean {
+  if (input.nestQcStatus === "APPROVED" || input.nestQcStatus === "REJECTED") {
+    return true
+  }
+  if (input.migrationStatus === "SKIPPED") {
+    return true
+  }
+  // PENDING Nest QC (or missing Nest row) → allow reprocess even if COMPLETED
+  return false
+}
+
 /** Stuck IN_PROGRESS rows older than TTL should be recovered on resume. */
-export function isStuckInProgress(
-  row: MigrationStateRow,
-  nowMs: number,
-  ttlMs: number
-): boolean {
+export function isStuckInProgress(row: MigrationStateRow, nowMs: number, ttlMs: number): boolean {
   if (row.status !== "IN_PROGRESS") return false
   return nowMs - row.updatedAt.getTime() > ttlMs
 }
 
-export function nextRetryCount(current: number, maxRetries: number): {
+export function nextRetryCount(
+  current: number,
+  maxRetries: number
+): {
   retryCount: number
   exhausted: boolean
 } {

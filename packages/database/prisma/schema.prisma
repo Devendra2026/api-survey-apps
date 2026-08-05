@@ -208,6 +208,7 @@ enum MigrationJobType {
   INCREMENTAL
   RETRY_FAILED
   VALIDATE
+  REFRESH_PENDING
 }
 
 enum ExportFormat {
@@ -314,12 +315,14 @@ model Ulb {
 }
 
 /// Ward within a ULB.
-/// Soft-deleted via deletedAt. Active uniqueness of (ulbId, wardNumber) is enforced by a
-/// partial unique index in SQL (WHERE deletedAt IS NULL) — not expressible as @@unique in Prisma.
+/// Soft-deleted via deletedAt. Active uniqueness of (ulbId, wardNumber) and (ulbId, wardCode)
+/// is enforced by partial unique indexes in SQL (WHERE deletedAt IS NULL) — not expressible as @@unique in Prisma.
 model Ward {
   id         String          @id @default(cuid())
   ulbId      String
   wardNumber String
+  /// Mirrors Convex wardCode (e.g. AGR-W01). Optional for legacy rows until catalog sync.
+  wardCode   String?
   wardName   String
   status     GeoEntityStatus @default(ACTIVE)
   updatedBy  String?
@@ -335,6 +338,7 @@ model Ward {
   @@index([ulbId])
   @@index([status])
   @@index([deletedAt])
+  @@index([ulbId, wardCode])
   @@map("wards")
 }
 

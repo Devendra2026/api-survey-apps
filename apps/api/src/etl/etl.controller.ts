@@ -38,6 +38,16 @@ export class EtlController {
     return this.etlService.retryFailed(user.id, body.maxRetries)
   }
 
+  @Post("refresh-pending")
+  @RequirePermission(PERMISSIONS.ETL_MANAGE)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiOperation({
+    summary: "Re-sync Nest surveys still PENDING QC from Convex (updates draft→submitted; never overwrites Admin QC)",
+  })
+  refreshPending(@CurrentUser() user: AuthenticatedUser, @Body() body: StartEtlDto) {
+    return this.etlService.startRefreshPending(user.id, body.batchSize)
+  }
+
   @Post("validate")
   @RequirePermission(PERMISSIONS.ETL_MANAGE)
   @ApiOperation({ summary: "Validate Convex vs Postgres survey/image counts" })

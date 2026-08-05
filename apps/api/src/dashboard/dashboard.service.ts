@@ -11,10 +11,11 @@ export class DashboardService {
   async getSummary(user: AuthenticatedUser) {
     const legacy = await this.dashboardRepository.getSummary(user)
 
-    const draft = legacy.byStatus.DRAFT ?? 0
-    const pendingQc = legacy.qcStatus.PENDING ?? legacy.pendingApproval ?? 0
-    const approvedQc = legacy.qcStatus.APPROVED ?? 0
-    const rejections = legacy.qcStatus.REJECTED ?? legacy.rejected ?? 0
+    // Bucket-based KPIs: Pending QC = SUBMITTED + PENDING only (excludes drafts).
+    const draft = legacy.buckets.fieldDraft
+    const pendingQc = legacy.buckets.pendingQc
+    const approvedQc = legacy.buckets.approved
+    const rejections = legacy.buckets.returned
     const reviewed = approvedQc + rejections
     const rejectionRate = reviewed > 0 ? Math.round((rejections / reviewed) * 1000) / 10 : 0
     const queueHealth = this.resolveQueueHealth(pendingQc, approvedQc)

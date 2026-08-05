@@ -45,7 +45,8 @@ function collectSiblingWardNames(tree: GeographyTreeNode[], ulbId: string, exclu
 export function TenantsWardsPanel() {
   const hasPermission = useAuthStore((s) => s.hasPermission)
   const tenantRoles = useAuthStore((s) => s.profile?.tenantRoles)
-  const canManage = hasPermission("settings:manage") || hasPermission("role:assign")
+  // Match API: geo create/update requires settings:manage (not role:assign alone)
+  const canManage = hasPermission("settings:manage")
   const canDeleteWard = hasAdminRole(tenantRoles)
   const canEtl = hasPermission("etl:manage")
   const { data: tree = [], isLoading, refetch } = useGeographyTree()
@@ -77,6 +78,7 @@ export function TenantsWardsPanel() {
 
   const invalidate = async () => {
     await qc.invalidateQueries({ queryKey: ["configuration", "geography-tree"] })
+    await qc.invalidateQueries({ queryKey: ["states"] })
     await refetch()
   }
 
@@ -141,6 +143,10 @@ export function TenantsWardsPanel() {
           </div>
           <div className="space-y-1.5">
             <h3 className="text-base font-semibold text-foreground">Geographic Hierarchy</h3>
+            <p className="max-w-xl text-sm text-muted-foreground">
+              New states appear here immediately. Assign the state to other users before it shows in their survey, QC,
+              or filter dropdowns.
+            </p>
             <div className="flex flex-wrap gap-1.5">
               <Badge variant="secondary" className="font-normal">
                 {stats.districts} districts
@@ -240,7 +246,7 @@ export function TenantsWardsPanel() {
             setDrawer(null)
             await invalidate()
           } catch (err) {
-            toast.error(err instanceof Error ? err.message : "Save failed")
+            toast.error(getApiErrorMessage(err))
           } finally {
             setSaving(false)
           }
@@ -266,7 +272,7 @@ export function TenantsWardsPanel() {
             setDrawer(null)
             await invalidate()
           } catch (err) {
-            toast.error(err instanceof Error ? err.message : "Save failed")
+            toast.error(getApiErrorMessage(err))
           } finally {
             setSaving(false)
           }
@@ -292,7 +298,7 @@ export function TenantsWardsPanel() {
             setDrawer(null)
             await invalidate()
           } catch (err) {
-            toast.error(err instanceof Error ? err.message : "Save failed")
+            toast.error(getApiErrorMessage(err))
           } finally {
             setSaving(false)
           }

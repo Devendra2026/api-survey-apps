@@ -31,7 +31,7 @@ export class StatesController {
   @Post()
   @RequirePermission(PERMISSIONS.SETTINGS_MANAGE)
   create(@Body() dto: CreateStateDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.statesService.create(dto, user.id)
+    return this.statesService.create(dto, user)
   }
 
   @Patch(":id")

@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common"
-import { ConfigAuditService } from "../config-audit/config-audit.service.js"
 import type { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
+import { ConfigAuditService } from "../config-audit/config-audit.service.js"
 import type { CreateStateDto, UpdateStateDto } from "./dto/geo.dto.js"
 import { StatesRepository } from "./states.repository.js"
 
@@ -20,14 +20,15 @@ export class StatesService {
     return this.statesRepository.findById(id, user)
   }
 
-  async create(dto: CreateStateDto, actorId?: string) {
+  async create(dto: CreateStateDto, user: AuthenticatedUser) {
     const created = await this.statesRepository.create(dto)
+    await this.statesRepository.ensureCreatorStateAccess(user, created.id)
     await this.audit.log({
       entityType: "state",
       entityId: created.id,
       action: "CREATE",
       newValue: created,
-      actorId,
+      actorId: user.id,
     })
     return created
   }

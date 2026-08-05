@@ -9,6 +9,7 @@ describe("StatesRepository", () => {
     update: jest.fn<(...args: unknown[]) => Promise<unknown>>(),
     findFirst: jest.fn<(...args: unknown[]) => Promise<unknown>>(),
     findMany: jest.fn<(...args: unknown[]) => Promise<unknown>>(),
+    findUnique: jest.fn<(...args: unknown[]) => Promise<unknown>>(),
     count: jest.fn<(...args: unknown[]) => Promise<unknown>>(),
     delete: jest.fn<(...args: unknown[]) => Promise<unknown>>(),
   }
@@ -61,7 +62,18 @@ describe("StatesRepository", () => {
   it("maps unique code conflicts to ConflictException on create", async () => {
     state.create.mockRejectedValue({ code: "P2002", meta: { target: ["code"] } })
     await expect(repo.create({ name: "Rajasthan", code: "RJ" })).rejects.toBeInstanceOf(ConflictException)
-    await expect(repo.create({ name: "Rajasthan", code: "RJ" })).rejects.toThrow(/State code already exists/)
+    await expect(repo.create({ name: "Rajasthan", code: "RJ" })).rejects.toThrow(/already exists/)
+  })
+
+  it("maps P2002 without meta.target to ConflictException on create", async () => {
+    state.create.mockRejectedValue({ code: "P2002", meta: {} })
+    await expect(repo.create({ name: "Uttar Pradesh", code: "UP" })).rejects.toBeInstanceOf(ConflictException)
+  })
+
+  it("findByCode looks up by unique code", async () => {
+    state.findUnique.mockResolvedValue({ id: "s1", code: "UP", name: "Uttar Pradesh" })
+    await expect(repo.findByCode("UP")).resolves.toEqual({ id: "s1", code: "UP", name: "Uttar Pradesh" })
+    expect(state.findUnique).toHaveBeenCalledWith({ where: { code: "UP" } })
   })
 
   it("assigns the new state to a non-global creator", async () => {

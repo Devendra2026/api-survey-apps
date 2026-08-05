@@ -6,6 +6,15 @@ import type { ApiResponse } from "../interfaces/api-response.interface.js"
 export class GlobalExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(GlobalExceptionFilter.name)
 
+  private isPrismaUniqueConflict(exception: unknown): boolean {
+    return (
+      typeof exception === "object" &&
+      exception !== null &&
+      "code" in exception &&
+      (exception as { code: string }).code === "P2002"
+    )
+  }
+
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp()
     const response = ctx.getResponse<Response>()
@@ -32,8 +41,18 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           errors = Array.isArray(obj.errors) ? obj.errors : [obj.errors]
         }
       }
+    } else if (this.isPrismaUniqueConflict(exception)) {
+      status = HttpStatus.CONFLICT
+      message = "A record with this unique value already exists"
+      this.logger.warn(`Prisma P2002 ${request.method} ${request.url}`)
     } else if (exception instanceof Error) {
-      message = exception.message
+      // Never leak raw Prisma invocation dumps to clients
+      const raw = exception.message
+      if (/prisma\./i.test(raw) || /Unique constraint failed/i.test(raw)) {
+        message = "A database constraint was violated. Check for duplicate codes or names."
+      } else {
+        message = raw
+      }
       this.logger.error(exception.message, exception.stack)
     } else {
       this.logger.error("Unknown exception", String(exception))

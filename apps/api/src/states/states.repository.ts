@@ -11,13 +11,18 @@ function isUniqueViolation(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && (error as { code: string }).code === "P2002"
 }
 
-function uniqueTargetIncludesCode(error: unknown): boolean {
+/** State.code is the only unique field — any P2002 on state write is a code conflict. */
+function isStateCodeConflict(error: unknown): boolean {
   if (!isUniqueViolation(error)) return false
   const target = (error as { meta?: { target?: string[] | string } }).meta?.target
-  if (Array.isArray(target)) return target.some((t) => t === "code" || t.includes("code"))
-  if (typeof target === "string") return target.includes("code")
-  return false
+  if (target === undefined || target === null) return true
+  if (Array.isArray(target)) return target.length === 0 || target.some((t) => t === "code" || t.includes("code"))
+  if (typeof target === "string") return target.includes("code") || target.length === 0
+  return true
 }
+
+const STATE_CODE_CONFLICT =
+  "State code already exists. Use the existing state in the hierarchy, or choose a different code."
 
 @Injectable()
 export class StatesRepository {
@@ -67,12 +72,17 @@ export class StatesRepository {
     return item
   }
 
+  /** Lookup by unique code (not tenant-scoped) — used for create conflict checks. */
+  findByCode(code: string) {
+    return this.prisma.db.state.findUnique({ where: { code } })
+  }
+
   async create(data: CreateStateDto) {
     try {
       return await this.prisma.db.state.create({ data })
     } catch (error) {
-      if (uniqueTargetIncludesCode(error)) {
-        throw new ConflictException("State code already exists")
+      if (isStateCodeConflict(error)) {
+        throw new ConflictException(STATE_CODE_CONFLICT)
       }
       throw error
     }
@@ -119,8 +129,8 @@ export class StatesRepository {
     try {
       return await this.prisma.db.state.update({ where: { id }, data })
     } catch (error) {
-      if (uniqueTargetIncludesCode(error)) {
-        throw new ConflictException("State code already exists")
+      if (isStateCodeConflict(error)) {
+        throw new ConflictException(STATE_CODE_CONFLICT)
       }
       throw error
     }

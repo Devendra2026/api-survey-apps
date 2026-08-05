@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common"
+import { ConflictException, Injectable } from "@nestjs/common"
 import type { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { ConfigAuditService } from "../config-audit/config-audit.service.js"
@@ -21,6 +21,15 @@ export class StatesService {
   }
 
   async create(dto: CreateStateDto, user: AuthenticatedUser) {
+    const existing = await this.statesRepository.findByCode(dto.code)
+    if (existing) {
+      // Grant access so a scoped admin who couldn't "see" UP can open it after this attempt
+      await this.statesRepository.ensureCreatorStateAccess(user, existing.id)
+      throw new ConflictException(
+        `State code "${dto.code}" already exists (${existing.name}). Refresh Master Data and add districts/wards under it.`
+      )
+    }
+
     const created = await this.statesRepository.create(dto)
     await this.statesRepository.ensureCreatorStateAccess(user, created.id)
     await this.audit.log({

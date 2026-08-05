@@ -9,7 +9,12 @@ import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.
 import { CreateDistrictDto, UpdateDistrictDto } from "../states/dto/geo.dto.js"
 import { DistrictsService } from "./districts.service.js"
 
-const GEO_READ = [PERMISSIONS.SETTINGS_VIEW, PERMISSIONS.ROLE_ASSIGN, PERMISSIONS.SURVEY_VIEW] as const
+const GEO_READ = [
+  PERMISSIONS.SETTINGS_VIEW,
+  PERMISSIONS.SETTINGS_MANAGE,
+  PERMISSIONS.ROLE_ASSIGN,
+  PERMISSIONS.SURVEY_VIEW,
+] as const
 
 class DistrictQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional()

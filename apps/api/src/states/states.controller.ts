@@ -8,7 +8,12 @@ import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.
 import { CreateStateDto, UpdateStateDto } from "./dto/geo.dto.js"
 import { StatesService } from "./states.service.js"
 
-const GEO_READ = [PERMISSIONS.SETTINGS_VIEW, PERMISSIONS.ROLE_ASSIGN, PERMISSIONS.SURVEY_VIEW] as const
+const GEO_READ = [
+  PERMISSIONS.SETTINGS_VIEW,
+  PERMISSIONS.SETTINGS_MANAGE,
+  PERMISSIONS.ROLE_ASSIGN,
+  PERMISSIONS.SURVEY_VIEW,
+] as const
 
 @ApiTags("states")
 @ApiBearerAuth()

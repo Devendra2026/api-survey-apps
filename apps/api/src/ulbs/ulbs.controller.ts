@@ -9,7 +9,12 @@ import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.
 import { CreateUlbDto, UpdateUlbDto } from "../states/dto/geo.dto.js"
 import { UlbsService } from "./ulbs.service.js"
 
-const GEO_READ = [PERMISSIONS.SETTINGS_VIEW, PERMISSIONS.ROLE_ASSIGN, PERMISSIONS.SURVEY_VIEW] as const
+const GEO_READ = [
+  PERMISSIONS.SETTINGS_VIEW,
+  PERMISSIONS.SETTINGS_MANAGE,
+  PERMISSIONS.ROLE_ASSIGN,
+  PERMISSIONS.SURVEY_VIEW,
+] as const
 
 class UlbQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional()

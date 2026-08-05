@@ -68,10 +68,35 @@ export class ConfigurationGeographyService {
             wards: ulb._count.wards,
             surveys: ulb._count.surveys,
           },
-          // Wards loaded on expand via /wards — keeps tree fast in production
+          // Wards loaded on expand via /configuration/geography/ulbs/:id/wards
           children: [] as const,
         })),
       })),
+    }))
+  }
+
+  async listWardsForUlb(ulbId: string) {
+    const wards = await this.prisma.db.ward.findMany({
+      where: { ulbId, deletedAt: null },
+      orderBy: { wardNumber: "asc" },
+      select: {
+        id: true,
+        wardNumber: true,
+        wardName: true,
+        status: true,
+        ulbId: true,
+      },
+    })
+
+    return wards.map((ward) => ({
+      id: ward.id,
+      type: "ward" as const,
+      name: ward.wardName,
+      wardNumber: ward.wardNumber,
+      status: ward.status,
+      parentId: ward.ulbId,
+      counts: {},
+      children: [] as const,
     }))
   }
 }

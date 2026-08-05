@@ -9,7 +9,12 @@ import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.
 import { CreateWardDto, UpdateWardDto } from "../states/dto/geo.dto.js"
 import { WardsService } from "./wards.service.js"
 
-const GEO_READ = [PERMISSIONS.SETTINGS_VIEW, PERMISSIONS.ROLE_ASSIGN, PERMISSIONS.SURVEY_VIEW] as const
+const GEO_READ = [
+  PERMISSIONS.SETTINGS_VIEW,
+  PERMISSIONS.SETTINGS_MANAGE,
+  PERMISSIONS.ROLE_ASSIGN,
+  PERMISSIONS.SURVEY_VIEW,
+] as const
 
 class WardQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional()

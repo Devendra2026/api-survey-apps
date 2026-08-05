@@ -78,6 +78,15 @@ export function useGeographyTree(stateId?: string) {
   })
 }
 
+/** Unscoped wards for Master Data ULB expand (aligned with tree ward counts). */
+export function useGeographyUlbWards(ulbId?: string) {
+  return useQuery({
+    queryKey: ["configuration", "geography-ulb-wards", ulbId],
+    queryFn: () => apiGet<GeographyTreeNode[]>(`/configuration/geography/ulbs/${ulbId}/wards`),
+    enabled: Boolean(ulbId),
+  })
+}
+
 export function useConfigAudit(params?: { entityType?: string; entityId?: string }) {
   const qs = new URLSearchParams()
   if (params?.entityType) qs.set("entityType", params.entityType)

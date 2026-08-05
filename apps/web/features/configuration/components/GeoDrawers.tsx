@@ -74,6 +74,10 @@ export function StateDrawer({
   initial,
   saving,
   onSubmit,
+  canDelete,
+  onDelete,
+  deleting,
+  deleteBlockedReason,
 }: {
   open: boolean
   onOpenChange: (o: boolean) => void
@@ -81,6 +85,11 @@ export function StateDrawer({
   initial?: { name: string; code: string }
   saving?: boolean
   onSubmit: (values: { name: string; code: string }) => void
+  canDelete?: boolean
+  onDelete?: () => void
+  deleting?: boolean
+  /** When set, Delete stays visible but disabled (e.g. state still has districts). */
+  deleteBlockedReason?: string | null
 }) {
   const [name, setName] = useState("")
   const [code, setCode] = useState("")
@@ -97,8 +106,24 @@ export function StateDrawer({
       onOpenChange={onOpenChange}
       title={mode === "create" ? "Create State" : "Edit State"}
       description="Top-level administrative unit"
-      saving={saving}
+      saving={saving || deleting}
       onSubmit={() => onSubmit({ name, code })}
+      footerStart={
+        mode === "edit" && canDelete && onDelete ? (
+          <div className="flex w-full flex-col gap-1.5">
+            <Button
+              type="button"
+              variant="destructive"
+              className="cursor-pointer"
+              disabled={saving || deleting || Boolean(deleteBlockedReason)}
+              onClick={() => onDelete()}
+            >
+              {deleting ? "Deleting…" : "Delete State"}
+            </Button>
+            {deleteBlockedReason ? <p className="text-xs text-muted-foreground">{deleteBlockedReason}</p> : null}
+          </div>
+        ) : undefined
+      }
     >
       <div className="space-y-2">
         <Label htmlFor="state-name">Name</Label>

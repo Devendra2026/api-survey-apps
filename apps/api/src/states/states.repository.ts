@@ -140,6 +140,36 @@ export class StatesRepository {
     const scope = resolveTenantScope(user.tenantRoles)
     if (!scope.isGlobal) throw new ForbiddenException("Only global admins can delete states")
     await this.findById(id, user)
-    return this.prisma.db.state.delete({ where: { id } })
+
+    const [districtCount, surveyCount] = await Promise.all([
+      this.prisma.db.district.count({ where: { stateId: id } }),
+      this.prisma.db.survey.count({ where: { stateId: id } }),
+    ])
+
+    if (districtCount > 0) {
+      throw new ConflictException(
+        `Cannot delete this state — it has ${districtCount} district(s). Delete empty duplicate states only, or remove districts first.`
+      )
+    }
+    if (surveyCount > 0) {
+      throw new ConflictException("Cannot delete this state — surveys are linked to it.")
+    }
+
+    // Drop role assignments that only pointed at this empty state so cleanup can proceed
+    await this.prisma.db.userTenantRole.deleteMany({ where: { stateId: id } })
+
+    try {
+      return await this.prisma.db.state.delete({ where: { id } })
+    } catch (error) {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        (error as { code: string }).code === "P2003"
+      ) {
+        throw new ConflictException("Cannot delete this state — related records still reference it.")
+      }
+      throw error
+    }
   }
 }

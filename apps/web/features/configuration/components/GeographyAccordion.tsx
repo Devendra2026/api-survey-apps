@@ -1,11 +1,12 @@
 "use client"
 
-import { useWards } from "@/hooks/use-api"
+import { getApiErrorMessage } from "@/lib/api/client"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
 import { ChevronDown, ChevronRight, Pencil, Plus } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
+import { useGeographyUlbWards } from "../hooks/use-configuration"
 import { ulbTypeBadge } from "../lib/geo-display"
 import type { GeographyTreeNode } from "../lib/types"
 import { SearchToolbar } from "./ConfigurationToolbar"
@@ -340,19 +341,12 @@ function UlbCard({
   onWardClick: (ward: GeographyTreeNode) => void
 }) {
   const open = expanded.has(ulb.id)
-  const { data: wardsPage, isLoading: wardsLoading, isError: wardsError } = useWards(open ? ulb.id : undefined)
-  const wardsFromApi = useMemo((): GeographyTreeNode[] => {
-    const items = wardsPage?.items ?? []
-    return items.map((w) => ({
-      id: w.id,
-      type: "ward" as const,
-      name: w.wardName,
-      wardNumber: w.wardNumber,
-      status: "ACTIVE" as const,
-      parentId: ulb.id,
-      counts: {},
-    }))
-  }, [wardsPage?.items, ulb.id])
+  const {
+    data: wardsFromApi = [],
+    isLoading: wardsLoading,
+    isError: wardsError,
+    error: wardsErr,
+  } = useGeographyUlbWards(open ? ulb.id : undefined)
   const wards = wardsFromApi.length > 0 ? wardsFromApi : (ulb.children ?? [])
   const wardCount = ulb.counts.wards ?? wards.length
 
@@ -410,7 +404,9 @@ function UlbCard({
             ) : null}
           </div>
           {wardsLoading ? <p className="text-sm text-muted-foreground">Loading wards…</p> : null}
-          {wardsError ? <p className="text-sm text-destructive">Could not load wards for this ULB.</p> : null}
+          {wardsError ? (
+            <p className="text-sm text-destructive">Could not load wards: {getApiErrorMessage(wardsErr)}</p>
+          ) : null}
           {!wardsLoading && !wardsError ? (
             <WardPillGrid wards={wards} onWardClick={canManage ? onWardClick : undefined} disabled={!canManage} />
           ) : null}

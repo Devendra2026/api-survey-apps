@@ -2,12 +2,12 @@
 
 import { DistrictDrawer, StateDrawer, ULBDrawer, WardDrawer } from "@/features/configuration/components/GeoDrawers"
 import { GeographyAccordion } from "@/features/configuration/components/GeographyAccordion"
-import { useGeographyTree } from "@/features/configuration/hooks/use-configuration"
+import { useGeographyTree, useGeographyUlbWards } from "@/features/configuration/hooks/use-configuration"
 import type { GeographyTreeNode } from "@/features/configuration/lib/types"
 import { useEtlStatus, useStartEtlIncremental } from "@/features/etl/hooks/use-etl-status"
 import { isEtlJobActive } from "@/features/etl/lib/types"
 import { computeGeoStats } from "@/features/master-data/lib/geo-stats"
-import { useStates, useWards } from "@/hooks/use-api"
+import { useStates } from "@/hooks/use-api"
 import { apiDelete, apiPatch, apiPost, getApiErrorMessage } from "@/lib/api/client"
 import { hasAdminRole } from "@/lib/format-ward-label"
 import { useAuthStore } from "@/stores/app-store"
@@ -49,6 +49,8 @@ export function TenantsWardsPanel() {
   // Match API: geo create/update requires settings:manage (not role:assign alone)
   const canManage = hasPermission("settings:manage")
   const canDeleteWard = hasAdminRole(tenantRoles)
+  // State delete API requires a global admin assignment
+  const canDeleteState = canManage && hasAdminRole(tenantRoles)
   const canEtl = hasPermission("etl:manage")
   const { data: treeData, isLoading: treeLoading, isError: treeError, error: treeErr, refetch } = useGeographyTree()
   const { data: statesPage, isLoading: statesLoading, isError: statesError } = useStates({ limit: 100 })
@@ -61,6 +63,7 @@ export function TenantsWardsPanel() {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<"ward" | "state" | null>(null)
   const [wardNameError, setWardNameError] = useState<string | null>(null)
   const qc = useQueryClient()
 
@@ -86,19 +89,20 @@ export function TenantsWardsPanel() {
           ? selected.parentId
           : undefined
       : undefined
-  const { data: siblingWardsPage } = useWards(wardUlbId)
+  const { data: siblingWards = [] } = useGeographyUlbWards(wardUlbId)
 
   const siblingWardNames = useMemo(() => {
     if (drawer !== "ward") return []
-    const names = (siblingWardsPage?.items ?? []).map((w) => w.wardName)
+    const names = siblingWards.map((w) => w.name)
     if (drawerMode === "edit" && selected?.type === "ward") {
       return names.filter((n) => n !== selected.name)
     }
     return names
-  }, [drawer, drawerMode, selected, siblingWardsPage?.items])
+  }, [drawer, drawerMode, selected, siblingWards])
 
   const invalidate = async () => {
     await qc.invalidateQueries({ queryKey: ["configuration", "geography-tree"] })
+    await qc.invalidateQueries({ queryKey: ["configuration", "geography-ulb-wards"] })
     await qc.invalidateQueries({ queryKey: ["states"] })
     await qc.invalidateQueries({ queryKey: ["wards"] })
     await refetch()
@@ -135,13 +139,22 @@ export function TenantsWardsPanel() {
     setDrawer(kind)
   }
 
-  const confirmDeleteWard = async () => {
-    if (!selected || selected.type !== "ward" || deleting) return
+  const confirmDelete = async () => {
+    if (!selected || deleting || !deleteTarget) return
+    if (deleteTarget === "ward" && selected.type !== "ward") return
+    if (deleteTarget === "state" && selected.type !== "state") return
+
     setDeleting(true)
     try {
-      await apiDelete(`/wards/${selected.id}`)
-      toast.success("Ward deleted")
+      if (deleteTarget === "ward") {
+        await apiDelete(`/wards/${selected.id}`)
+        toast.success("Ward deleted")
+      } else {
+        await apiDelete(`/states/${selected.id}`)
+        toast.success("State deleted")
+      }
       setDeleteConfirmOpen(false)
+      setDeleteTarget(null)
       setDrawer(null)
       setSelected(null)
       await invalidate()
@@ -153,6 +166,14 @@ export function TenantsWardsPanel() {
   }
 
   const deleteWardLabel = selected?.type === "ward" ? selected.name?.trim() || selected.wardNumber || "Ward" : "Ward"
+  const deleteStateLabel =
+    selected?.type === "state" ? `${selected.name}${selected.code ? ` (${selected.code})` : ""}` : "State"
+  const stateDistrictCount =
+    selected?.type === "state" ? (selected.counts?.districts ?? selected.children?.length ?? 0) : 0
+  const stateDeleteBlocked =
+    selected?.type === "state" && stateDistrictCount > 0
+      ? `This state has ${stateDistrictCount} district(s). Keep Uttar Pradesh (09); only delete empty duplicates.`
+      : null
 
   const firstState = tree.find((n) => n.type === "state") ?? null
 
@@ -280,6 +301,13 @@ export function TenantsWardsPanel() {
             : undefined
         }
         saving={saving}
+        canDelete={canDeleteState && drawerMode === "edit"}
+        deleting={deleting}
+        deleteBlockedReason={stateDeleteBlocked}
+        onDelete={() => {
+          setDeleteTarget("state")
+          setDeleteConfirmOpen(true)
+        }}
         onSubmit={async (values) => {
           setSaving(true)
           try {
@@ -364,7 +392,10 @@ export function TenantsWardsPanel() {
         saving={saving}
         canDelete={canDeleteWard && drawerMode === "edit"}
         deleting={deleting}
-        onDelete={() => setDeleteConfirmOpen(true)}
+        onDelete={() => {
+          setDeleteTarget("ward")
+          setDeleteConfirmOpen(true)
+        }}
         existingWardNames={siblingWardNames}
         excludeWardName={drawerMode === "edit" && selected?.type === "ward" ? selected.name : undefined}
         nameError={wardNameError}
@@ -391,22 +422,39 @@ export function TenantsWardsPanel() {
         }}
       />
 
-      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+      <Dialog
+        open={deleteConfirmOpen}
+        onOpenChange={(open) => {
+          setDeleteConfirmOpen(open)
+          if (!open) setDeleteTarget(null)
+        }}
+      >
         <DialogContent
           onKeyDown={(event) => {
             if (event.key !== "Enter" || deleting) return
             const target = event.target as HTMLElement | null
             if (target?.closest("button")) return
             event.preventDefault()
-            void confirmDeleteWard()
+            void confirmDelete()
           }}
         >
           <DialogHeader>
-            <DialogTitle>Delete Ward: {deleteWardLabel}</DialogTitle>
+            <DialogTitle>
+              {deleteTarget === "state" ? `Delete State: ${deleteStateLabel}` : `Delete Ward: ${deleteWardLabel}`}
+            </DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete this ward? This action is permanent and cannot be undone. The ward will be
-              removed from active lists. Associated data (tenants, records, etc.) will remain linked but this ward will
-              no longer be available for new work.
+              {deleteTarget === "state" ? (
+                <>
+                  Permanently delete this empty state? Keep <strong>Uttar Pradesh (09)</strong> — only remove duplicate
+                  empty states (01, UP, UP-01). This cannot be undone.
+                </>
+              ) : (
+                <>
+                  Are you sure you want to delete this ward? This action is permanent and cannot be undone. The ward
+                  will be removed from active lists. Associated data (tenants, records, etc.) will remain linked but
+                  this ward will no longer be available for new work.
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -415,7 +463,10 @@ export function TenantsWardsPanel() {
               variant="outline"
               className="cursor-pointer"
               disabled={deleting}
-              onClick={() => setDeleteConfirmOpen(false)}
+              onClick={() => {
+                setDeleteConfirmOpen(false)
+                setDeleteTarget(null)
+              }}
             >
               Cancel
             </Button>
@@ -423,8 +474,13 @@ export function TenantsWardsPanel() {
               type="button"
               variant="destructive"
               className="cursor-pointer"
-              disabled={deleting || !selected || selected.type !== "ward"}
-              onClick={() => void confirmDeleteWard()}
+              disabled={
+                deleting ||
+                !selected ||
+                (deleteTarget === "ward" && selected.type !== "ward") ||
+                (deleteTarget === "state" && selected.type !== "state")
+              }
+              onClick={() => void confirmDelete()}
             >
               {deleting ? "Deleting…" : "Delete"}
             </Button>

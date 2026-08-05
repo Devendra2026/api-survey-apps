@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Post, Query } from "@nestjs/common"
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger"
-import { Throttle } from "@nestjs/throttler"
+import { SkipThrottle, Throttle } from "@nestjs/throttler"
 import { PERMISSIONS } from "../common/constants/permissions.js"
 import { CurrentUser } from "../common/decorators/current-user.decorator.js"
 import { RequirePermission } from "../common/decorators/require-permission.decorator.js"
@@ -56,6 +56,17 @@ export class EtlController {
   })
   refreshPending(@CurrentUser() user: AuthenticatedUser, @Body() body: StartEtlDto) {
     return this.etlService.startRefreshPending(user.id, body.batchSize)
+  }
+
+  @Post("align-wards-with-convex")
+  @RequirePermission(PERMISSIONS.ETL_MANAGE)
+  @SkipThrottle()
+  @ApiOperation({
+    summary:
+      "One-click pipeline: dedupe → sync wards from Convex → cleanup empty UP shells → verify counts (dry-run or apply)",
+  })
+  alignWardsWithConvex(@Body() body: AlignWardsDto) {
+    return this.wardAlign.alignWardsWithConvex(body.apply)
   }
 
   @Post("dedupe-wards")

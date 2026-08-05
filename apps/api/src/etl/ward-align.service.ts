@@ -35,6 +35,37 @@ export type EmptyStateCleanupResult = {
   skipped: Array<{ id: string; code: string; name: string; reason: string }>
 }
 
+export type AlignWardsPipelineResult = {
+  mode: "dry-run" | "apply"
+  ok: boolean
+  steps: {
+    dedupe: {
+      duplicateGroups: number
+      wardsSoftDeleted: number
+      surveysRemapped: number
+      samples: WardDedupeResult["samples"]
+    }
+    sync: {
+      catalogSize: number
+      created: number
+      updated: number
+      merged: number
+      skipped: number
+      missingUlbs: string[]
+      conflicts: string[]
+    }
+    cleanup: {
+      deleted: EmptyStateCleanupResult["deleted"]
+      skipped: EmptyStateCleanupResult["skipped"]
+    }
+    verify: {
+      matchedUlbCount: number
+      catalogSize: number
+      mismatchedUlbs: Array<{ ulb: string; nest: number; convex: number }>
+    }
+  }
+}
+
 type ConvexWardCatalogRow = {
   wardNo?: string
   wardCode?: string
@@ -226,14 +257,14 @@ export class WardAlignService {
     })
   }
 
-  async syncWardsFromConvex(apply: boolean): Promise<WardSyncResult> {
+  async syncWardsFromConvex(apply: boolean, opts?: { skipPreDedupe?: boolean }): Promise<WardSyncResult> {
     const siteUrl = this.config.get<string>("CONVEX_SITE_URL")?.trim().replace(/\/+$/, "")
     const etlSecret = this.config.get<string>("ETL_CONVEX_SECRET")?.trim()
     if (!siteUrl || !etlSecret) {
       throw new ServiceUnavailableException("CONVEX_SITE_URL / ETL_CONVEX_SECRET not configured")
     }
 
-    if (apply) {
+    if (apply && !opts?.skipPreDedupe) {
       const dedupe = await this.dedupeWards(true)
       this.logger.log(
         `Pre-sync dedupe: groups=${dedupe.duplicateGroups} softDeleted=${dedupe.wardsSoftDeleted} remapped=${dedupe.surveysRemapped}`
@@ -589,5 +620,59 @@ export class WardAlignService {
     }
 
     return { mode: apply ? "apply" : "dry-run", deleted, skipped }
+  }
+
+  /**
+   * One-shot pipeline: dedupe → sync (no double-dedupe) → cleanup empty UP shells → verify counts.
+   * Dry-run when apply=false; writes when apply=true.
+   */
+  async alignWardsWithConvex(apply: boolean): Promise<AlignWardsPipelineResult> {
+    const mode = apply ? "apply" : "dry-run"
+    this.logger.log(`alignWardsWithConvex start mode=${mode}`)
+
+    const dedupe = await this.dedupeWards(apply)
+    const sync = await this.syncWardsFromConvex(apply, { skipPreDedupe: true })
+    const cleanup = await this.cleanupEmptyDuplicateStates(apply)
+
+    const mismatchedUlbs = sync.wardCountMismatches
+    const nestUlbCount = await this.prisma.db.ulb.count()
+    const matchedUlbCount = Math.max(0, nestUlbCount - mismatchedUlbs.length)
+
+    const ok = mismatchedUlbs.length === 0 && sync.conflicts.length === 0 && sync.missingUlbs.length === 0
+
+    this.logger.log(
+      `alignWardsWithConvex done mode=${mode} ok=${ok} mismatches=${mismatchedUlbs.length} conflicts=${sync.conflicts.length}`
+    )
+
+    return {
+      mode,
+      ok,
+      steps: {
+        dedupe: {
+          duplicateGroups: dedupe.duplicateGroups,
+          wardsSoftDeleted: dedupe.wardsSoftDeleted,
+          surveysRemapped: dedupe.surveysRemapped,
+          samples: dedupe.samples,
+        },
+        sync: {
+          catalogSize: sync.catalogSize,
+          created: sync.created,
+          updated: sync.updated,
+          merged: sync.merged,
+          skipped: sync.skipped,
+          missingUlbs: sync.missingUlbs,
+          conflicts: sync.conflicts,
+        },
+        cleanup: {
+          deleted: cleanup.deleted,
+          skipped: cleanup.skipped,
+        },
+        verify: {
+          matchedUlbCount,
+          catalogSize: sync.catalogSize,
+          mismatchedUlbs,
+        },
+      },
+    }
   }
 }

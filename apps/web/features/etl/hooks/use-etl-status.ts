@@ -1,6 +1,7 @@
 "use client"
 
 import {
+  alignWardsWithConvex,
   cleanupEmptyDuplicateStates,
   dedupeWards,
   getEtlReport,
@@ -128,5 +129,11 @@ export function useSyncWardsFromConvex() {
 export function useCleanupEmptyDuplicateStates() {
   return useMutation({
     mutationFn: (apply: boolean) => cleanupEmptyDuplicateStates(apply),
+  })
+}
+
+export function useAlignWardsWithConvex() {
+  return useMutation({
+    mutationFn: (apply: boolean) => alignWardsWithConvex(apply),
   })
 }

@@ -84,3 +84,38 @@ export function syncWardsFromConvex(apply: boolean) {
 export function cleanupEmptyDuplicateStates(apply: boolean) {
   return apiPost<EmptyStateCleanupResult>("/etl/cleanup-empty-duplicate-states", { apply })
 }
+
+export type AlignWardsPipelineResult = {
+  mode: "dry-run" | "apply"
+  ok: boolean
+  steps: {
+    dedupe: {
+      duplicateGroups: number
+      wardsSoftDeleted: number
+      surveysRemapped: number
+      samples: WardDedupeResult["samples"]
+    }
+    sync: {
+      catalogSize: number
+      created: number
+      updated: number
+      merged: number
+      skipped: number
+      missingUlbs: string[]
+      conflicts: string[]
+    }
+    cleanup: {
+      deleted: EmptyStateCleanupResult["deleted"]
+      skipped: EmptyStateCleanupResult["skipped"]
+    }
+    verify: {
+      matchedUlbCount: number
+      catalogSize: number
+      mismatchedUlbs: Array<{ ulb: string; nest: number; convex: number }>
+    }
+  }
+}
+
+export function alignWardsWithConvex(apply: boolean) {
+  return apiPost<AlignWardsPipelineResult>("/etl/align-wards-with-convex", { apply })
+}

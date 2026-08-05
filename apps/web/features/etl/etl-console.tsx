@@ -2,6 +2,7 @@
 
 import { EmptyState, PageHeader, StatusBadge } from "@/components/shared/page-elements"
 import {
+  useAlignWardsWithConvex,
   useCleanupEmptyDuplicateStates,
   useDedupeWards,
   useEtlJobs,
@@ -14,7 +15,12 @@ import {
   useStartEtlValidate,
   useSyncWardsFromConvex,
 } from "@/features/etl/hooks/use-etl-status"
-import type { EmptyStateCleanupResult, WardDedupeResult, WardSyncResult } from "@/features/etl/lib/etl-api"
+import type {
+  AlignWardsPipelineResult,
+  EmptyStateCleanupResult,
+  WardDedupeResult,
+  WardSyncResult,
+} from "@/features/etl/lib/etl-api"
 import { isEtlJobActive, type EtlMigrationJob } from "@/features/etl/lib/types"
 import { getApiErrorMessage } from "@/lib/api/client"
 import { useAuthStore } from "@/stores/app-store"
@@ -130,15 +136,17 @@ export function EtlConsole() {
   const dedupeWards = useDedupeWards()
   const syncWards = useSyncWardsFromConvex()
   const cleanupStates = useCleanupEmptyDuplicateStates()
+  const alignPipeline = useAlignWardsWithConvex()
   const [fullConfirmOpen, setFullConfirmOpen] = useState(false)
-  const [alignApplyConfirm, setAlignApplyConfirm] = useState<"dedupe" | "sync" | "cleanup" | null>(null)
+  const [alignApplyConfirm, setAlignApplyConfirm] = useState<"dedupe" | "sync" | "cleanup" | "pipeline" | null>(null)
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
   const [dedupeResult, setDedupeResult] = useState<WardDedupeResult | null>(null)
   const [syncResult, setSyncResult] = useState<WardSyncResult | null>(null)
   const [cleanupResult, setCleanupResult] = useState<EmptyStateCleanupResult | null>(null)
+  const [pipelineResult, setPipelineResult] = useState<AlignWardsPipelineResult | null>(null)
   const { data: report } = useEtlReport(selectedJobId)
 
-  const alignBusy = dedupeWards.isPending || syncWards.isPending || cleanupStates.isPending
+  const alignBusy = dedupeWards.isPending || syncWards.isPending || cleanupStates.isPending || alignPipeline.isPending
   const busy =
     isEtlJobActive(status?.activeJob?.status) ||
     startIncremental.isPending ||
@@ -248,6 +256,30 @@ export function EtlConsole() {
     }
   }
 
+  const runAlignPipeline = async (apply: boolean) => {
+    try {
+      const result = await alignPipeline.mutateAsync(apply)
+      setPipelineResult(result)
+      setAlignApplyConfirm(null)
+      if (apply) {
+        toast.success(
+          result.ok ? "Wards aligned — Nest matches Convex catalog" : "Align finished with mismatches — check report"
+        )
+      } else {
+        toast.success(
+          result.ok
+            ? "Dry-run: already matched (safe to apply)"
+            : `Dry-run: ${result.steps.verify.mismatchedUlbs.length} ULB mismatch(es) — review then confirm apply`
+        )
+        if (!result.ok || result.steps.dedupe.duplicateGroups > 0 || result.steps.sync.created > 0) {
+          setAlignApplyConfirm("pipeline")
+        }
+      }
+    } catch (error) {
+      toast.error(getApiErrorMessage(error))
+    }
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -337,67 +369,114 @@ export function EtlConsole() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Align geography</CardTitle>
           <CardDescription>
-            Sync from Convex auto-dedupes ward numbers first (e.g. 01 vs 1), then upserts codes. Recommended: dry-run
-            Sync, then apply. Cleanup removes empty UP shells (01 / UP / UP-01); keep code <strong>09</strong>.
+            Match Nest wards to the Convex catalog. Primary path runs dedupe → sync → cleanup empty UP shells → verify
+            in one go. Keep UP code <strong>09</strong>.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
-              variant="outline"
               className="cursor-pointer"
               disabled={busy}
-              onClick={() => void runDedupe(false)}
+              onClick={() => void runAlignPipeline(false)}
             >
               <MapPin className="size-4" aria-hidden />
-              Dedupe Wards (dry-run)
-            </Button>
-            <Button
-              type="button"
-              className="cursor-pointer"
-              disabled={busy}
-              onClick={() => setAlignApplyConfirm("dedupe")}
-            >
-              Dedupe Wards (apply)
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="cursor-pointer"
-              disabled={busy}
-              onClick={() => void runSyncWards(false)}
-            >
-              Sync Wards (dry-run)
-            </Button>
-            <Button
-              type="button"
-              className="cursor-pointer"
-              disabled={busy}
-              onClick={() => setAlignApplyConfirm("sync")}
-            >
-              Sync Wards (apply)
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="cursor-pointer"
-              disabled={busy}
-              onClick={() => void runCleanupStates(false)}
-            >
-              <Trash2 className="size-4" aria-hidden />
-              Cleanup UP shells (dry-run)
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              className="cursor-pointer"
-              disabled={busy}
-              onClick={() => setAlignApplyConfirm("cleanup")}
-            >
-              Cleanup UP shells (apply)
+              Align Wards with Convex
             </Button>
           </div>
+
+          {pipelineResult ? (
+            <AlignResultPanel
+              title={`Align pipeline · ${pipelineResult.mode} · ${pipelineResult.ok ? "OK" : "needs attention"}`}
+              onClose={() => setPipelineResult(null)}
+            >
+              <p className="text-muted-foreground">
+                Dedupe: {pipelineResult.steps.dedupe.duplicateGroups} groups · Sync: +
+                {pipelineResult.steps.sync.created} / ~{pipelineResult.steps.sync.updated} / merge{" "}
+                {pipelineResult.steps.sync.merged} · Cleanup: {pipelineResult.steps.cleanup.deleted.length} shell(s) ·
+                Matched ULBs: {pipelineResult.steps.verify.matchedUlbCount} · Catalog:{" "}
+                {pipelineResult.steps.verify.catalogSize}
+              </p>
+              {pipelineResult.steps.sync.missingUlbs.length > 0 ? (
+                <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                  Missing Nest ULBs: {pipelineResult.steps.sync.missingUlbs.join(", ")}
+                </p>
+              ) : null}
+              {pipelineResult.steps.verify.mismatchedUlbs.length > 0 ? (
+                <ul className="mt-2 max-h-40 list-inside list-disc overflow-y-auto text-xs text-muted-foreground">
+                  {pipelineResult.steps.verify.mismatchedUlbs.slice(0, 30).map((m) => (
+                    <li key={m.ulb}>
+                      {m.ulb}: Nest {m.nest} vs Convex {m.convex}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-2 text-xs text-muted-foreground">Ward counts match Convex per ULB.</p>
+              )}
+            </AlignResultPanel>
+          ) : null}
+
+          <details className="rounded-lg border border-border/60 p-3">
+            <summary className="cursor-pointer text-sm font-medium">Advanced (single steps)</summary>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="cursor-pointer"
+                disabled={busy}
+                onClick={() => void runDedupe(false)}
+              >
+                Dedupe (dry-run)
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="cursor-pointer"
+                disabled={busy}
+                onClick={() => setAlignApplyConfirm("dedupe")}
+              >
+                Dedupe (apply)
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="cursor-pointer"
+                disabled={busy}
+                onClick={() => void runSyncWards(false)}
+              >
+                Sync (dry-run)
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="cursor-pointer"
+                disabled={busy}
+                onClick={() => setAlignApplyConfirm("sync")}
+              >
+                Sync (apply)
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="cursor-pointer"
+                disabled={busy}
+                onClick={() => void runCleanupStates(false)}
+              >
+                <Trash2 className="size-4" aria-hidden />
+                Cleanup UP (dry-run)
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="cursor-pointer"
+                disabled={busy}
+                onClick={() => setAlignApplyConfirm("cleanup")}
+              >
+                Cleanup UP (apply)
+              </Button>
+            </div>
+          </details>
 
           {dedupeResult ? (
             <AlignResultPanel title={`Dedupe · ${dedupeResult.mode}`} onClose={() => setDedupeResult(null)}>
@@ -574,18 +653,22 @@ export function EtlConsole() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {alignApplyConfirm === "dedupe"
-                ? "Apply ward dedupe?"
-                : alignApplyConfirm === "sync"
-                  ? "Apply ward sync from Convex?"
-                  : "Delete empty UP state shells?"}
+              {alignApplyConfirm === "pipeline"
+                ? "Apply Align Wards with Convex?"
+                : alignApplyConfirm === "dedupe"
+                  ? "Apply ward dedupe?"
+                  : alignApplyConfirm === "sync"
+                    ? "Apply ward sync from Convex?"
+                    : "Delete empty UP state shells?"}
             </DialogTitle>
             <DialogDescription>
-              {alignApplyConfirm === "dedupe"
-                ? "Remaps surveys onto the primary ward and soft-deletes duplicates. Run dry-run first if you have not."
-                : alignApplyConfirm === "sync"
-                  ? "Creates/updates Nest wards from the Convex ward catalog. Prefer after dedupe."
-                  : "Deletes empty states coded 01 / UP / UP-01 only when they have no districts or surveys. Keeps UP 09."}
+              {alignApplyConfirm === "pipeline"
+                ? "Runs dedupe → sync from Convex → cleanup empty UP shells (01 / UP / UP-01). Keeps UP 09. Review the dry-run report above first."
+                : alignApplyConfirm === "dedupe"
+                  ? "Remaps surveys onto the primary ward and soft-deletes duplicates. Run dry-run first if you have not."
+                  : alignApplyConfirm === "sync"
+                    ? "Creates/updates Nest wards from the Convex ward catalog. Prefer after dedupe."
+                    : "Deletes empty states coded 01 / UP / UP-01 only when they have no districts or surveys. Keeps UP 09."}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-0">
@@ -598,7 +681,8 @@ export function EtlConsole() {
               className="cursor-pointer"
               disabled={alignBusy}
               onClick={() => {
-                if (alignApplyConfirm === "dedupe") void runDedupe(true)
+                if (alignApplyConfirm === "pipeline") void runAlignPipeline(true)
+                else if (alignApplyConfirm === "dedupe") void runDedupe(true)
                 else if (alignApplyConfirm === "sync") void runSyncWards(true)
                 else if (alignApplyConfirm === "cleanup") void runCleanupStates(true)
               }}

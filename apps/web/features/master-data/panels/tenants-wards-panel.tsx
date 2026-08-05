@@ -7,6 +7,7 @@ import type { GeographyTreeNode } from "@/features/configuration/lib/types"
 import { useEtlStatus, useStartEtlIncremental } from "@/features/etl/hooks/use-etl-status"
 import { isEtlJobActive } from "@/features/etl/lib/types"
 import { computeGeoStats } from "@/features/master-data/lib/geo-stats"
+import { useStates, useWards } from "@/hooks/use-api"
 import { apiDelete, apiPatch, apiPost, getApiErrorMessage } from "@/lib/api/client"
 import { hasAdminRole } from "@/lib/format-ward-label"
 import { useAuthStore } from "@/stores/app-store"
@@ -30,16 +31,16 @@ type DrawerKind = "state" | "district" | "ulb" | "ward" | null
 
 const WARD_NAME_CONFLICT = "A ward with this name already exists. Please use a different name."
 
-function collectSiblingWardNames(tree: GeographyTreeNode[], ulbId: string, excludeWardId?: string): string[] {
-  for (const state of tree) {
-    for (const district of state.children ?? []) {
-      for (const ulb of district.children ?? []) {
-        if (ulb.id !== ulbId) continue
-        return (ulb.children ?? []).filter((w) => w.type === "ward" && w.id !== excludeWardId).map((w) => w.name)
-      }
-    }
-  }
-  return []
+function statesToTreeNodes(items: Array<{ id: string; name: string; code: string }>): GeographyTreeNode[] {
+  return items.map((s) => ({
+    id: s.id,
+    type: "state" as const,
+    name: s.name,
+    code: s.code,
+    status: "ACTIVE" as const,
+    counts: { districts: 0, surveys: 0 },
+    children: [],
+  }))
 }
 
 export function TenantsWardsPanel() {
@@ -49,7 +50,8 @@ export function TenantsWardsPanel() {
   const canManage = hasPermission("settings:manage")
   const canDeleteWard = hasAdminRole(tenantRoles)
   const canEtl = hasPermission("etl:manage")
-  const { data: tree = [], isLoading, refetch } = useGeographyTree()
+  const { data: treeData, isLoading: treeLoading, isError: treeError, error: treeErr, refetch } = useGeographyTree()
+  const { data: statesPage, isLoading: statesLoading, isError: statesError } = useStates({ limit: 100 })
   const { data: etlStatus } = useEtlStatus(canEtl)
   const startIncremental = useStartEtlIncremental()
   const [selected, setSelected] = useState<GeographyTreeNode | null>(null)
@@ -62,23 +64,43 @@ export function TenantsWardsPanel() {
   const [wardNameError, setWardNameError] = useState<string | null>(null)
   const qc = useQueryClient()
 
+  /** Prefer full tree; if it fails or is empty, fall back to /states so existing UP still appears. */
+  const tree = useMemo(() => {
+    if (treeData && treeData.length > 0) return treeData
+    const stateItems = statesPage?.items ?? []
+    if (stateItems.length > 0) return statesToTreeNodes(stateItems)
+    return treeData ?? []
+  }, [treeData, statesPage?.items])
+
+  const isLoading = treeLoading || (statesLoading && !treeData?.length)
+  const loadError = treeError && statesError
+
   const stats = useMemo(() => computeGeoStats(tree), [tree])
   const etlBusy = isEtlJobActive(etlStatus?.activeJob?.status) || startIncremental.isPending
 
+  const wardUlbId =
+    drawer === "ward"
+      ? drawerMode === "create" && parent?.type === "ulb"
+        ? parent.id
+        : drawerMode === "edit" && selected?.type === "ward"
+          ? selected.parentId
+          : undefined
+      : undefined
+  const { data: siblingWardsPage } = useWards(wardUlbId)
+
   const siblingWardNames = useMemo(() => {
     if (drawer !== "ward") return []
-    if (drawerMode === "create" && parent?.type === "ulb") {
-      return collectSiblingWardNames(tree, parent.id)
+    const names = (siblingWardsPage?.items ?? []).map((w) => w.wardName)
+    if (drawerMode === "edit" && selected?.type === "ward") {
+      return names.filter((n) => n !== selected.name)
     }
-    if (drawerMode === "edit" && selected?.type === "ward" && selected.parentId) {
-      return collectSiblingWardNames(tree, selected.parentId, selected.id)
-    }
-    return []
-  }, [drawer, drawerMode, parent, selected, tree])
+    return names
+  }, [drawer, drawerMode, selected, siblingWardsPage?.items])
 
   const invalidate = async () => {
     await qc.invalidateQueries({ queryKey: ["configuration", "geography-tree"] })
     await qc.invalidateQueries({ queryKey: ["states"] })
+    await qc.invalidateQueries({ queryKey: ["wards"] })
     await refetch()
   }
 
@@ -147,6 +169,16 @@ export function TenantsWardsPanel() {
               New states appear here immediately. Assign the state to other users before it shows in their survey, QC,
               or filter dropdowns.
             </p>
+            {loadError ? (
+              <p className="text-sm text-destructive">
+                Could not load geography ({getApiErrorMessage(treeErr)}). Try Refresh or check API logs.
+              </p>
+            ) : null}
+            {treeError && !statesError && tree.length > 0 ? (
+              <p className="text-sm text-amber-700 dark:text-amber-400">
+                Full hierarchy failed to load — showing states only. Expand after districts/ULBs are added, or retry.
+              </p>
+            ) : null}
             <div className="flex flex-wrap gap-1.5">
               <Badge variant="secondary" className="font-normal">
                 {stats.districts} districts
@@ -203,6 +235,17 @@ export function TenantsWardsPanel() {
           >
             <Plus className="size-4" aria-hidden />
             Add state
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="cursor-pointer"
+            disabled={isLoading}
+            onClick={() => void invalidate()}
+          >
+            <RefreshCw className={`size-4 ${isLoading ? "animate-spin" : ""}`} aria-hidden />
+            Refresh
           </Button>
           <Button
             type="button"

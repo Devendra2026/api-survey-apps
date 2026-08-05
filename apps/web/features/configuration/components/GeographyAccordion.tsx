@@ -1,5 +1,6 @@
 "use client"
 
+import { useWards } from "@/hooks/use-api"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
@@ -339,7 +340,20 @@ function UlbCard({
   onWardClick: (ward: GeographyTreeNode) => void
 }) {
   const open = expanded.has(ulb.id)
-  const wards = ulb.children ?? []
+  const { data: wardsPage, isLoading: wardsLoading, isError: wardsError } = useWards(open ? ulb.id : undefined)
+  const wardsFromApi = useMemo((): GeographyTreeNode[] => {
+    const items = wardsPage?.items ?? []
+    return items.map((w) => ({
+      id: w.id,
+      type: "ward" as const,
+      name: w.wardName,
+      wardNumber: w.wardNumber,
+      status: "ACTIVE" as const,
+      parentId: ulb.id,
+      counts: {},
+    }))
+  }, [wardsPage?.items, ulb.id])
+  const wards = wardsFromApi.length > 0 ? wardsFromApi : (ulb.children ?? [])
   const wardCount = ulb.counts.wards ?? wards.length
 
   return (
@@ -395,7 +409,11 @@ function UlbCard({
               </Button>
             ) : null}
           </div>
-          <WardPillGrid wards={wards} onWardClick={canManage ? onWardClick : undefined} disabled={!canManage} />
+          {wardsLoading ? <p className="text-sm text-muted-foreground">Loading wards…</p> : null}
+          {wardsError ? <p className="text-sm text-destructive">Could not load wards for this ULB.</p> : null}
+          {!wardsLoading && !wardsError ? (
+            <WardPillGrid wards={wards} onWardClick={canManage ? onWardClick : undefined} disabled={!canManage} />
+          ) : null}
         </div>
       ) : null}
     </div>

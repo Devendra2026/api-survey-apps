@@ -5,6 +5,10 @@ import { PrismaService } from "../prisma/prisma.service.js"
 export class ConfigurationGeographyService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * Hierarchy for Master Data. Wards are count-only here — full ward lists
+   * are loaded on demand via GET /wards?ulbId=… (keeps this payload small).
+   */
   async getTree(stateId?: string) {
     const states = await this.prisma.db.state.findMany({
       where: stateId ? { id: stateId } : undefined,
@@ -22,13 +26,6 @@ export class ConfigurationGeographyService {
                   select: {
                     wards: { where: { deletedAt: null } },
                     surveys: true,
-                  },
-                },
-                wards: {
-                  where: { deletedAt: null },
-                  orderBy: { wardNumber: "asc" },
-                  include: {
-                    _count: { select: { surveys: true, taxConfigs: true } },
                   },
                 },
               },
@@ -71,18 +68,8 @@ export class ConfigurationGeographyService {
             wards: ulb._count.wards,
             surveys: ulb._count.surveys,
           },
-          children: ulb.wards.map((ward) => ({
-            id: ward.id,
-            type: "ward" as const,
-            name: ward.wardName,
-            wardNumber: ward.wardNumber,
-            status: ward.status,
-            parentId: ulb.id,
-            counts: {
-              surveys: ward._count.surveys,
-              taxConfigs: ward._count.taxConfigs,
-            },
-          })),
+          // Wards loaded on expand via /wards — keeps tree fast in production
+          children: [] as const,
         })),
       })),
     }))

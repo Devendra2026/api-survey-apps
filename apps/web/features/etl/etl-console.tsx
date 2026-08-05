@@ -398,6 +398,13 @@ export function EtlConsole() {
                 Matched ULBs: {pipelineResult.steps.verify.matchedUlbCount} · Catalog:{" "}
                 {pipelineResult.steps.verify.catalogSize}
               </p>
+              {pipelineResult.steps.sync.conflicts.length > 0 ? (
+                <ul className="mt-2 max-h-32 list-inside list-disc overflow-y-auto text-xs text-amber-700 dark:text-amber-400">
+                  {pipelineResult.steps.sync.conflicts.slice(0, 15).map((c) => (
+                    <li key={c}>{c}</li>
+                  ))}
+                </ul>
+              ) : null}
               {pipelineResult.steps.sync.missingUlbs.length > 0 ? (
                 <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
                   Missing Nest ULBs: {pipelineResult.steps.sync.missingUlbs.join(", ")}

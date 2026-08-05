@@ -3,11 +3,12 @@ import { JobsModule } from "../jobs/jobs.module.js"
 import { PrismaModule } from "../prisma/prisma.module.js"
 import { EtlController } from "./etl.controller.js"
 import { EtlService } from "./etl.service.js"
+import { WardAlignService } from "./ward-align.service.js"
 
 @Module({
   imports: [PrismaModule, JobsModule],
   controllers: [EtlController],
-  providers: [EtlService],
-  exports: [EtlService],
+  providers: [EtlService, WardAlignService],
+  exports: [EtlService, WardAlignService],
 })
 export class EtlModule {}

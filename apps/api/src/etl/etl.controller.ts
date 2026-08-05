@@ -5,14 +5,24 @@ import { PERMISSIONS } from "../common/constants/permissions.js"
 import { CurrentUser } from "../common/decorators/current-user.decorator.js"
 import { RequirePermission } from "../common/decorators/require-permission.decorator.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
-import { ListEtlJobsQueryDto, RetryFailedDto, StartEtlDto } from "./dto/etl.dto.js"
+import {
+  AlignWardsDto,
+  CleanupEmptyStatesDto,
+  ListEtlJobsQueryDto,
+  RetryFailedDto,
+  StartEtlDto,
+} from "./dto/etl.dto.js"
 import { EtlService } from "./etl.service.js"
+import { WardAlignService } from "./ward-align.service.js"
 
 @ApiTags("etl")
 @ApiBearerAuth()
 @Controller("etl")
 export class EtlController {
-  constructor(private readonly etlService: EtlService) {}
+  constructor(
+    private readonly etlService: EtlService,
+    private readonly wardAlign: WardAlignService
+  ) {}
 
   @Post("full-migration")
   @RequirePermission(PERMISSIONS.ETL_MANAGE)
@@ -46,6 +56,32 @@ export class EtlController {
   })
   refreshPending(@CurrentUser() user: AuthenticatedUser, @Body() body: StartEtlDto) {
     return this.etlService.startRefreshPending(user.id, body.batchSize)
+  }
+
+  @Post("dedupe-wards")
+  @RequirePermission(PERMISSIONS.ETL_MANAGE)
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @ApiOperation({ summary: "Dedupe Nest wards per ULB by normalized ward number (dry-run or apply)" })
+  dedupeWards(@Body() body: AlignWardsDto) {
+    return this.wardAlign.dedupeWards(body.apply, body.ulbCode)
+  }
+
+  @Post("sync-wards-from-convex")
+  @RequirePermission(PERMISSIONS.ETL_MANAGE)
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @ApiOperation({ summary: "Upsert Nest wards from Convex ward catalog (dry-run or apply)" })
+  syncWardsFromConvex(@Body() body: AlignWardsDto) {
+    return this.wardAlign.syncWardsFromConvex(body.apply)
+  }
+
+  @Post("cleanup-empty-duplicate-states")
+  @RequirePermission(PERMISSIONS.ETL_MANAGE)
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @ApiOperation({
+    summary: "Delete empty duplicate UP state shells (01, UP, UP-01) when they have no districts",
+  })
+  cleanupEmptyDuplicateStates(@Body() body: CleanupEmptyStatesDto) {
+    return this.wardAlign.cleanupEmptyDuplicateStates(body.apply)
   }
 
   @Post("validate")

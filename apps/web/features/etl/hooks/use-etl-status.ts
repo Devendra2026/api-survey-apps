@@ -1,13 +1,17 @@
 "use client"
 
 import {
+  cleanupEmptyDuplicateStates,
+  dedupeWards,
   getEtlReport,
   getEtlStatus,
   listEtlJobs,
   retryEtlFailed,
   startEtlFull,
   startEtlIncremental,
+  startEtlRefreshPending,
   startEtlValidate,
+  syncWardsFromConvex,
 } from "@/features/etl/lib/etl-api"
 import { isEtlJobActive } from "@/features/etl/lib/types"
 import { useAuthStore } from "@/stores/app-store"
@@ -98,5 +102,31 @@ export function useStartEtlValidate() {
   return useMutation({
     mutationFn: () => startEtlValidate(),
     onSuccess: () => invalidate(),
+  })
+}
+
+export function useStartEtlRefreshPending() {
+  const invalidate = useInvalidateEtl()
+  return useMutation({
+    mutationFn: (batchSize?: number) => startEtlRefreshPending(batchSize),
+    onSuccess: () => invalidate(),
+  })
+}
+
+export function useDedupeWards() {
+  return useMutation({
+    mutationFn: ({ apply, ulbCode }: { apply: boolean; ulbCode?: string }) => dedupeWards(apply, ulbCode),
+  })
+}
+
+export function useSyncWardsFromConvex() {
+  return useMutation({
+    mutationFn: (apply: boolean) => syncWardsFromConvex(apply),
+  })
+}
+
+export function useCleanupEmptyDuplicateStates() {
+  return useMutation({
+    mutationFn: (apply: boolean) => cleanupEmptyDuplicateStates(apply),
   })
 }

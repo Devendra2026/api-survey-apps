@@ -1,5 +1,5 @@
-import { IsBoolean, IsInt, IsOptional, IsString, Max, Min } from "class-validator"
 import { Type } from "class-transformer"
+import { IsBoolean, IsInt, IsOptional, IsString, Max, Min } from "class-validator"
 
 export class StartEtlDto {
   @IsOptional()
@@ -34,4 +34,20 @@ export class ListEtlJobsQueryDto {
   @IsOptional()
   @IsString()
   cursor?: string
+}
+
+export class AlignWardsDto {
+  /** When false, report only. When true, write changes. */
+  @IsBoolean()
+  apply!: boolean
+
+  @IsOptional()
+  @IsString()
+  ulbCode?: string
+}
+
+export class CleanupEmptyStatesDto {
+  /** When false, report only. When true, delete empty duplicate UP shells. */
+  @IsBoolean()
+  apply!: boolean
 }

@@ -60,9 +60,11 @@ export type WardSyncResult = {
   catalogSize: number
   created: number
   updated: number
+  merged: number
   skipped: number
   missingUlbs: string[]
   wardCountMismatches: Array<{ ulb: string; nest: number; convex: number }>
+  conflicts: string[]
 }
 
 export type EmptyStateCleanupResult = {

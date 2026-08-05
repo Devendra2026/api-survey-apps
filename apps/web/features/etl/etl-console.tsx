@@ -225,8 +225,8 @@ export function EtlConsole() {
       setAlignApplyConfirm(null)
       toast.success(
         apply
-          ? `Ward sync applied: +${result.created} created, ${result.updated} updated`
-          : `Dry-run: would create ${result.created}, update ${result.updated} (catalog ${result.catalogSize})`
+          ? `Ward sync applied: +${result.created} created, ${result.updated} updated, ${result.merged} merged`
+          : `Dry-run: would create ${result.created}, update ${result.updated}, merge ${result.merged} (catalog ${result.catalogSize})`
       )
     } catch (error) {
       toast.error(getApiErrorMessage(error))
@@ -337,8 +337,8 @@ export function EtlConsole() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Align geography</CardTitle>
           <CardDescription>
-            Run dry-run first, then apply. Recommended order: Dedupe Wards → Sync from Convex → Cleanup empty UP states.
-            Keep UP code <strong>09</strong> (Baghpat / Etah / Kasganj / Mainpuri).
+            Sync from Convex auto-dedupes ward numbers first (e.g. 01 vs 1), then upserts codes. Recommended: dry-run
+            Sync, then apply. Cleanup removes empty UP shells (01 / UP / UP-01); keep code <strong>09</strong>.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -422,8 +422,15 @@ export function EtlConsole() {
             <AlignResultPanel title={`Ward sync · ${syncResult.mode}`} onClose={() => setSyncResult(null)}>
               <p className="text-muted-foreground">
                 Catalog: {syncResult.catalogSize} · created: {syncResult.created} · updated: {syncResult.updated} ·
-                skipped: {syncResult.skipped}
+                merged: {syncResult.merged} · skipped: {syncResult.skipped}
               </p>
+              {syncResult.conflicts.length > 0 ? (
+                <ul className="mt-2 max-h-32 list-inside list-disc overflow-y-auto text-xs text-amber-700 dark:text-amber-400">
+                  {syncResult.conflicts.slice(0, 20).map((c) => (
+                    <li key={c}>{c}</li>
+                  ))}
+                </ul>
+              ) : null}
               {syncResult.missingUlbs.length > 0 ? (
                 <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
                   Missing Nest ULBs: {syncResult.missingUlbs.join(", ")}

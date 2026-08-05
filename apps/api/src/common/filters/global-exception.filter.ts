@@ -49,11 +49,14 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       // Never leak raw Prisma invocation dumps to clients
       const raw = exception.message
       if (/prisma\./i.test(raw) || /Unique constraint failed/i.test(raw)) {
-        message = "A database constraint was violated. Check for duplicate codes or names."
+        status = HttpStatus.CONFLICT
+        message =
+          "A duplicate code or name already exists. Use the existing record, or run Dedupe Wards before Sync Wards."
+        this.logger.warn(`Unique constraint (non-P2002 shape) ${request.method} ${request.url}: ${raw.slice(0, 200)}`)
       } else {
         message = raw
+        this.logger.error(exception.message, exception.stack)
       }
-      this.logger.error(exception.message, exception.stack)
     } else {
       this.logger.error("Unknown exception", String(exception))
     }

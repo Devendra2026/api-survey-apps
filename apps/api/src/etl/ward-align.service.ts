@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common"
+import { BadRequestException, ConflictException, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common"
 import { ConfigService } from "@nestjs/config"
 import { normalizeWardNumber } from "@workspace/validation"
 import { PrismaService } from "../prisma/prisma.service.js"
@@ -22,9 +22,11 @@ export type WardSyncResult = {
   catalogSize: number
   created: number
   updated: number
+  merged: number
   skipped: number
   missingUlbs: string[]
   wardCountMismatches: Array<{ ulb: string; nest: number; convex: number }>
+  conflicts: string[]
 }
 
 export type EmptyStateCleanupResult = {
@@ -38,6 +40,23 @@ type ConvexWardCatalogRow = {
   wardCode?: string
   wardName?: string
   municipalityCode?: string
+}
+
+type ActiveWard = {
+  id: string
+  wardNumber: string
+  wardCode: string | null
+  wardName: string
+}
+
+function isPrismaUniqueViolation(error: unknown): boolean {
+  if (typeof error === "object" && error !== null && "code" in error && (error as { code: string }).code === "P2002") {
+    return true
+  }
+  if (error instanceof Error && /Unique constraint failed/i.test(error.message)) {
+    return true
+  }
+  return false
 }
 
 @Injectable()
@@ -136,11 +155,34 @@ export class WardAlignService {
     }
   }
 
+  /** Soft-delete `fromId` into `intoId`: remap surveys, then soft-delete. */
+  private async mergeWardInto(intoId: string, fromId: string, canonicalNumber: string): Promise<void> {
+    if (intoId === fromId) return
+    await this.prisma.db.$transaction(async (tx) => {
+      await tx.survey.updateMany({
+        where: { wardId: fromId, deletedAt: null },
+        data: { wardId: intoId, wardNumber: canonicalNumber },
+      })
+      await tx.ward.update({
+        where: { id: fromId },
+        data: { deletedAt: new Date(), status: "DISABLED" },
+      })
+    })
+  }
+
   async syncWardsFromConvex(apply: boolean): Promise<WardSyncResult> {
     const siteUrl = this.config.get<string>("CONVEX_SITE_URL")?.trim().replace(/\/+$/, "")
     const etlSecret = this.config.get<string>("ETL_CONVEX_SECRET")?.trim()
     if (!siteUrl || !etlSecret) {
       throw new ServiceUnavailableException("CONVEX_SITE_URL / ETL_CONVEX_SECRET not configured")
+    }
+
+    // Apply path: collapse "01"/"1" style dupes first so code updates don't hit unique indexes.
+    if (apply) {
+      const dedupe = await this.dedupeWards(true)
+      this.logger.log(
+        `Pre-sync dedupe: groups=${dedupe.duplicateGroups} softDeleted=${dedupe.wardsSoftDeleted} remapped=${dedupe.surveysRemapped}`
+      )
     }
 
     const res = await fetch(`${siteUrl}/etl/list-ward-catalog`, {
@@ -165,8 +207,10 @@ export class WardAlignService {
 
     let created = 0
     let updated = 0
+    let merged = 0
     let skipped = 0
     const missingUlbs = new Set<string>()
+    const conflicts: string[] = []
 
     for (const row of catalog) {
       const wardNumber = normalizeWardNumber(String(row.wardNo ?? ""))
@@ -190,19 +234,60 @@ export class WardAlignService {
         continue
       }
 
-      const active = await this.prisma.db.ward.findMany({
+      let active: ActiveWard[] = await this.prisma.db.ward.findMany({
         where: { ulbId: ulb.id, deletedAt: null },
         select: { id: true, wardNumber: true, wardCode: true, wardName: true },
       })
+
+      const byCode = wardCode ? (active.find((w) => w.wardCode === wardCode) ?? null) : null
+      const byNumber = active.find((w) => normalizeWardNumber(w.wardNumber) === wardNumber) ?? null
+
+      // Same catalog row matched two different Nest wards → merge into the code owner (or number owner).
+      if (byCode && byNumber && byCode.id !== byNumber.id) {
+        const keep = byCode
+        const drop = byNumber
+        if (apply) {
+          await this.mergeWardInto(keep.id, drop.id, wardNumber)
+          merged += 1
+          active = active.filter((w) => w.id !== drop.id)
+        } else {
+          merged += 1
+        }
+      }
+
       const match =
-        active.find((w) => (wardCode && w.wardCode === wardCode) || normalizeWardNumber(w.wardNumber) === wardNumber) ??
+        (wardCode ? active.find((w) => w.wardCode === wardCode) : null) ??
+        active.find((w) => normalizeWardNumber(w.wardNumber) === wardNumber) ??
         null
 
       if (match) {
-        const needsUpdate =
-          match.wardNumber !== wardNumber || (wardCode && match.wardCode !== wardCode) || match.wardName !== wardName
-        if (needsUpdate) {
+        // Another ward may still hold the target number or code after preference switch.
+        const numberClash = active.find((w) => w.id !== match.id && normalizeWardNumber(w.wardNumber) === wardNumber)
+        const codeClash = wardCode !== "" ? active.find((w) => w.id !== match.id && w.wardCode === wardCode) : null
+
+        if (numberClash || codeClash) {
+          const drop = numberClash ?? codeClash!
           if (apply) {
+            await this.mergeWardInto(match.id, drop.id, wardNumber)
+            merged += 1
+            active = active.filter((w) => w.id !== drop.id)
+          } else {
+            merged += 1
+          }
+        }
+
+        const needsUpdate =
+          match.wardNumber !== wardNumber ||
+          (wardCode !== "" && match.wardCode !== wardCode) ||
+          match.wardName !== wardName
+
+        if (!needsUpdate) {
+          skipped += 1
+          continue
+        }
+
+        if (apply) {
+          try {
             await this.prisma.db.ward.update({
               where: { id: match.id },
               data: {
@@ -211,24 +296,70 @@ export class WardAlignService {
                 ...(wardCode ? { wardCode } : {}),
               },
             })
+          } catch (error) {
+            if (isPrismaUniqueViolation(error)) {
+              const msg = `ULB ${ulbCode} ward ${wardNumber}${wardCode ? ` (${wardCode})` : ""}: unique conflict on update`
+              this.logger.warn(msg)
+              conflicts.push(msg)
+              // Last resort: clear conflicting code on other active wards, then retry once.
+              if (wardCode) {
+                await this.prisma.db.ward.updateMany({
+                  where: {
+                    ulbId: ulb.id,
+                    deletedAt: null,
+                    wardCode,
+                    id: { not: match.id },
+                  },
+                  data: { wardCode: null },
+                })
+              }
+              try {
+                await this.prisma.db.ward.update({
+                  where: { id: match.id },
+                  data: {
+                    wardNumber,
+                    wardName,
+                    ...(wardCode ? { wardCode } : {}),
+                  },
+                })
+              } catch (retryErr) {
+                if (isPrismaUniqueViolation(retryErr)) {
+                  throw new ConflictException(
+                    `Ward sync blocked on ULB ${ulbCode}: duplicate ward number/code for ${wardNumber}. Run Dedupe Wards (apply) first, then retry Sync.`
+                  )
+                }
+                throw retryErr
+              }
+            } else {
+              throw error
+            }
           }
-          updated += 1
-        } else {
-          skipped += 1
         }
+        updated += 1
         continue
       }
 
       if (apply) {
-        await this.prisma.db.ward.create({
-          data: {
-            ulbId: ulb.id,
-            wardNumber,
-            wardName,
-            ...(wardCode ? { wardCode } : {}),
-            status: "ACTIVE",
-          },
-        })
+        try {
+          await this.prisma.db.ward.create({
+            data: {
+              ulbId: ulb.id,
+              wardNumber,
+              wardName,
+              ...(wardCode ? { wardCode } : {}),
+              status: "ACTIVE",
+            },
+          })
+        } catch (error) {
+          if (isPrismaUniqueViolation(error)) {
+            const msg = `ULB ${ulbCode} ward ${wardNumber}${wardCode ? ` (${wardCode})` : ""}: unique conflict on create (skipped)`
+            this.logger.warn(msg)
+            conflicts.push(msg)
+            skipped += 1
+            continue
+          }
+          throw error
+        }
       }
       created += 1
     }
@@ -261,9 +392,11 @@ export class WardAlignService {
       catalogSize: catalog.length,
       created,
       updated,
+      merged,
       skipped,
       missingUlbs: [...missingUlbs],
       wardCountMismatches,
+      conflicts,
     }
   }
 

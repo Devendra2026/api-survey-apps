@@ -9,11 +9,13 @@ import {
   AlignWardsDto,
   CleanupEmptyStatesDto,
   ListEtlJobsQueryDto,
+  ReconcileDto,
   RefreshPendingDto,
   RetryFailedDto,
   StartEtlDto,
 } from "./dto/etl.dto.js"
 import { EtlService } from "./etl.service.js"
+import { ReconcileService } from "./reconcile.service.js"
 import { WardAlignService } from "./ward-align.service.js"
 
 @ApiTags("etl")
@@ -22,7 +24,8 @@ import { WardAlignService } from "./ward-align.service.js"
 export class EtlController {
   constructor(
     private readonly etlService: EtlService,
-    private readonly wardAlign: WardAlignService
+    private readonly wardAlign: WardAlignService,
+    private readonly reconcileService: ReconcileService
   ) {}
 
   @Post("full-migration")
@@ -57,6 +60,14 @@ export class EtlController {
   })
   refreshPending(@CurrentUser() user: AuthenticatedUser, @Body() body: RefreshPendingDto) {
     return this.etlService.startRefreshPending(user.id, body)
+  }
+
+  @Post("reconcile-with-convex")
+  @RequirePermission(PERMISSIONS.ETL_MANAGE)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiOperation({ summary: "Read-only district parity report: Nest vs Convex surveys (no writes)" })
+  reconcile(@Body() body: ReconcileDto) {
+    return this.reconcileService.reconcileWithConvex(body.districtId)
   }
 
   @Post("align-wards-with-convex")

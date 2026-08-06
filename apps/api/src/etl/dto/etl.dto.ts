@@ -74,3 +74,10 @@ export class RefreshPendingDto {
   @Max(500)
   batchSize?: number
 }
+
+export class ReconcileDto {
+  /** District to scope the read-only reconcile report to. */
+  @IsNotEmpty()
+  @IsString()
+  districtId!: string
+}

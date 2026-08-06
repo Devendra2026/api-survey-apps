@@ -4,7 +4,7 @@ import { plainToInstance } from "class-transformer"
 import { validate } from "class-validator"
 import { PERMISSIONS } from "../common/constants/permissions.js"
 import { buildStorageKey } from "@workspace/etl-core"
-import { AlignWardsDto, RefreshPendingDto } from "./dto/etl.dto.js"
+import { AlignWardsDto, ReconcileDto, RefreshPendingDto } from "./dto/etl.dto.js"
 
 describe("ETL API constants", () => {
   it("exposes etl:manage permission", () => {
@@ -73,6 +73,26 @@ describe("AlignWardsDto validation", () => {
 
   it("accepts a valid scoped payload", async () => {
     const dto = plainToInstance(AlignWardsDto, { districtId: "district-1", apply: false, ulbCode: "ULB-01" })
+    const errors = await validate(dto)
+    expect(errors).toHaveLength(0)
+  })
+})
+
+describe("ReconcileDto validation", () => {
+  it("rejects missing districtId", async () => {
+    const dto = plainToInstance(ReconcileDto, {})
+    const errors = await validate(dto)
+    expect(errors.map((e) => e.property)).toContain("districtId")
+  })
+
+  it("rejects empty districtId", async () => {
+    const dto = plainToInstance(ReconcileDto, { districtId: "" })
+    const errors = await validate(dto)
+    expect(errors.map((e) => e.property)).toContain("districtId")
+  })
+
+  it("accepts a valid districtId", async () => {
+    const dto = plainToInstance(ReconcileDto, { districtId: "district-1" })
     const errors = await validate(dto)
     expect(errors).toHaveLength(0)
   })

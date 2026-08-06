@@ -33,6 +33,12 @@ describe("RefreshPendingDto validation", () => {
     expect(errors.map((e) => e.property)).toContain("districtId")
   })
 
+  it("rejects empty districtId", async () => {
+    const dto = plainToInstance(RefreshPendingDto, { districtId: "", apply: true })
+    const errors = await validate(dto)
+    expect(errors.map((e) => e.property)).toContain("districtId")
+  })
+
   it("rejects missing apply", async () => {
     const dto = plainToInstance(RefreshPendingDto, { districtId: "district-1" })
     const errors = await validate(dto)

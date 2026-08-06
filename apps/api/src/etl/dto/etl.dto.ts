@@ -1,5 +1,5 @@
 import { Type } from "class-transformer"
-import { IsBoolean, IsInt, IsOptional, IsString, Max, Min } from "class-validator"
+import { IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString, Max, Min } from "class-validator"
 
 export class StartEtlDto {
   @IsOptional()
@@ -54,6 +54,7 @@ export class CleanupEmptyStatesDto {
 
 export class RefreshPendingDto {
   /** District to scope the refresh-pending run to. */
+  @IsNotEmpty()
   @IsString()
   districtId!: string
 

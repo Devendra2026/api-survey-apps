@@ -855,6 +855,15 @@ export class WardAlignService {
     this.logger.log(`alignWardsWithConvex start mode=${mode} districtId=${districtId}`)
 
     const scope = assertDistrictId(districtId)
+
+    const district = await this.prisma.db.district.findUnique({
+      where: { id: scope },
+      select: { id: true },
+    })
+    if (!district) {
+      throw new BadRequestException(`Unknown districtId: ${scope}`)
+    }
+
     const { ulbIds, ulbCodes } = await this.getDistrictUlbAllowlist(scope)
 
     try {

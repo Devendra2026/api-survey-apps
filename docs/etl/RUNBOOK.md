@@ -194,6 +194,33 @@ or was redeployed mid-run. `force=true` on a full migration still bypasses the c
 
 **Where:** Administration → ETL Sync (`/admin/etl`) → Phase 1 card. Select district **Baghpat** before any Phase 1 button.
 
+**CLI (same sequence, requires Clerk JWT with `etl:manage`):**
+
+```bash
+# Browser console on survey.sdvedutech.in while signed in:
+#   await window.Clerk.session.getToken()
+$env:API_URL="https://backend.sdvedutech.in"
+$env:ETL_BEARER_TOKEN="<clerk jwt>"
+$env:ETL_DISTRICT_ID="<baghpat-district-uuid>"
+
+# Dry-run only (safe — no writes):
+node scripts/ops/run-district-parity.mjs --phase dry
+
+# After reviewing dry-run output:
+node scripts/ops/run-district-parity.mjs --phase apply
+```
+
+Or stepwise with `pnpm etl:run`:
+
+```bash
+pnpm etl:run reconcile --district-id $env:ETL_DISTRICT_ID
+pnpm etl:run align-wards --district-id $env:ETL_DISTRICT_ID
+pnpm etl:run align-wards --district-id $env:ETL_DISTRICT_ID --apply
+pnpm etl:run refresh-pending --district-id $env:ETL_DISTRICT_ID
+pnpm etl:run refresh-pending --district-id $env:ETL_DISTRICT_ID --apply --watch
+pnpm etl:run reconcile --district-id $env:ETL_DISTRICT_ID
+```
+
 ### Operator sequence
 
 1. **Sanity — Etah unchanged.** Confirm Etah QC queues and Command Centers still behave normally before touching Baghpat.

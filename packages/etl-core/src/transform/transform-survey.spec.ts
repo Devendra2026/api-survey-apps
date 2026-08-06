@@ -156,6 +156,22 @@ describe("transformSurveyBundle", () => {
       expect(result.reason).toMatch(/incomplete/)
     }
   })
+
+  it("fails transform when Convex status is missing instead of defaulting to SUBMITTED", () => {
+    const result = transformSurveyBundle(fixtureBundle({ status: undefined as unknown as "submitted" }), ctx)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toMatch(/surveyStatus|status/i)
+    }
+  })
+
+  it("maps draft to DRAFT", () => {
+    const result = transformSurveyBundle(fixtureBundle({ status: "draft", wardNo: "" }), ctx)
+    expect(result.ok).toBe(true)
+    if (result.ok && !("skip" in result)) {
+      expect(result.survey.surveyStatus).toBe("DRAFT")
+    }
+  })
 })
 
 describe("validateImageBuffer", () => {

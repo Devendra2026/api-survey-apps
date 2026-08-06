@@ -92,6 +92,16 @@ export function transformSurveyBundle(
     }
   }
 
+  const mappedStatus = mapSurveyStatus(bundle.status)
+  if (!mappedStatus) {
+    return {
+      ok: false,
+      legacySurveyId,
+      stage: "TRANSFORM",
+      error: `Missing or unmapped Convex status (${bundle.status ?? "undefined"})`,
+    }
+  }
+
   const createdById =
     ctx.resolveUserId({
       clerkId: bundle.surveyorClerkId,
@@ -227,7 +237,7 @@ export function transformSurveyBundle(
     gpsMockLocation: bundle.gps?.isMockLocation,
     gpsSource: mapGpsSource(bundle.gps ? "device" : undefined),
     capturedAt: bundle.gps?.capturedAt ? new Date(bundle.gps.capturedAt) : undefined,
-    surveyStatus: mapSurveyStatus(bundle.status) ?? "SUBMITTED",
+    surveyStatus: mappedStatus,
     qcStatus: mapQcStatus(bundle.qcStatus) ?? "PENDING",
     serverVersion: bundle.serverVersion ?? 1,
     completionPct: bundle.completionPct,

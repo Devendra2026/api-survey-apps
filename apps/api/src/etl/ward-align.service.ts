@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common"
 import { ConfigService } from "@nestjs/config"
+import { assertDistrictId } from "@workspace/etl-core"
 import { normalizeWardNumber } from "@workspace/validation"
 import { PrismaService } from "../prisma/prisma.service.js"
 
@@ -110,9 +111,21 @@ export class WardAlignService {
     private readonly config: ConfigService
   ) {}
 
-  async dedupeWards(apply: boolean, ulbCode?: string): Promise<WardDedupeResult> {
+  async getDistrictUlbAllowlist(districtId: string): Promise<{ ulbIds: string[]; ulbCodes: string[] }> {
     const ulbs = await this.prisma.db.ulb.findMany({
-      where: ulbCode ? { code: ulbCode } : undefined,
+      where: { districtId },
+      select: { id: true, code: true },
+      orderBy: { code: "asc" },
+    })
+    return { ulbIds: ulbs.map((u) => u.id), ulbCodes: ulbs.map((u) => u.code) }
+  }
+
+  async dedupeWards(apply: boolean, ulbCode?: string, ulbIds?: string[]): Promise<WardDedupeResult> {
+    const ulbs = await this.prisma.db.ulb.findMany({
+      where: {
+        ...(ulbCode ? { code: ulbCode } : {}),
+        ...(ulbIds ? { id: { in: ulbIds } } : {}),
+      },
       orderBy: { code: "asc" },
       select: { id: true, code: true },
     })
@@ -122,7 +135,7 @@ export class WardAlignService {
     const wards = await this.prisma.db.ward.findMany({
       where: {
         deletedAt: null,
-        ...(ulbCode ? { ulbId: { in: ulbs.map((u) => u.id) } } : {}),
+        ...(ulbCode || ulbIds ? { ulbId: { in: ulbs.map((u) => u.id) } } : {}),
       },
       orderBy: { createdAt: "asc" },
       select: {
@@ -401,7 +414,10 @@ export class WardAlignService {
     }
   }
 
-  async syncWardsFromConvex(apply: boolean, opts?: { skipPreDedupe?: boolean }): Promise<WardSyncResult> {
+  async syncWardsFromConvex(
+    apply: boolean,
+    opts?: { skipPreDedupe?: boolean; ulbCodes?: string[] }
+  ): Promise<WardSyncResult> {
     const siteUrl = this.config.get<string>("CONVEX_SITE_URL")?.trim().replace(/\/+$/, "")
     const etlSecret = this.config.get<string>("ETL_CONVEX_SECRET")?.trim()
     if (!siteUrl || !etlSecret) {
@@ -409,7 +425,15 @@ export class WardAlignService {
     }
 
     if (apply && !opts?.skipPreDedupe) {
-      const dedupe = await this.dedupeWards(true)
+      let preDedupeUlbIds: string[] | undefined
+      if (opts?.ulbCodes) {
+        const ulbs = await this.prisma.db.ulb.findMany({
+          where: { code: { in: opts.ulbCodes } },
+          select: { id: true },
+        })
+        preDedupeUlbIds = ulbs.map((u) => u.id)
+      }
+      const dedupe = await this.dedupeWards(true, undefined, preDedupeUlbIds)
       this.logger.log(
         `Pre-sync dedupe: groups=${dedupe.duplicateGroups} softDeleted=${dedupe.wardsSoftDeleted} remapped=${dedupe.surveysRemapped}`
       )
@@ -435,11 +459,24 @@ export class WardAlignService {
       throw new BadRequestException("Unexpected Convex ward catalog response")
     }
 
+    const allowedCatalog = opts?.ulbCodes
+      ? catalog.filter((row) => {
+          const code = String(row.municipalityCode || "").trim()
+          return code && opts.ulbCodes!.includes(code)
+        })
+      : catalog
+
     // Batch load: all ULBs + all active wards once (was 2 queries × catalog size).
     const [ulbs, allWards] = await Promise.all([
-      this.prisma.db.ulb.findMany({ select: { id: true, code: true } }),
+      this.prisma.db.ulb.findMany({
+        where: opts?.ulbCodes ? { code: { in: opts.ulbCodes } } : undefined,
+        select: { id: true, code: true },
+      }),
       this.prisma.db.ward.findMany({
-        where: { deletedAt: null },
+        where: {
+          deletedAt: null,
+          ...(opts?.ulbCodes ? { ulb: { code: { in: opts.ulbCodes } } } : {}),
+        },
         select: { id: true, ulbId: true, wardNumber: true, wardCode: true, wardName: true },
       }),
     ])
@@ -479,7 +516,7 @@ export class WardAlignService {
     const updates: UpdateOp[] = []
     const merges: MergePlan[] = []
 
-    for (const row of catalog) {
+    for (const row of allowedCatalog) {
       const wardNumber = normalizeWardNumber(String(row.wardNo ?? ""))
       if (!wardNumber) {
         skipped += 1
@@ -643,6 +680,7 @@ export class WardAlignService {
     // Recount from DB after writes (or from memory for dry-run).
     const nestCounts = apply
       ? await this.prisma.db.ulb.findMany({
+          where: opts?.ulbCodes ? { code: { in: opts.ulbCodes } } : undefined,
           select: {
             code: true,
             _count: { select: { wards: { where: { deletedAt: null } } } },
@@ -665,7 +703,7 @@ export class WardAlignService {
     }
 
     const convexByUlb = new Map<string, number>()
-    for (const row of catalog) {
+    for (const row of allowedCatalog) {
       const c = String(row.municipalityCode || "").trim()
       if (!c) continue
       convexByUlb.set(c, (convexByUlb.get(c) ?? 0) + 1)
@@ -682,7 +720,7 @@ export class WardAlignService {
 
     return {
       mode: apply ? "apply" : "dry-run",
-      catalogSize: catalog.length,
+      catalogSize: allowedCatalog.length,
       created,
       updated,
       merged,
@@ -743,9 +781,16 @@ export class WardAlignService {
    * reference inactive ward IDs. Remap them onto the active ward with the same
    * normalized number in that ULB so Command Center / QC ward filters work.
    */
-  async remapOrphanedSurveys(apply: boolean): Promise<{ surveyed: number; remapped: number; groups: number }> {
+  async remapOrphanedSurveys(
+    apply: boolean,
+    ulbIds?: string[]
+  ): Promise<{ surveyed: number; remapped: number; groups: number }> {
     const activeWards = await this.prisma.db.ward.findMany({
-      where: { deletedAt: null, status: "ACTIVE" },
+      where: {
+        deletedAt: null,
+        status: "ACTIVE",
+        ...(ulbIds ? { ulbId: { in: ulbIds } } : {}),
+      },
       select: { id: true, ulbId: true, wardNumber: true },
     })
     const activeByUlbNorm = new Map<string, string>()
@@ -757,7 +802,10 @@ export class WardAlignService {
     }
 
     const inactiveWards = await this.prisma.db.ward.findMany({
-      where: { OR: [{ deletedAt: { not: null } }, { status: "DISABLED" }] },
+      where: {
+        OR: [{ deletedAt: { not: null } }, { status: "DISABLED" }],
+        ...(ulbIds ? { ulbId: { in: ulbIds } } : {}),
+      },
       select: { id: true, ulbId: true, wardNumber: true },
     })
 
@@ -802,24 +850,28 @@ export class WardAlignService {
    * One-shot pipeline: dedupe → sync (no double-dedupe) → orphan remap → cleanup empty UP shells → verify counts.
    * Dry-run when apply=false; writes when apply=true.
    */
-  async alignWardsWithConvex(apply: boolean): Promise<AlignWardsPipelineResult> {
+  async alignWardsWithConvex(apply: boolean, districtId: string): Promise<AlignWardsPipelineResult> {
     const mode = apply ? "apply" : "dry-run"
-    this.logger.log(`alignWardsWithConvex start mode=${mode}`)
+    this.logger.log(`alignWardsWithConvex start mode=${mode} districtId=${districtId}`)
+
+    const scope = assertDistrictId(districtId)
+    const { ulbIds, ulbCodes } = await this.getDistrictUlbAllowlist(scope)
 
     try {
-      const dedupe = await this.dedupeWards(apply)
-      const sync = await this.syncWardsFromConvex(apply, { skipPreDedupe: true })
-      const orphans = await this.remapOrphanedSurveys(apply)
-      const cleanup = await this.cleanupEmptyDuplicateStates(apply)
+      const dedupe = await this.dedupeWards(apply, undefined, ulbIds)
+      const sync = await this.syncWardsFromConvex(apply, { skipPreDedupe: true, ulbCodes })
+      const orphans = await this.remapOrphanedSurveys(apply, ulbIds)
+      // cleanupEmptyDuplicateStates is global — never run during Phase 1 scoped align.
+      const cleanup: EmptyStateCleanupResult = { mode, deleted: [], skipped: [] }
 
       const mismatchedUlbs = sync.wardCountMismatches
-      const nestUlbCount = await this.prisma.db.ulb.count()
+      const nestUlbCount = ulbIds.length
       const matchedUlbCount = Math.max(0, nestUlbCount - mismatchedUlbs.length)
 
       const ok = mismatchedUlbs.length === 0 && sync.conflicts.length === 0 && sync.missingUlbs.length === 0
 
       this.logger.log(
-        `alignWardsWithConvex done mode=${mode} ok=${ok} mismatches=${mismatchedUlbs.length} conflicts=${sync.conflicts.length} orphanRemapped=${orphans.remapped}`
+        `alignWardsWithConvex done mode=${mode} districtId=${scope} ok=${ok} mismatches=${mismatchedUlbs.length} conflicts=${sync.conflicts.length} orphanRemapped=${orphans.remapped}`
       )
 
       return {

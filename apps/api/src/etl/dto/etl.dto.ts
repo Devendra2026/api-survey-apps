@@ -41,6 +41,11 @@ export class AlignWardsDto {
   @IsBoolean()
   apply!: boolean
 
+  /** District to scope the ward align run to. */
+  @IsNotEmpty()
+  @IsString()
+  districtId!: string
+
   @IsOptional()
   @IsString()
   ulbCode?: string

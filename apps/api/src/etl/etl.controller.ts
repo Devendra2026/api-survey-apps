@@ -67,23 +67,27 @@ export class EtlController {
       "One-click pipeline: dedupe → sync wards from Convex → cleanup empty UP shells → verify counts (dry-run or apply)",
   })
   alignWardsWithConvex(@Body() body: AlignWardsDto) {
-    return this.wardAlign.alignWardsWithConvex(body.apply)
+    return this.wardAlign.alignWardsWithConvex(body.apply, body.districtId)
   }
 
   @Post("dedupe-wards")
   @RequirePermission(PERMISSIONS.ETL_MANAGE)
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @ApiOperation({ summary: "Dedupe Nest wards per ULB by normalized ward number (dry-run or apply)" })
-  dedupeWards(@Body() body: AlignWardsDto) {
-    return this.wardAlign.dedupeWards(body.apply, body.ulbCode)
+  async dedupeWards(@Body() body: AlignWardsDto) {
+    const ulbIds = body.districtId ? (await this.wardAlign.getDistrictUlbAllowlist(body.districtId)).ulbIds : undefined
+    return this.wardAlign.dedupeWards(body.apply, body.ulbCode, ulbIds)
   }
 
   @Post("sync-wards-from-convex")
   @RequirePermission(PERMISSIONS.ETL_MANAGE)
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @ApiOperation({ summary: "Upsert Nest wards from Convex ward catalog (dry-run or apply)" })
-  syncWardsFromConvex(@Body() body: AlignWardsDto) {
-    return this.wardAlign.syncWardsFromConvex(body.apply)
+  async syncWardsFromConvex(@Body() body: AlignWardsDto) {
+    const ulbCodes = body.districtId
+      ? (await this.wardAlign.getDistrictUlbAllowlist(body.districtId)).ulbCodes
+      : undefined
+    return this.wardAlign.syncWardsFromConvex(body.apply, { ulbCodes })
   }
 
   @Post("cleanup-empty-duplicate-states")

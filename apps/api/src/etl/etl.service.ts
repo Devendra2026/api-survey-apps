@@ -8,7 +8,6 @@ import {
 } from "@nestjs/common"
 import { ConfigService } from "@nestjs/config"
 import { MigrationJobType, QcStatus } from "@workspace/database"
-import { RefreshPendingDto } from "./dto/etl.dto.js"
 import {
   assertDistrictId,
   ConvexEtlHttpError,
@@ -23,6 +22,7 @@ import {
 import { randomUUID } from "node:crypto"
 import { JobsService } from "../jobs/jobs.service.js"
 import { PrismaService } from "../prisma/prisma.service.js"
+import { RefreshPendingDto } from "./dto/etl.dto.js"
 
 export interface EtlPreflightResult {
   ok: boolean

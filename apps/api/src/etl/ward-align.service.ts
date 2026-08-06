@@ -739,7 +739,67 @@ export class WardAlignService {
   }
 
   /**
-   * One-shot pipeline: dedupe → sync (no double-dedupe) → cleanup empty UP shells → verify counts.
+   * After Align creates replacement wards / soft-deletes dupes, surveys may still
+   * reference inactive ward IDs. Remap them onto the active ward with the same
+   * normalized number in that ULB so Command Center / QC ward filters work.
+   */
+  async remapOrphanedSurveys(apply: boolean): Promise<{ surveyed: number; remapped: number; groups: number }> {
+    const activeWards = await this.prisma.db.ward.findMany({
+      where: { deletedAt: null, status: "ACTIVE" },
+      select: { id: true, ulbId: true, wardNumber: true },
+    })
+    const activeByUlbNorm = new Map<string, string>()
+    for (const w of activeWards) {
+      const norm = normalizeWardNumber(w.wardNumber)
+      if (!norm) continue
+      const key = `${w.ulbId}:${norm}`
+      if (!activeByUlbNorm.has(key)) activeByUlbNorm.set(key, w.id)
+    }
+
+    const inactiveWards = await this.prisma.db.ward.findMany({
+      where: { OR: [{ deletedAt: { not: null } }, { status: "DISABLED" }] },
+      select: { id: true, ulbId: true, wardNumber: true },
+    })
+
+    type RemapOp = { fromId: string; intoId: string; wardNumber: string }
+    const ops: RemapOp[] = []
+    for (const w of inactiveWards) {
+      const norm = normalizeWardNumber(w.wardNumber)
+      if (!norm) continue
+      const intoId = activeByUlbNorm.get(`${w.ulbId}:${norm}`)
+      if (!intoId || intoId === w.id) continue
+      ops.push({ fromId: w.id, intoId, wardNumber: norm })
+    }
+
+    let remapped = 0
+    let surveyed = 0
+    if (!apply) {
+      for (const op of ops) {
+        const count = await this.prisma.db.survey.count({
+          where: { wardId: op.fromId, deletedAt: null },
+        })
+        surveyed += count
+      }
+      return { surveyed, remapped: 0, groups: ops.length }
+    }
+
+    for (const op of ops) {
+      const result = await this.prisma.db.survey.updateMany({
+        where: { wardId: op.fromId, deletedAt: null },
+        data: { wardId: op.intoId, wardNumber: op.wardNumber },
+      })
+      remapped += result.count
+      surveyed += result.count
+    }
+
+    if (remapped > 0) {
+      this.logger.log(`remapOrphanedSurveys: remapped=${remapped} from ${ops.length} inactive ward(s)`)
+    }
+    return { surveyed, remapped, groups: ops.length }
+  }
+
+  /**
+   * One-shot pipeline: dedupe → sync (no double-dedupe) → orphan remap → cleanup empty UP shells → verify counts.
    * Dry-run when apply=false; writes when apply=true.
    */
   async alignWardsWithConvex(apply: boolean): Promise<AlignWardsPipelineResult> {
@@ -749,6 +809,7 @@ export class WardAlignService {
     try {
       const dedupe = await this.dedupeWards(apply)
       const sync = await this.syncWardsFromConvex(apply, { skipPreDedupe: true })
+      const orphans = await this.remapOrphanedSurveys(apply)
       const cleanup = await this.cleanupEmptyDuplicateStates(apply)
 
       const mismatchedUlbs = sync.wardCountMismatches
@@ -758,7 +819,7 @@ export class WardAlignService {
       const ok = mismatchedUlbs.length === 0 && sync.conflicts.length === 0 && sync.missingUlbs.length === 0
 
       this.logger.log(
-        `alignWardsWithConvex done mode=${mode} ok=${ok} mismatches=${mismatchedUlbs.length} conflicts=${sync.conflicts.length}`
+        `alignWardsWithConvex done mode=${mode} ok=${ok} mismatches=${mismatchedUlbs.length} conflicts=${sync.conflicts.length} orphanRemapped=${orphans.remapped}`
       )
 
       return {
@@ -768,7 +829,7 @@ export class WardAlignService {
           dedupe: {
             duplicateGroups: dedupe.duplicateGroups,
             wardsSoftDeleted: dedupe.wardsSoftDeleted,
-            surveysRemapped: dedupe.surveysRemapped,
+            surveysRemapped: dedupe.surveysRemapped + orphans.remapped,
             samples: dedupe.samples,
           },
           sync: {

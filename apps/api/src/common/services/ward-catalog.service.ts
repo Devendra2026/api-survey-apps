@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common"
+import { sortWardsByNumberAsc } from "@workspace/validation"
 import { PrismaService } from "../../prisma/prisma.service.js"
 import type { AuthenticatedUser } from "../interfaces/authenticated-user.interface.js"
 import { resolveTenantScope } from "../utils/tenant-scope.util.js"
@@ -19,13 +20,13 @@ export class WardCatalogService {
    *
    * Both Command Centers list wards from this catalog rather than from survey rows,
    * so wards with no surveys yet still render (with zeroed metrics).
+   * Order is numeric ascending (`2` before `10`), not string lexicographic.
    */
   async listScopedWards(user: AuthenticatedUser, ulbId: string): Promise<ScopedWard[]> {
     const [catalog, ulb] = await Promise.all([
       this.prisma.db.ward.findMany({
         where: { ulbId, status: "ACTIVE", deletedAt: null },
         select: { id: true, wardName: true, wardNumber: true },
-        orderBy: { wardNumber: "asc" },
       }),
       this.prisma.db.ulb.findUnique({
         where: { id: ulbId },
@@ -36,18 +37,26 @@ export class WardCatalogService {
     if (!ulb || catalog.length === 0) return []
 
     const scope = resolveTenantScope(user.tenantRoles)
-    if (scope.isGlobal) return catalog
-
-    if (scope.wardIds.length) {
+    let scoped: ScopedWard[]
+    if (scope.isGlobal) {
+      scoped = catalog
+    } else if (scope.wardIds.length) {
       const ownWards = catalog.filter((ward) => scope.wardIds.includes(ward.id))
-      if (ownWards.length) return ownWards
+      scoped = ownWards.length
+        ? ownWards
+        : scope.ulbIds.includes(ulbId) ||
+            scope.districtIds.includes(ulb.districtId) ||
+            scope.stateIds.includes(ulb.district.stateId)
+          ? catalog
+          : []
+    } else {
+      const canSeeUlb =
+        scope.ulbIds.includes(ulbId) ||
+        scope.districtIds.includes(ulb.districtId) ||
+        scope.stateIds.includes(ulb.district.stateId)
+      scoped = canSeeUlb ? catalog : []
     }
 
-    const canSeeUlb =
-      scope.ulbIds.includes(ulbId) ||
-      scope.districtIds.includes(ulb.districtId) ||
-      scope.stateIds.includes(ulb.district.stateId)
-
-    return canSeeUlb ? catalog : []
+    return sortWardsByNumberAsc(scoped)
   }
 }

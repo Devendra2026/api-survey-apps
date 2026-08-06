@@ -32,3 +32,23 @@ export function wardNumbersMatch(a: string, b: string): boolean {
   if (left === right) return true
   return normalizeWardNumber(left) === normalizeWardNumber(right)
 }
+
+/**
+ * Numeric ascending compare for ward numbers (`"2"` before `"10"`, `"W02"` ≡ `"2"`).
+ * Non-numeric / empty values sort after numbered wards, then by normalized string.
+ */
+export function compareWardNumbersAsc(a: string, b: string): number {
+  const na = normalizeWardNumber(a)
+  const nb = normalizeWardNumber(b)
+  const ia = /^\d+$/.test(na) ? Number.parseInt(na, 10) : null
+  const ib = /^\d+$/.test(nb) ? Number.parseInt(nb, 10) : null
+  if (ia != null && ib != null && ia !== ib) return ia - ib
+  if (ia != null && ib == null) return -1
+  if (ia == null && ib != null) return 1
+  return na.localeCompare(nb, undefined, { numeric: true, sensitivity: "base" })
+}
+
+/** Stable numeric ascending sort of ward-like rows. */
+export function sortWardsByNumberAsc<T extends { wardNumber: string }>(wards: T[]): T[] {
+  return [...wards].sort((left, right) => compareWardNumbersAsc(left.wardNumber, right.wardNumber))
+}

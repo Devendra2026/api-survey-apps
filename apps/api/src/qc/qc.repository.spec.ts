@@ -420,7 +420,13 @@ describe("QcRepository.getWards", () => {
     const groupBy = jest.fn().mockResolvedValue([] as never)
     const prisma = {
       db: {
-        survey: { groupBy },
+        survey: {
+          groupBy,
+          findMany: jest.fn().mockResolvedValue([] as never),
+        },
+        ward: {
+          findMany: jest.fn().mockResolvedValue([] as never),
+        },
       },
     }
     const repo = new QcRepository(prisma as never, { listScopedWards } as never)
@@ -442,8 +448,8 @@ describe("QcRepository.getWards", () => {
     expect(result[0]?.wardId).toBe("ward-2")
     expect(groupBy).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({
-          wardId: { in: ["ward-2"] },
+        where: expect.not.objectContaining({
+          wardId: expect.anything(),
         }),
       })
     )

@@ -1,6 +1,5 @@
 import { Injectable } from "@nestjs/common"
 import type { Prisma, QcStatus, SurveyStatus } from "@workspace/database"
-import { normalizeWardNumber } from "@workspace/validation"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { WardCatalogService } from "../common/services/ward-catalog.service.js"
 import {
@@ -11,6 +10,7 @@ import {
   type SurveyBucketTotals,
 } from "../common/utils/survey-bucket.util.js"
 import { buildTenantWhere, resolveTenantScope } from "../common/utils/tenant-scope.util.js"
+import { resolveWardIdAliases } from "../common/utils/ward-survey-alias.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import type { CommandCenterFiltersDto } from "./dto/command-center-filters.dto.js"
 
@@ -126,61 +126,6 @@ export class CommandCenterRepository {
     }
   }
 
-  /**
-   * Map soft-deleted / disabled ward IDs → active ward ID in the same ULB when
-   * normalized ward numbers match. After Align created replacement wards (or
-   * soft-deleted dupes without remapping), surveys still point at dead IDs while
-   * the Command Center cards are the active catalog — without this alias map
-   * every ward card shows 0 while ULB KPIs stay correct.
-   */
-  private async resolveWardIdAliases(
-    ulbId: string,
-    activeWards: Array<{ id: string; wardNumber: string }>
-  ): Promise<Map<string, string>> {
-    const activeByNorm = new Map<string, string>()
-    for (const ward of activeWards) {
-      const norm = normalizeWardNumber(ward.wardNumber)
-      if (norm && !activeByNorm.has(norm)) activeByNorm.set(norm, ward.id)
-    }
-
-    const inactive = await this.prisma.db.ward.findMany({
-      where: {
-        ulbId,
-        OR: [{ deletedAt: { not: null } }, { status: "DISABLED" }],
-      },
-      select: { id: true, wardNumber: true },
-    })
-
-    const aliasToActive = new Map<string, string>()
-    for (const ward of inactive) {
-      const norm = normalizeWardNumber(ward.wardNumber)
-      const activeId = norm ? activeByNorm.get(norm) : undefined
-      if (activeId && activeId !== ward.id) {
-        aliasToActive.set(ward.id, activeId)
-      }
-    }
-
-    // Also alias any survey.wardId still pointing outside the active set by
-    // reading survey.wardNumber (covers hard-to-match inactive spellings).
-    const strayIds = await this.prisma.db.survey.findMany({
-      where: {
-        ulbId,
-        deletedAt: null,
-        wardId: { notIn: [...activeWards.map((w) => w.id), ...aliasToActive.keys()] },
-      },
-      select: { wardId: true, wardNumber: true },
-      distinct: ["wardId"],
-    })
-    for (const row of strayIds) {
-      if (!row.wardId || aliasToActive.has(row.wardId)) continue
-      const fromSurvey = row.wardNumber ? normalizeWardNumber(row.wardNumber) : ""
-      const activeId = fromSurvey ? activeByNorm.get(fromSurvey) : undefined
-      if (activeId) aliasToActive.set(row.wardId, activeId)
-    }
-
-    return aliasToActive
-  }
-
   async getWards(user: AuthenticatedUser, filters: CommandCenterFiltersDto) {
     const f = this.resolveFilters(filters)
     // Require municipality (ULB) for populated ward grid — empty state otherwise
@@ -190,7 +135,7 @@ export class CommandCenterRepository {
     if (wards.length === 0) return []
 
     const where = this.buildWhere(user, filters)
-    const aliasToActive = await this.resolveWardIdAliases(f.ulbId, wards)
+    const aliasToActive = await resolveWardIdAliases(this.prisma, f.ulbId, wards)
     const activeIdSet = new Set(wards.map((w) => w.id))
 
     // Do not restrict to active ward IDs: after Align, surveys often still point at

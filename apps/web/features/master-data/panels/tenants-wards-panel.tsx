@@ -522,6 +522,10 @@ export function TenantsWardsPanel() {
               Merges wards that are the same number (for example <strong>2</strong> and <strong>W02</strong>), moves
               surveys onto the keeper ward, then syncs names/codes from Convex. Empty UP shells (01 / UP) may be cleaned
               up. This does <strong>not</strong> import surveys — use Sync surveys for that.
+              <br />
+              <br />
+              Ask the QC team to finish the open review (or pause Start QC) before running, then hard-refresh Command
+              Center / QC after it completes so ward filters pick up remapped surveys.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common"
+import { sortWardsByNumberAsc } from "@workspace/validation"
 import { PrismaService } from "../prisma/prisma.service.js"
 
 @Injectable()
@@ -78,7 +79,6 @@ export class ConfigurationGeographyService {
   async listWardsForUlb(ulbId: string) {
     const wards = await this.prisma.db.ward.findMany({
       where: { ulbId, deletedAt: null },
-      orderBy: { wardNumber: "asc" },
       select: {
         id: true,
         wardNumber: true,
@@ -88,7 +88,7 @@ export class ConfigurationGeographyService {
       },
     })
 
-    return wards.map((ward) => ({
+    return sortWardsByNumberAsc(wards).map((ward) => ({
       id: ward.id,
       type: "ward" as const,
       name: ward.wardName,

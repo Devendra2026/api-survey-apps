@@ -21,6 +21,7 @@ import {
   surveyIdentityConflictMessage,
 } from "../common/utils/survey-identity.util.js"
 import { buildTenantWhere, resolveTenantScope } from "../common/utils/tenant-scope.util.js"
+import { resolveWardIdAliases } from "../common/utils/ward-survey-alias.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import type { QcFiltersDto } from "./dto/qc-filters.dto.js"
 import type { QcRegistryQueryDto } from "./dto/qc-registry.dto.js"
@@ -282,21 +283,38 @@ export class QcRepository {
     }
   }
 
-  private pendingQueueWhere(user: AuthenticatedUser, wardId: string): Prisma.SurveyWhereInput {
+  private pendingQueueWhere(user: AuthenticatedUser, wardIds: string | string[]): Prisma.SurveyWhereInput {
     const scope = resolveTenantScope(user.tenantRoles)
     const tenantWhere = buildTenantWhere(scope)
+    const ids = Array.isArray(wardIds) ? wardIds : [wardIds]
     return {
       deletedAt: null,
-      wardId,
+      wardId: ids.length === 1 ? ids[0] : { in: ids },
       surveyStatus: "SUBMITTED",
       qcStatus: "PENDING",
       ...(tenantWhere ?? {}),
     }
   }
 
+  /** Active ward + soft-deleted IDs that still hold its pending QC surveys. */
+  private async wardIdsForQueue(wardId: string): Promise<string[]> {
+    const ward = await this.prisma.db.ward.findUnique({
+      where: { id: wardId },
+      select: { id: true, ulbId: true, wardNumber: true },
+    })
+    if (!ward) return [wardId]
+    const aliases = await resolveWardIdAliases(this.prisma, ward.ulbId, [{ id: ward.id, wardNumber: ward.wardNumber }])
+    const ids = new Set<string>([wardId])
+    for (const [fromId, intoId] of aliases) {
+      if (intoId === wardId) ids.add(fromId)
+    }
+    return [...ids]
+  }
+
   async findQueueFirst(user: AuthenticatedUser, wardId: string) {
+    const wardIds = await this.wardIdsForQueue(wardId)
     const row = await this.prisma.db.survey.findFirst({
-      where: this.pendingQueueWhere(user, wardId),
+      where: this.pendingQueueWhere(user, wardIds),
       select: { id: true, parcelNumber: true },
       orderBy: [{ parcelNumber: { sort: "asc", nulls: "last" } }, { id: "asc" }],
     })
@@ -306,6 +324,7 @@ export class QcRepository {
   async findQueueNeighbors(user: AuthenticatedUser, wardId: string, surveyId: string) {
     const scope = resolveTenantScope(user.tenantRoles)
     const tenantWhere = buildTenantWhere(scope)
+    const wardIds = await this.wardIdsForQueue(wardId)
 
     const current = await this.prisma.db.survey.findFirst({
       where: { id: surveyId, deletedAt: null, ...(tenantWhere ?? {}) },
@@ -314,12 +333,12 @@ export class QcRepository {
     if (!current) {
       throw new NotFoundException(`Survey ${surveyId} not found`)
     }
-    if (current.wardId !== wardId) {
+    if (!wardIds.includes(current.wardId)) {
       throw new BadRequestException("Survey does not belong to the active ward")
     }
 
     const queue = await this.prisma.db.survey.findMany({
-      where: this.pendingQueueWhere(user, wardId),
+      where: this.pendingQueueWhere(user, wardIds),
       select: { id: true, parcelNumber: true },
       orderBy: [{ parcelNumber: { sort: "asc", nulls: "last" } }, { id: "asc" }],
     })
@@ -356,9 +375,10 @@ export class QcRepository {
       throw new BadRequestException("Parcel number is required")
     }
     const variants = parcelNumberVariants(normalized)
+    const wardIds = await this.wardIdsForQueue(wardId)
     const row = await this.prisma.db.survey.findFirst({
       where: {
-        ...this.pendingQueueWhere(user, wardId),
+        ...this.pendingQueueWhere(user, wardIds),
         OR: [{ parcelNumber: { in: variants } }, { parcelNumber: normalized }],
       },
       select: { id: true, parcelNumber: true },
@@ -419,10 +439,15 @@ export class QcRepository {
     }
     if (wards.length === 0) return []
 
-    const where = this.buildWhere(user, filters)
+    // Aggregate at ULB scope, then roll orphan wardIds onto active cards.
+    // Dropping wardId from where avoids missing surveys still on soft-deleted IDs.
+    const where = this.buildWhere(user, { ...filters, wardId: undefined, ward: undefined })
+    const aliasToActive = await resolveWardIdAliases(this.prisma, f.ulbId, wards)
+    const activeIdSet = new Set(wards.map((ward) => ward.id))
+
     const statusRows = await this.prisma.db.survey.groupBy({
       by: ["wardId", "surveyStatus", "qcStatus"],
-      where: { ...where, wardId: { in: wards.map((ward) => ward.id) } },
+      where,
       _count: { _all: true },
     })
 
@@ -430,8 +455,18 @@ export class QcRepository {
     for (const ward of wards) {
       bucketsByWard.set(ward.id, emptyBucketTotals())
     }
+
+    const resolveActiveId = (wardId: string | null): string | null => {
+      if (!wardId) return null
+      if (activeIdSet.has(wardId)) return wardId
+      return aliasToActive.get(wardId) ?? null
+    }
+
     for (const row of statusRows) {
-      const current = bucketsByWard.get(row.wardId)
+      const activeId = resolveActiveId(row.wardId)
+      if (!activeId) continue
+      if (f.wardId && activeId !== f.wardId) continue
+      const current = bucketsByWard.get(activeId)
       if (!current) continue
       addSurveyRowToBuckets(current, row)
     }

@@ -37,8 +37,56 @@ export function startEtlValidate() {
   return apiPost<EtlStartResult>("/etl/validate", {})
 }
 
-export function startEtlRefreshPending(batchSize?: number) {
-  return apiPost<EtlStartResult>("/etl/refresh-pending", batchSize ? { batchSize } : {})
+export function startEtlRefreshPending(opts: { districtId: string; apply: boolean; batchSize?: number }) {
+  return apiPost<{
+    mode: "dry-run" | "apply"
+    districtId: string
+    districtName: string
+    wouldUpdate: number
+    wouldSkipTerminal: number
+    jobId: string | null
+    correlationId?: string
+  }>("/etl/refresh-pending", opts)
+}
+
+export type ReconcileResult = {
+  districtId: string
+  districtName: string
+  totals: {
+    nestSurveys: number
+    withLegacyId: number
+    ok: number
+    statusMismatch: number
+    wardMismatch: number
+    onlyNest: number
+    onlyConvexSampled: number
+  }
+  byUlb: Array<{
+    ulbCode: string
+    ulbName: string
+    ok: number
+    statusMismatch: number
+    wardMismatch: number
+    onlyNest: number
+  }>
+  samples: {
+    statusMismatch: Array<{
+      legacySurveyId: string
+      nestStatus: string
+      convexStatus: string
+      wardNo: string
+    }>
+    wardMismatch: Array<{
+      legacySurveyId: string
+      nestWard: string
+      convexWard: string
+    }>
+    onlyNest: Array<{ surveyId: string; legacySurveyId: string | null }>
+  }
+}
+
+export function reconcileWithConvex(districtId: string) {
+  return apiPost<ReconcileResult>("/etl/reconcile-with-convex", { districtId })
 }
 
 export type WardDedupeResult = {
@@ -73,12 +121,16 @@ export type EmptyStateCleanupResult = {
   skipped: Array<{ id: string; code: string; name: string; reason: string }>
 }
 
-export function dedupeWards(apply: boolean, ulbCode?: string) {
-  return apiPost<WardDedupeResult>("/etl/dedupe-wards", { apply, ...(ulbCode ? { ulbCode } : {}) })
+export function dedupeWards(apply: boolean, ulbCode?: string, districtId?: string) {
+  return apiPost<WardDedupeResult>("/etl/dedupe-wards", {
+    apply,
+    ...(ulbCode ? { ulbCode } : {}),
+    ...(districtId ? { districtId } : {}),
+  })
 }
 
-export function syncWardsFromConvex(apply: boolean) {
-  return apiPost<WardSyncResult>("/etl/sync-wards-from-convex", { apply })
+export function syncWardsFromConvex(apply: boolean, districtId?: string) {
+  return apiPost<WardSyncResult>("/etl/sync-wards-from-convex", { apply, ...(districtId ? { districtId } : {}) })
 }
 
 export function cleanupEmptyDuplicateStates(apply: boolean) {
@@ -116,6 +168,6 @@ export type AlignWardsPipelineResult = {
   }
 }
 
-export function alignWardsWithConvex(apply: boolean) {
-  return apiPost<AlignWardsPipelineResult>("/etl/align-wards-with-convex", { apply })
+export function alignWardsWithConvex(apply: boolean, districtId: string) {
+  return apiPost<AlignWardsPipelineResult>("/etl/align-wards-with-convex", { apply, districtId })
 }

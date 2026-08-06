@@ -8,6 +8,7 @@ import {
   useEtlJobs,
   useEtlReport,
   useEtlStatus,
+  useReconcileWithConvex,
   useRetryEtlFailed,
   useStartEtlFull,
   useStartEtlIncremental,
@@ -18,12 +19,14 @@ import {
 import type {
   AlignWardsPipelineResult,
   EmptyStateCleanupResult,
+  ReconcileResult,
   WardDedupeResult,
   WardSyncResult,
 } from "@/features/etl/lib/etl-api"
 import { isEtlJobActive, type EtlMigrationJob } from "@/features/etl/lib/types"
 import { getApiErrorMessage } from "@/lib/api/client"
 import { useAuthStore } from "@/stores/app-store"
+import { useDistricts, useStates } from "@/hooks/use-api"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card"
@@ -35,8 +38,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@workspace/ui/components/dialog"
+import { Label } from "@workspace/ui/components/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
 import { GitMerge, MapPin, RefreshCw, RotateCcw, ShieldCheck, Trash2, Upload } from "lucide-react"
-import { useState, type ReactNode } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import { toast } from "sonner"
 
 function formatWhen(value: string | null | undefined) {
@@ -145,8 +150,37 @@ export function EtlConsole() {
   const [cleanupResult, setCleanupResult] = useState<EmptyStateCleanupResult | null>(null)
   const [pipelineResult, setPipelineResult] = useState<AlignWardsPipelineResult | null>(null)
   const { data: report } = useEtlReport(selectedJobId)
+  const reconcile = useReconcileWithConvex()
+  const [reconcileResult, setReconcileResult] = useState<ReconcileResult | null>(null)
+  const [refreshDryRunResult, setRefreshDryRunResult] = useState<{
+    districtId: string
+    districtName: string
+    wouldUpdate: number
+  } | null>(null)
+  const [refreshApplyConfirm, setRefreshApplyConfirm] = useState(false)
 
-  const alignBusy = dedupeWards.isPending || syncWards.isPending || cleanupStates.isPending || alignPipeline.isPending
+  const { data: states } = useStates({ limit: 100 })
+  const stateId = useMemo(() => {
+    const up = states?.items?.find(
+      (s) => s.code.toLowerCase() === "up" || s.name.toLowerCase().includes("uttar pradesh")
+    )
+    return up?.id ?? null
+  }, [states])
+  const { data: districts } = useDistricts(stateId || undefined)
+  const districtItems = useMemo(() => districts?.items ?? [], [districts?.items])
+  const defaultDistrictId = useMemo(() => {
+    const baghpat = districtItems.find((d) => d.name.toLowerCase().includes("baghpat"))
+    return baghpat?.id ?? null
+  }, [districtItems])
+  const [userDistrictId, setUserDistrictId] = useState<string | null>(null)
+  const selectedDistrictId = userDistrictId ?? defaultDistrictId
+
+  const alignBusy =
+    dedupeWards.isPending ||
+    syncWards.isPending ||
+    cleanupStates.isPending ||
+    alignPipeline.isPending ||
+    reconcile.isPending
   const busy =
     isEtlJobActive(status?.activeJob?.status) ||
     startIncremental.isPending ||
@@ -201,19 +235,54 @@ export function EtlConsole() {
     }
   }
 
-  const runRefreshPending = async () => {
+  const runReconcile = async () => {
+    if (!selectedDistrictId) {
+      toast.error("Select a district before reconciling")
+      return
+    }
     try {
-      const result = await startRefreshPending.mutateAsync(undefined)
-      toast.success(`Refresh pending queued (${result.jobId.slice(0, 8)}…)`)
-      await Promise.all([refetchStatus(), refetchJobs()])
+      const result = await reconcile.mutateAsync(selectedDistrictId)
+      setReconcileResult(result)
+      toast.success(
+        `Reconcile complete: ${result.totals.ok} OK · ${result.totals.statusMismatch} status mismatch · ${result.totals.wardMismatch} ward mismatch · ${result.totals.onlyNest} only in Nest`
+      )
+    } catch (error) {
+      toast.error(getApiErrorMessage(error))
+    }
+  }
+
+  const runRefreshPending = async (apply: boolean) => {
+    if (!selectedDistrictId) {
+      toast.error("Select a district before refreshing pending surveys")
+      return
+    }
+    try {
+      const result = await startRefreshPending.mutateAsync({ districtId: selectedDistrictId, apply })
+      if (apply) {
+        toast.success(`Refresh pending queued (${result.jobId?.slice(0, 8)}…)`)
+        setRefreshDryRunResult(null)
+        setRefreshApplyConfirm(false)
+        await Promise.all([refetchStatus(), refetchJobs()])
+      } else {
+        setRefreshDryRunResult({
+          districtId: result.districtId,
+          districtName: result.districtName,
+          wouldUpdate: result.wouldUpdate,
+        })
+        toast.success(`Dry-run: ${result.wouldUpdate} pending surveys would refresh in ${result.districtName}`)
+      }
     } catch (error) {
       toast.error(getApiErrorMessage(error))
     }
   }
 
   const runDedupe = async (apply: boolean) => {
+    if (!selectedDistrictId) {
+      toast.error("Select a district before running dedupe")
+      return
+    }
     try {
-      const result = await dedupeWards.mutateAsync({ apply })
+      const result = await dedupeWards.mutateAsync({ apply, districtId: selectedDistrictId })
       setDedupeResult(result)
       setAlignApplyConfirm(null)
       toast.success(
@@ -227,8 +296,12 @@ export function EtlConsole() {
   }
 
   const runSyncWards = async (apply: boolean) => {
+    if (!selectedDistrictId) {
+      toast.error("Select a district before running ward sync")
+      return
+    }
     try {
-      const result = await syncWards.mutateAsync(apply)
+      const result = await syncWards.mutateAsync({ apply, districtId: selectedDistrictId })
       setSyncResult(result)
       setAlignApplyConfirm(null)
       toast.success(
@@ -257,8 +330,12 @@ export function EtlConsole() {
   }
 
   const runAlignPipeline = async (apply: boolean) => {
+    if (!selectedDistrictId) {
+      toast.error("Select a district before aligning wards")
+      return
+    }
     try {
-      const result = await alignPipeline.mutateAsync(apply)
+      const result = await alignPipeline.mutateAsync({ apply, districtId: selectedDistrictId })
       setPipelineResult(result)
       setAlignApplyConfirm(null)
       if (apply) {
@@ -327,16 +404,6 @@ export function EtlConsole() {
           </Button>
           <Button
             type="button"
-            variant="outline"
-            className="cursor-pointer"
-            disabled={busy}
-            onClick={() => void runRefreshPending()}
-          >
-            <GitMerge className="size-4" aria-hidden />
-            Refresh Pending
-          </Button>
-          <Button
-            type="button"
             variant="destructive"
             className="cursor-pointer"
             disabled={busy}
@@ -370,6 +437,132 @@ export function EtlConsole() {
 
       <Card>
         <CardHeader className="pb-3">
+          <CardTitle className="text-base">Phase 1: district-scoped safe sync</CardTitle>
+          <CardDescription>
+            Reconcile, align wards, and refresh PENDING surveys are scoped to a single district. Phase 1 targets Baghpat
+            only.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 sm:flex sm:items-end">
+            <div className="grid gap-2 sm:w-72">
+              <Label htmlFor="phase1-district">District</Label>
+              <Select value={selectedDistrictId ?? ""} onValueChange={setUserDistrictId}>
+                <SelectTrigger id="phase1-district">
+                  <SelectValue placeholder="Select district" />
+                </SelectTrigger>
+                <SelectContent>
+                  {districtItems.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              Phase 1: select Baghpat only — Etah QC is live; do not select Etah until off-hours.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="cursor-pointer"
+              disabled={busy || !selectedDistrictId}
+              onClick={() => void runReconcile()}
+            >
+              <ShieldCheck className="size-4" aria-hidden />
+              Reconcile
+            </Button>
+            <Button
+              type="button"
+              className="cursor-pointer"
+              disabled={busy || !selectedDistrictId}
+              onClick={() => void runAlignPipeline(false)}
+            >
+              <MapPin className="size-4" aria-hidden />
+              Align Wards (dry-run)
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="cursor-pointer"
+              disabled={busy || !selectedDistrictId}
+              onClick={() => void runRefreshPending(false)}
+            >
+              <GitMerge className="size-4" aria-hidden />
+              Refresh PENDING (dry-run)
+            </Button>
+          </div>
+
+          {reconcileResult ? (
+            <AlignResultPanel
+              title={`Reconcile · ${reconcileResult.districtName}`}
+              onClose={() => setReconcileResult(null)}
+            >
+              <p className="text-muted-foreground">
+                Nest surveys: {reconcileResult.totals.nestSurveys} · with legacy id:{" "}
+                {reconcileResult.totals.withLegacyId} · OK: {reconcileResult.totals.ok} · status mismatch:{" "}
+                {reconcileResult.totals.statusMismatch} · ward mismatch: {reconcileResult.totals.wardMismatch} · only
+                Nest: {reconcileResult.totals.onlyNest}
+              </p>
+              {reconcileResult.byUlb.length > 0 ? (
+                <ul className="mt-2 max-h-40 list-inside list-disc overflow-y-auto text-xs text-muted-foreground">
+                  {reconcileResult.byUlb.map((u) => (
+                    <li key={u.ulbCode}>
+                      {u.ulbName ?? u.ulbCode}: OK {u.ok} · status {u.statusMismatch} · ward {u.wardMismatch} · only
+                      Nest {u.onlyNest}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {reconcileResult.samples.statusMismatch.length > 0 ? (
+                <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                  Sample status mismatches:{" "}
+                  {reconcileResult.samples.statusMismatch
+                    .slice(0, 5)
+                    .map((s) => s.legacySurveyId)
+                    .join(", ")}
+                </p>
+              ) : null}
+            </AlignResultPanel>
+          ) : null}
+
+          {refreshDryRunResult ? (
+            <AlignResultPanel
+              title={`Refresh PENDING · dry-run · ${refreshDryRunResult.districtName}`}
+              onClose={() => setRefreshDryRunResult(null)}
+            >
+              <p className="text-muted-foreground">
+                {refreshDryRunResult.wouldUpdate} pending surveys would be refreshed.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  className="cursor-pointer"
+                  disabled={busy || !selectedDistrictId}
+                  onClick={() => setRefreshApplyConfirm(true)}
+                >
+                  Apply Refresh PENDING
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="cursor-pointer"
+                  onClick={() => setRefreshDryRunResult(null)}
+                >
+                  Dismiss
+                </Button>
+              </div>
+            </AlignResultPanel>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
           <CardTitle className="text-base">Align geography</CardTitle>
           <CardDescription>
             Match Nest wards to the Convex catalog. Primary path runs dedupe → sync → cleanup empty UP shells → verify
@@ -377,18 +570,6 @@ export function EtlConsole() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              className="cursor-pointer"
-              disabled={busy}
-              onClick={() => void runAlignPipeline(false)}
-            >
-              <MapPin className="size-4" aria-hidden />
-              Align Wards with Convex
-            </Button>
-          </div>
-
           {pipelineResult ? (
             <AlignResultPanel
               title={`Align pipeline · ${pipelineResult.mode} · ${pipelineResult.ok ? "OK" : "needs attention"}`}
@@ -434,7 +615,7 @@ export function EtlConsole() {
                 type="button"
                 variant="outline"
                 className="cursor-pointer"
-                disabled={busy}
+                disabled={busy || !selectedDistrictId}
                 onClick={() => void runDedupe(false)}
               >
                 Dedupe (dry-run)
@@ -443,7 +624,7 @@ export function EtlConsole() {
                 type="button"
                 variant="outline"
                 className="cursor-pointer"
-                disabled={busy}
+                disabled={busy || !selectedDistrictId}
                 onClick={() => setAlignApplyConfirm("dedupe")}
               >
                 Dedupe (apply)
@@ -452,7 +633,7 @@ export function EtlConsole() {
                 type="button"
                 variant="outline"
                 className="cursor-pointer"
-                disabled={busy}
+                disabled={busy || !selectedDistrictId}
                 onClick={() => void runSyncWards(false)}
               >
                 Sync (dry-run)
@@ -461,7 +642,7 @@ export function EtlConsole() {
                 type="button"
                 variant="outline"
                 className="cursor-pointer"
-                disabled={busy}
+                disabled={busy || !selectedDistrictId}
                 onClick={() => setAlignApplyConfirm("sync")}
               >
                 Sync (apply)
@@ -698,6 +879,32 @@ export function EtlConsole() {
               }}
             >
               Apply
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={refreshApplyConfirm} onOpenChange={(open) => !open && setRefreshApplyConfirm(false)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Apply Refresh PENDING?</DialogTitle>
+            <DialogDescription>
+              This refreshes {refreshDryRunResult?.wouldUpdate ?? 0} Nest PENDING surveys in{" "}
+              {refreshDryRunResult?.districtName ?? "the selected district"} using Convex values (body, geo, survey
+              status). Admin QC status is never overwritten.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={() => setRefreshApplyConfirm(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="cursor-pointer"
+              disabled={startRefreshPending.isPending}
+              onClick={() => void runRefreshPending(true)}
+            >
+              Apply Refresh PENDING
             </Button>
           </DialogFooter>
         </DialogContent>

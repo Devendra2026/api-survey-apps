@@ -43,6 +43,18 @@ function statesToTreeNodes(items: Array<{ id: string; name: string; code: string
   }))
 }
 
+function findNodeById(tree: GeographyTreeNode[], id?: string): GeographyTreeNode | null {
+  if (!id) return null
+  for (const node of tree) {
+    if (node.id === id) return node
+    if (node.children?.length) {
+      const found = findNodeById(node.children, id)
+      if (found) return found
+    }
+  }
+  return null
+}
+
 export function TenantsWardsPanel() {
   const hasPermission = useAuthStore((s) => s.hasPermission)
   const tenantRoles = useAuthStore((s) => s.profile?.tenantRoles)
@@ -81,11 +93,25 @@ export function TenantsWardsPanel() {
   const loadError = treeError && statesError
 
   const stats = useMemo(() => computeGeoStats(tree), [tree])
+  const fixDistrictId = useMemo(() => {
+    if (!selected) return null
+    if (selected.type === "district") return selected.id
+    if (selected.type === "ulb") return selected.parentId ?? null
+    if (selected.type === "ward") {
+      const ulb = selected.parentId ? findNodeById(tree, selected.parentId) : null
+      return ulb?.parentId ?? null
+    }
+    return null
+  }, [selected, tree])
   const etlBusy = isEtlJobActive(etlStatus?.activeJob?.status) || startIncremental.isPending || alignWards.isPending
 
   const runFixDuplicateWards = async () => {
+    if (!fixDistrictId) {
+      toast.error("Select a district, ULB, or ward first")
+      return
+    }
     try {
-      const result = await alignWards.mutateAsync(true)
+      const result = await alignWards.mutateAsync({ apply: true, districtId: fixDistrictId })
       setFixDupesOpen(false)
       await invalidate()
       if (result.ok) {
@@ -238,7 +264,12 @@ export function TenantsWardsPanel() {
         <div className="flex flex-wrap items-center gap-2">
           {canEtl ? (
             <>
-              <Button type="button" className="cursor-pointer" disabled={etlBusy} onClick={() => setFixDupesOpen(true)}>
+              <Button
+                type="button"
+                className="cursor-pointer"
+                disabled={etlBusy || !fixDistrictId}
+                onClick={() => setFixDupesOpen(true)}
+              >
                 <GitMerge className="size-4" aria-hidden />
                 Remove duplicate wards
               </Button>

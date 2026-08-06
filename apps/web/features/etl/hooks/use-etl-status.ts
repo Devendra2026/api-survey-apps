@@ -7,6 +7,7 @@ import {
   getEtlReport,
   getEtlStatus,
   listEtlJobs,
+  reconcileWithConvex,
   retryEtlFailed,
   startEtlFull,
   startEtlIncremental,
@@ -109,20 +110,22 @@ export function useStartEtlValidate() {
 export function useStartEtlRefreshPending() {
   const invalidate = useInvalidateEtl()
   return useMutation({
-    mutationFn: (batchSize?: number) => startEtlRefreshPending(batchSize),
+    mutationFn: (opts: { districtId: string; apply: boolean; batchSize?: number }) => startEtlRefreshPending(opts),
     onSuccess: () => invalidate(),
   })
 }
 
 export function useDedupeWards() {
   return useMutation({
-    mutationFn: ({ apply, ulbCode }: { apply: boolean; ulbCode?: string }) => dedupeWards(apply, ulbCode),
+    mutationFn: ({ apply, ulbCode, districtId }: { apply: boolean; ulbCode?: string; districtId?: string }) =>
+      dedupeWards(apply, ulbCode, districtId),
   })
 }
 
 export function useSyncWardsFromConvex() {
   return useMutation({
-    mutationFn: (apply: boolean) => syncWardsFromConvex(apply),
+    mutationFn: ({ apply, districtId }: { apply: boolean; districtId?: string }) =>
+      syncWardsFromConvex(apply, districtId),
   })
 }
 
@@ -134,6 +137,13 @@ export function useCleanupEmptyDuplicateStates() {
 
 export function useAlignWardsWithConvex() {
   return useMutation({
-    mutationFn: (apply: boolean) => alignWardsWithConvex(apply),
+    mutationFn: ({ apply, districtId }: { apply: boolean; districtId: string }) =>
+      alignWardsWithConvex(apply, districtId),
+  })
+}
+
+export function useReconcileWithConvex() {
+  return useMutation({
+    mutationFn: (districtId: string) => reconcileWithConvex(districtId),
   })
 }

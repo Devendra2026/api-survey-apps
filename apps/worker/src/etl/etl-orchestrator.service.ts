@@ -25,6 +25,7 @@ import {
   WaterConnection,
 } from "@workspace/database"
 import {
+  assertDistrictId,
   ConvexHttpExtractor,
   DEFAULT_ETL_BATCH_SIZE,
   DEFAULT_ETL_MAX_RETRIES,
@@ -34,6 +35,7 @@ import {
   extensionFromMime,
   isFinalAttempt,
   isPermanentFailure,
+  isSurveyInDistrictScope,
   rebuildPhotoKeysWithExtension,
   remediationFor,
   shouldSkipSurvey,
@@ -87,12 +89,20 @@ export class EtlOrchestratorService {
       })
       const nestSurvey = await this.prisma.db.survey.findFirst({
         where: { legacySurveyId, deletedAt: null },
-        select: { id: true, qcStatus: true },
+        select: { id: true, qcStatus: true, districtId: true },
       })
 
       if (nestSurvey && (nestSurvey.qcStatus === QcStatus.APPROVED || nestSurvey.qcStatus === QcStatus.REJECTED)) {
         await this.appendLog(migrationJobId, "info", "Skipped: Nest QC already terminal", legacySurveyId, correlationId)
         return { outcome: "skipped", imagesUploaded: 0, imagesDownloaded: 0, missingImages: 0 }
+      }
+
+      if (payload.districtId) {
+        const scope = assertDistrictId(payload.districtId)
+        if (nestSurvey && !isSurveyInDistrictScope(nestSurvey.districtId, scope)) {
+          await this.appendLog(migrationJobId, "info", "Skipped: out of district scope", legacySurveyId, correlationId)
+          return { outcome: "skipped", imagesUploaded: 0, imagesDownloaded: 0, missingImages: 0 }
+        }
       }
 
       if (refreshPending) {
@@ -473,15 +483,17 @@ export class EtlOrchestratorService {
 
   /**
    * Cursor is an opaque Nest survey id offset for refresh-pending batches.
-   * Returns legacySurveyIds for Nest rows still PENDING QC.
+   * Returns legacySurveyIds for Nest rows still PENDING QC within the given district scope.
    */
-  async listPendingRefreshIds(cursor: string | null, batchSize = DEFAULT_ETL_BATCH_SIZE) {
+  async listPendingRefreshIds(cursor: string | null, batchSize = DEFAULT_ETL_BATCH_SIZE, districtId?: string) {
+    const scope = assertDistrictId(districtId)
     const take = Math.max(1, Math.min(batchSize, 500))
     const rows = await this.prisma.db.survey.findMany({
       where: {
         deletedAt: null,
         qcStatus: QcStatus.PENDING,
         legacySurveyId: { not: null },
+        districtId: scope,
         ...(cursor ? { id: { gt: cursor } } : {}),
       },
       orderBy: { id: "asc" },

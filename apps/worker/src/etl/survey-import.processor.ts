@@ -56,7 +56,7 @@ export class EtlSurveyImportProcessor extends WorkerHost {
     try {
       const page =
         payload.type === "REFRESH_PENDING" || payload.refreshPending
-          ? await this.orchestrator.listPendingRefreshIds(payload.cursor, payload.batchSize)
+          ? await this.orchestrator.listPendingRefreshIds(payload.cursor, payload.batchSize, payload.districtId)
           : await this.orchestrator.listBatchIds(payload.cursor, payload.batchSize)
       let enqueued = 0
 
@@ -67,6 +67,7 @@ export class EtlSurveyImportProcessor extends WorkerHost {
           legacySurveyId,
           type: payload.type,
           createdById: payload.createdById,
+          districtId: payload.districtId,
           refreshPending: payload.type === "REFRESH_PENDING" || payload.refreshPending === true,
         }
         await this.surveyQueue.add(JOB_NAMES.importSurvey, child, {

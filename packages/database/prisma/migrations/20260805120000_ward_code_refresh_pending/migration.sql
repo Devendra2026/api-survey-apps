@@ -5,9 +5,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS "wards_ulbId_wardCode_active_key"
   ON "wards" ("ulbId", "wardCode")
   WHERE "deletedAt" IS NULL AND "wardCode" IS NOT NULL;
 
--- Add REFRESH_PENDING to MigrationJobType
-DO $$ BEGIN
-  ALTER TYPE "MigrationJobType" ADD VALUE 'REFRESH_PENDING';
-EXCEPTION
-  WHEN duplicate_object THEN NULL;
-END $$;
+-- ADD VALUE must be a top-level statement (not inside DO/PL/pgSQL).
+-- IF NOT EXISTS keeps re-runs / partially applied envs idempotent.
+ALTER TYPE "MigrationJobType" ADD VALUE IF NOT EXISTS 'REFRESH_PENDING';

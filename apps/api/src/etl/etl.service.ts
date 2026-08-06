@@ -149,17 +149,32 @@ export class EtlService implements OnModuleInit {
     }
 
     const correlationId = randomUUID()
-    const migrationJob = await this.prisma.db.migrationJob.create({
-      data: {
-        type: MigrationJobType.REFRESH_PENDING,
-        status: "QUEUED",
-        batchSize: size,
-        cursor: null,
-        correlationId,
-        createdById: userId,
-        statsJson: emptyEtlJobStats(),
-      },
-    })
+    await this.ensureRefreshPendingJobType()
+
+    let migrationJob
+    try {
+      migrationJob = await this.prisma.db.migrationJob.create({
+        data: {
+          type: MigrationJobType.REFRESH_PENDING,
+          status: "QUEUED",
+          batchSize: size,
+          cursor: null,
+          correlationId,
+          createdById: userId,
+          statsJson: emptyEtlJobStats(),
+        },
+      })
+    } catch (err) {
+      if (isMissingRefreshPendingEnum(err)) {
+        this.logger.error(
+          `REFRESH_PENDING enum missing after ensure attempt: ${err instanceof Error ? err.message : String(err)}`
+        )
+        throw new ServiceUnavailableException(
+          "Database is missing MigrationJobType.REFRESH_PENDING. Redeploy so the migrate service runs `prisma migrate deploy` (includes 20260806103000_ensure_refresh_pending_enum), then retry Apply Refresh PENDING."
+        )
+      }
+      throw err
+    }
 
     await this.jobs.enqueueEtlSurveyBatch({
       migrationJobId: migrationJob.id,
@@ -411,4 +426,23 @@ export class EtlService implements OnModuleInit {
       throw new ServiceUnavailableException("ETL_CONVEX_SECRET is not configured")
     }
   }
+
+  /**
+   * Best-effort DDL so Apply Refresh PENDING works even when migrate lagged behind the API image.
+   * Safe/idempotent: ADD VALUE IF NOT EXISTS. No-op when the label already exists.
+   */
+  private async ensureRefreshPendingJobType(): Promise<void> {
+    try {
+      await this.prisma.db.$executeRawUnsafe(`ALTER TYPE "MigrationJobType" ADD VALUE IF NOT EXISTS 'REFRESH_PENDING'`)
+    } catch (err) {
+      this.logger.warn(
+        `Could not ensure REFRESH_PENDING enum before job create: ${err instanceof Error ? err.message : String(err)}`
+      )
+    }
+  }
+}
+
+function isMissingRefreshPendingEnum(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error)
+  return /REFRESH_PENDING/i.test(msg) && (/enum/i.test(msg) || /invalid input value/i.test(msg))
 }

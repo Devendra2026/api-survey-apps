@@ -55,7 +55,12 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     } else if (exception instanceof Error) {
       // Do not map every Prisma invocation dump to "duplicate" — only real unique failures above.
       const raw = exception.message
-      if (/prisma\./i.test(raw)) {
+      if (/REFRESH_PENDING/i.test(raw) && (/enum/i.test(raw) || /invalid input value/i.test(raw))) {
+        status = HttpStatus.SERVICE_UNAVAILABLE
+        message =
+          "Database is missing MigrationJobType.REFRESH_PENDING. Redeploy migrate (`prisma migrate deploy`), then retry."
+        this.logger.error(`Missing REFRESH_PENDING enum ${request.method} ${request.url}: ${raw.slice(0, 400)}`)
+      } else if (/prisma\./i.test(raw)) {
         status = HttpStatus.INTERNAL_SERVER_ERROR
         message = "A database operation failed. Check API logs for details."
         this.logger.error(`Prisma error ${request.method} ${request.url}: ${raw.slice(0, 400)}`, exception.stack)

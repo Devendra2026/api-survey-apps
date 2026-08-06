@@ -50,4 +50,16 @@ describe("GlobalExceptionFilter unique vs prisma dump", () => {
     expect(body.message).not.toMatch(/duplicate code or name/i)
     expect(body.message).toMatch(/database operation failed/i)
   })
+
+  it("maps missing REFRESH_PENDING enum to an actionable migrate message", () => {
+    filter.catch(
+      new Error(
+        'Invalid `prisma.migrationJob.create()` invocation:\n\ninvalid input value for enum "MigrationJobType": "REFRESH_PENDING"'
+      ),
+      host as never
+    )
+    expect(statusCode).toBe(HttpStatus.SERVICE_UNAVAILABLE)
+    expect(body.message).toMatch(/REFRESH_PENDING/i)
+    expect(body.message).toMatch(/migrate deploy/i)
+  })
 })

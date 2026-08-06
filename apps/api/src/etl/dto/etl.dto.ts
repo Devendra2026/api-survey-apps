@@ -1,4 +1,4 @@
-import { Type } from "class-transformer"
+import { Transform, Type } from "class-transformer"
 import { IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString, Max, Min } from "class-validator"
 
 export class StartEtlDto {
@@ -42,6 +42,7 @@ export class AlignWardsDto {
   apply!: boolean
 
   /** District to scope the ward align run to. */
+  @Transform(({ value }: { value: unknown }) => (typeof value === "string" ? value.trim() : value))
   @IsNotEmpty()
   @IsString()
   districtId!: string
@@ -59,6 +60,7 @@ export class CleanupEmptyStatesDto {
 
 export class RefreshPendingDto {
   /** District to scope the refresh-pending run to. */
+  @Transform(({ value }: { value: unknown }) => (typeof value === "string" ? value.trim() : value))
   @IsNotEmpty()
   @IsString()
   districtId!: string
@@ -77,6 +79,7 @@ export class RefreshPendingDto {
 
 export class ReconcileDto {
   /** District to scope the read-only reconcile report to. */
+  @Transform(({ value }: { value: unknown }) => (typeof value === "string" ? value.trim() : value))
   @IsNotEmpty()
   @IsString()
   districtId!: string

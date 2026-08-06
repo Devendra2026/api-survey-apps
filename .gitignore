@@ -65,3 +65,6 @@ infra/terraform/envs/**/terraform.tfvars
 !infra/terraform/envs/**/terraform.tfvars.example
 .terraform.lock.hcl
 
+# superpowers agent reports
+.superpowers/
+

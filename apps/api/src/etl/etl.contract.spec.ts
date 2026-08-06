@@ -39,6 +39,12 @@ describe("RefreshPendingDto validation", () => {
     expect(errors.map((e) => e.property)).toContain("districtId")
   })
 
+  it("rejects whitespace-only districtId", async () => {
+    const dto = plainToInstance(RefreshPendingDto, { districtId: "   ", apply: true })
+    const errors = await validate(dto)
+    expect(errors.map((e) => e.property)).toContain("districtId")
+  })
+
   it("rejects missing apply", async () => {
     const dto = plainToInstance(RefreshPendingDto, { districtId: "district-1" })
     const errors = await validate(dto)
@@ -65,6 +71,12 @@ describe("AlignWardsDto validation", () => {
     expect(errors.map((e) => e.property)).toContain("districtId")
   })
 
+  it("rejects whitespace-only districtId", async () => {
+    const dto = plainToInstance(AlignWardsDto, { districtId: "   ", apply: true })
+    const errors = await validate(dto)
+    expect(errors.map((e) => e.property)).toContain("districtId")
+  })
+
   it("rejects missing apply", async () => {
     const dto = plainToInstance(AlignWardsDto, { districtId: "district-1" })
     const errors = await validate(dto)
@@ -87,6 +99,12 @@ describe("ReconcileDto validation", () => {
 
   it("rejects empty districtId", async () => {
     const dto = plainToInstance(ReconcileDto, { districtId: "" })
+    const errors = await validate(dto)
+    expect(errors.map((e) => e.property)).toContain("districtId")
+  })
+
+  it("rejects whitespace-only districtId", async () => {
+    const dto = plainToInstance(ReconcileDto, { districtId: "   " })
     const errors = await validate(dto)
     expect(errors.map((e) => e.property)).toContain("districtId")
   })

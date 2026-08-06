@@ -854,7 +854,7 @@ export function EtlConsole() {
             </DialogTitle>
             <DialogDescription>
               {alignApplyConfirm === "pipeline"
-                ? "Runs dedupe → sync from Convex → cleanup empty UP shells (01 / UP / UP-01). Keeps UP 09. Review the dry-run report above first."
+                ? "Runs dedupe → sync from Convex → verify counts for the selected district. Empty UP cleanup is a separate global step. Review the dry-run report above first."
                 : alignApplyConfirm === "dedupe"
                   ? "Remaps surveys onto the primary ward and soft-deletes duplicates. Run dry-run first if you have not."
                   : alignApplyConfirm === "sync"

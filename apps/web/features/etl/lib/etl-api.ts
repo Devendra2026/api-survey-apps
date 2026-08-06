@@ -82,6 +82,7 @@ export type ReconcileResult = {
       convexWard: string
     }>
     onlyNest: Array<{ surveyId: string; legacySurveyId: string | null }>
+    onlyConvex: Array<{ legacySurveyId: string; municipalityCode: string; wardNo: string; status: string }>
   }
 }
 

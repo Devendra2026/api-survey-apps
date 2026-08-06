@@ -84,11 +84,35 @@ try {
       await startAndMaybeWatch("validate", {})
       break
     case "refresh-pending":
-    case "refresh":
-      await startAndMaybeWatch("refresh-pending", {
+    case "refresh": {
+      const districtId = requireDistrictId(flags)
+      const apply = Boolean(flags.apply)
+      const body = {
+        districtId,
+        apply,
         batchSize: numberFlag(flags["batch-size"], Number(process.env.ETL_BATCH_SIZE) || 100),
-      })
+      }
+      if (!apply) {
+        console.log(JSON.stringify(await api("POST", "/etl/refresh-pending", body), null, 2))
+        break
+      }
+      await startAndMaybeWatch("refresh-pending", body)
       break
+    }
+    case "reconcile": {
+      const districtId = requireDistrictId(flags)
+      console.log(JSON.stringify(await api("POST", "/etl/reconcile-with-convex", { districtId }), null, 2))
+      break
+    }
+    case "align-wards":
+    case "align": {
+      const districtId = requireDistrictId(flags)
+      const apply = Boolean(flags.apply)
+      console.log(
+        JSON.stringify(await api("POST", "/etl/align-wards-with-convex", { districtId, apply }), null, 2)
+      )
+      break
+    }
     case "status":
       console.log(JSON.stringify(await api("GET", "/etl/status"), null, 2))
       break
@@ -232,6 +256,19 @@ function numberFlag(value, fallback) {
   return Number.isFinite(n) ? n : fallback
 }
 
+function requireDistrictId(flagMap) {
+  const districtId = (flagMap["district-id"] || flagMap.districtId || process.env.ETL_DISTRICT_ID || "")
+    .toString()
+    .trim()
+  if (!districtId) {
+    console.error(
+      "Missing --district-id <uuid> (or ETL_DISTRICT_ID). Required for reconcile / align / refresh-pending."
+    )
+    process.exit(1)
+  }
+  return districtId
+}
+
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms))
 }
@@ -263,7 +300,9 @@ function printHelp() {
 
   pnpm etl:run full [--batch-size 20] [--force] [--watch]
   pnpm etl:run incremental [--batch-size 20] [--watch]
-  pnpm etl:run refresh-pending [--batch-size 20] [--watch]
+  pnpm etl:run reconcile --district-id <uuid>
+  pnpm etl:run align-wards --district-id <uuid> [--apply]
+  pnpm etl:run refresh-pending --district-id <uuid> [--apply] [--batch-size 20] [--watch]
   pnpm etl:run retry [--max-retries 5] [--watch]
   pnpm etl:run validate [--watch]
   pnpm etl:run status
@@ -272,6 +311,7 @@ function printHelp() {
   pnpm etl:run report --job-id <id>
   pnpm etl:run jobs [--limit 20]
 
+Phase 1 (Baghpat): omit --apply for dry-run; pass --apply only after reviewing output.
 Requires API+worker running (pnpm dev) and Docker Postgres/Redis/MinIO.
 `)
 }

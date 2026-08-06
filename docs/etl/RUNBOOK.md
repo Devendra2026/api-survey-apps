@@ -60,17 +60,20 @@ Auth: uses `ETL_DEV_CLERK_USER_ID` or first `BOOTSTRAP_ADMIN_CLERK_USER_IDS` as 
 
 ## APIs
 
-| Method | Path                    | Purpose                        |
-| ------ | ----------------------- | ------------------------------ |
-| POST   | `/etl/full-migration`   | Import all surveys             |
-| POST   | `/etl/incremental-sync` | Import missing only            |
-| POST   | `/etl/retry-failed`     | Retry `failed_imports`         |
-| POST   | `/etl/validate`         | Count/URL validation           |
-| POST   | `/etl/reap-stale`       | Close abandoned QUEUED/RUNNING |
-| GET    | `/etl/preflight`        | Diagnose Convex URL + secret   |
-| GET    | `/etl/status`           | Active job + counters          |
-| GET    | `/etl/report?jobId=`    | Job stats                      |
-| GET    | `/etl/jobs`             | Recent jobs                    |
+| Method | Path                           | Purpose                                     |
+| ------ | ------------------------------ | ------------------------------------------- |
+| POST   | `/etl/full-migration`          | Import all surveys                          |
+| POST   | `/etl/incremental-sync`        | Import missing only                         |
+| POST   | `/etl/retry-failed`            | Retry `failed_imports`                      |
+| POST   | `/etl/reconcile-with-convex`   | Read-only Nest↔Convex parity (`districtId`) |
+| POST   | `/etl/align-wards-with-convex` | Ward align scoped by `districtId` + `apply` |
+| POST   | `/etl/refresh-pending`         | Refresh PENDING QC (`districtId` + `apply`) |
+| POST   | `/etl/validate`                | Count/URL validation                        |
+| POST   | `/etl/reap-stale`              | Close abandoned QUEUED/RUNNING              |
+| GET    | `/etl/preflight`               | Diagnose Convex URL + secret                |
+| GET    | `/etl/status`                  | Active job + counters                       |
+| GET    | `/etl/report?jobId=`           | Job stats                                   |
+| GET    | `/etl/jobs`                    | Recent jobs                                 |
 
 ## What gets imported
 

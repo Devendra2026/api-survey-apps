@@ -51,3 +51,20 @@ export class CleanupEmptyStatesDto {
   @IsBoolean()
   apply!: boolean
 }
+
+export class RefreshPendingDto {
+  /** District to scope the refresh-pending run to. */
+  @IsString()
+  districtId!: string
+
+  /** When false, report only the count of PENDING surveys that would be refreshed. */
+  @IsBoolean()
+  apply!: boolean
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(500)
+  batchSize?: number
+}

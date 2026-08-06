@@ -7,8 +7,10 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common"
 import { ConfigService } from "@nestjs/config"
-import { MigrationJobType } from "@workspace/database"
+import { MigrationJobType, QcStatus } from "@workspace/database"
+import { RefreshPendingDto } from "./dto/etl.dto.js"
 import {
+  assertDistrictId,
   ConvexEtlHttpError,
   ConvexHttpExtractor,
   DEFAULT_ETL_BATCH_SIZE,
@@ -114,10 +116,39 @@ export class EtlService implements OnModuleInit {
     return this.startJob(MigrationJobType.INCREMENTAL, "INCREMENTAL", userId, batchSize, null)
   }
 
-  async startRefreshPending(userId: string, batchSize?: number) {
+  async startRefreshPending(userId: string, dto: RefreshPendingDto) {
     this.assertEtlConfigured()
+    const districtId = assertDistrictId(dto.districtId)
+
+    const district = await this.prisma.db.district.findUnique({
+      where: { id: districtId },
+      select: { id: true, name: true },
+    })
+    if (!district) {
+      throw new BadRequestException(`Unknown districtId: ${districtId}`)
+    }
+
+    const size = dto.batchSize ?? this.batchSize()
+    const where = {
+      deletedAt: null,
+      qcStatus: QcStatus.PENDING,
+      legacySurveyId: { not: null },
+      districtId,
+    }
+    const wouldUpdate = await this.prisma.db.survey.count({ where })
+
+    if (!dto.apply) {
+      return {
+        mode: "dry-run" as const,
+        districtId,
+        districtName: district.name,
+        wouldUpdate,
+        wouldSkipTerminal: 0,
+        jobId: null,
+      }
+    }
+
     const correlationId = randomUUID()
-    const size = batchSize ?? this.batchSize()
     const migrationJob = await this.prisma.db.migrationJob.create({
       data: {
         type: MigrationJobType.REFRESH_PENDING,
@@ -138,9 +169,17 @@ export class EtlService implements OnModuleInit {
       batchSize: size,
       createdById: userId,
       refreshPending: true,
+      districtId,
     })
 
-    return { jobId: migrationJob.id, correlationId }
+    return {
+      mode: "apply" as const,
+      districtId,
+      districtName: district.name,
+      wouldUpdate,
+      jobId: migrationJob.id,
+      correlationId,
+    }
   }
 
   async retryFailed(userId: string, maxRetries?: number) {

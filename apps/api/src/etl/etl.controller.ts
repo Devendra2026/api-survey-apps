@@ -9,6 +9,7 @@ import {
   AlignWardsDto,
   CleanupEmptyStatesDto,
   ListEtlJobsQueryDto,
+  RefreshPendingDto,
   RetryFailedDto,
   StartEtlDto,
 } from "./dto/etl.dto.js"
@@ -54,8 +55,8 @@ export class EtlController {
   @ApiOperation({
     summary: "Re-sync Nest surveys still PENDING QC from Convex (updates draft→submitted; never overwrites Admin QC)",
   })
-  refreshPending(@CurrentUser() user: AuthenticatedUser, @Body() body: StartEtlDto) {
-    return this.etlService.startRefreshPending(user.id, body.batchSize)
+  refreshPending(@CurrentUser() user: AuthenticatedUser, @Body() body: RefreshPendingDto) {
+    return this.etlService.startRefreshPending(user.id, body)
   }
 
   @Post("align-wards-with-convex")

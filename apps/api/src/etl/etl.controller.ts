@@ -1,8 +1,10 @@
-import { Body, Controller, Get, Post, Query } from "@nestjs/common"
+import { Body, Controller, Get, Headers, Post, Query, UnauthorizedException } from "@nestjs/common"
+import { ConfigService } from "@nestjs/config"
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger"
 import { SkipThrottle, Throttle } from "@nestjs/throttler"
 import { PERMISSIONS } from "../common/constants/permissions.js"
 import { CurrentUser } from "../common/decorators/current-user.decorator.js"
+import { Public } from "../common/decorators/public.decorator.js"
 import { RequirePermission } from "../common/decorators/require-permission.decorator.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import {
@@ -21,7 +23,8 @@ import { WardAlignService } from "./ward-align.service.js"
 export class EtlController {
   constructor(
     private readonly etlService: EtlService,
-    private readonly wardAlign: WardAlignService
+    private readonly wardAlign: WardAlignService,
+    private readonly config: ConfigService
   ) {}
 
   @Post("full-migration")
@@ -67,6 +70,23 @@ export class EtlController {
   })
   alignWardsWithConvex(@Body() body: AlignWardsDto) {
     return this.wardAlign.alignWardsWithConvex(body.apply)
+  }
+
+  /**
+   * Debug-session fetch of last Align snapshot (no PII/secrets).
+   * Auth: X-ETL-Secret must match ETL_CONVEX_SECRET (same as Convex ETL).
+   */
+  @Get("align-debug-last")
+  @Public()
+  @SkipThrottle()
+  @ApiOperation({ summary: "Last Align wards pipeline debug snapshot (ETL secret)" })
+  alignDebugLast(@Headers("x-etl-secret") etlSecret?: string) {
+    const expected = this.config.get<string>("ETL_CONVEX_SECRET")?.trim() ?? ""
+    const provided = (etlSecret ?? "").trim()
+    if (!expected || provided !== expected) {
+      throw new UnauthorizedException("Invalid ETL secret")
+    }
+    return this.wardAlign.getLastAlignSnapshot()
   }
 
   @Post("dedupe-wards")

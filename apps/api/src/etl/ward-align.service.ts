@@ -64,6 +64,8 @@ export type AlignWardsPipelineResult = {
       mismatchedUlbs: Array<{ ulb: string; nest: number; convex: number }>
     }
   }
+  /** Debug-session only — no secrets. */
+  _debug?: Array<{ hypothesisId: string; message: string; data?: Record<string, unknown>; timestamp: number }>
 }
 
 type ConvexWardCatalogRow = {
@@ -91,28 +93,73 @@ function isPrismaUniqueViolation(error: unknown): boolean {
   return false
 }
 
-async function mapPool<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
-  if (items.length === 0) return
-  const n = Math.max(1, concurrency)
-  let i = 0
-  const workers = Array.from({ length: Math.min(n, items.length) }, async () => {
-    while (i < items.length) {
-      const idx = i
-      i += 1
-      await fn(items[idx]!)
-    }
-  })
-  await Promise.all(workers)
+function isPrismaRecordNotFound(error: unknown): boolean {
+  if (typeof error === "object" && error !== null && "code" in error && (error as { code: string }).code === "P2025") {
+    return true
+  }
+  if (error instanceof Error && /Record to (update|delete) not found/i.test(error.message)) {
+    return true
+  }
+  return false
 }
+
+// #region agent log
+function agentDebugLog(
+  bucket: Array<{ hypothesisId: string; message: string; data?: Record<string, unknown>; timestamp: number }>,
+  hypothesisId: string,
+  location: string,
+  message: string,
+  data?: Record<string, unknown>
+) {
+  const payload = {
+    sessionId: "cb377d",
+    runId: "align-pre",
+    hypothesisId,
+    location,
+    message,
+    data: data ?? {},
+    timestamp: Date.now(),
+  }
+  bucket.push({
+    hypothesisId,
+    message,
+    data: data ?? {},
+    timestamp: payload.timestamp,
+  })
+  fetch("http://127.0.0.1:7548/ingest/d4e91970-7ad5-429b-8326-a482939a5101", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "cb377d" },
+    body: JSON.stringify(payload),
+  }).catch(() => {})
+}
+// #endregion
 
 @Injectable()
 export class WardAlignService {
   private readonly logger = new Logger(WardAlignService.name)
+  /** Last pipeline snapshot for debug fetch (no secrets). */
+  private lastAlignSnapshot: {
+    at: string
+    revision: string
+    result: AlignWardsPipelineResult
+  } | null = null
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService
   ) {}
+
+  getLastAlignSnapshot() {
+    return this.lastAlignSnapshot
+  }
+
+  private rememberAlign(result: AlignWardsPipelineResult) {
+    this.lastAlignSnapshot = {
+      at: new Date().toISOString(),
+      revision: "cb377d-align-debug-v2",
+      result,
+    }
+  }
 
   async dedupeWards(apply: boolean, ulbCode?: string): Promise<WardDedupeResult> {
     const ulbs = await this.prisma.db.ulb.findMany({
@@ -203,26 +250,62 @@ export class WardAlignService {
     }
 
     if (apply && mergeOps.length > 0) {
-      await mapPool(mergeOps, 8, async (op) => {
+      // Sequential: concurrent merges in the same ULB can hit P2025 (record already soft-deleted)
+      // which the old global filter mislabeled as "duplicate code or name".
+      for (const op of mergeOps) {
         let remappedTotal = 0
-        await this.prisma.db.$transaction(async (tx) => {
-          for (const dupeId of op.dupeIds) {
-            const remapped = await tx.survey.updateMany({
-              where: { wardId: dupeId, deletedAt: null },
-              data: { wardId: op.primaryId, wardNumber: op.norm },
-            })
-            remappedTotal += remapped.count
-            await tx.ward.update({
-              where: { id: dupeId },
-              data: { deletedAt: new Date(), status: "DISABLED" },
-            })
+        try {
+          await this.prisma.db.$transaction(async (tx) => {
+            for (const dupeId of op.dupeIds) {
+              const remapped = await tx.survey.updateMany({
+                where: { wardId: dupeId, deletedAt: null },
+                data: { wardId: op.primaryId, wardNumber: op.norm },
+              })
+              remappedTotal += remapped.count
+              await tx.ward.update({
+                where: { id: dupeId },
+                data: { deletedAt: new Date(), status: "DISABLED", wardCode: null },
+              })
+            }
+            if (op.primaryNumber !== op.norm) {
+              await tx.ward.update({ where: { id: op.primaryId }, data: { wardNumber: op.norm } })
+            }
+          })
+        } catch (error) {
+          // #region agent log
+          fetch("http://127.0.0.1:7548/ingest/d4e91970-7ad5-429b-8326-a482939a5101", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "cb377d" },
+            body: JSON.stringify({
+              sessionId: "cb377d",
+              runId: "align-pre",
+              hypothesisId: "A",
+              location: "ward-align.service.ts:dedupeWards:mergeThrow",
+              message: "dedupe merge threw",
+              data: {
+                primaryId: op.primaryId,
+                norm: op.norm,
+                dupeCount: op.dupeIds.length,
+                isUnique: isPrismaUniqueViolation(error),
+                isNotFound: isPrismaRecordNotFound(error),
+                err: error instanceof Error ? error.message.slice(0, 280) : String(error).slice(0, 280),
+              },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {})
+          // #endregion
+          if (isPrismaRecordNotFound(error) || isPrismaUniqueViolation(error)) {
+            this.logger.warn(
+              `dedupe merge skipped primary=${op.primaryId} norm=${op.norm}: ${
+                error instanceof Error ? error.message.slice(0, 160) : String(error)
+              }`
+            )
+            continue
           }
-          if (op.primaryNumber !== op.norm) {
-            await tx.ward.update({ where: { id: op.primaryId }, data: { wardNumber: op.norm } })
-          }
-        })
+          throw error
+        }
         op.remapped = remappedTotal
-      })
+      }
       for (const op of mergeOps) {
         wardsSoftDeleted += op.dupeIds.length
         surveysRemapped += op.remapped
@@ -321,6 +404,21 @@ export class WardAlignService {
         if (!isPrismaUniqueViolation(error)) throw error
         const msg = `ULB ${ulbCode} ward ${wardNumber}${wardCode ? ` (${wardCode})` : ""}: unique conflict on update (skipped)`
         this.logger.warn(msg)
+        // #region agent log
+        fetch("http://127.0.0.1:7548/ingest/d4e91970-7ad5-429b-8326-a482939a5101", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "cb377d" },
+          body: JSON.stringify({
+            sessionId: "cb377d",
+            runId: "align-pre",
+            hypothesisId: "B",
+            location: "ward-align.service.ts:upsertWardSafe:updateConflict",
+            message: msg,
+            data: { ulbCode, wardNumber, wardCode, matchId },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {})
+        // #endregion
         return { action: "skipped", conflict: msg }
       }
     }
@@ -572,8 +670,10 @@ export class WardAlignService {
         try {
           await this.mergeWardInto(m.intoId, m.fromId, m.wardNumber)
         } catch (error) {
-          if (isPrismaUniqueViolation(error)) {
-            conflicts.push(`merge ${m.fromId}→${m.intoId}: unique conflict (continued)`)
+          if (isPrismaUniqueViolation(error) || isPrismaRecordNotFound(error)) {
+            conflicts.push(
+              `merge ${m.fromId}→${m.intoId}: ${isPrismaRecordNotFound(error) ? "missing" : "unique"} (continued)`
+            )
             continue
           }
           throw error
@@ -733,11 +833,48 @@ export class WardAlignService {
   async alignWardsWithConvex(apply: boolean): Promise<AlignWardsPipelineResult> {
     const mode = apply ? "apply" : "dry-run"
     this.logger.log(`alignWardsWithConvex start mode=${mode}`)
+    // #region agent log
+    const _debug: NonNullable<AlignWardsPipelineResult["_debug"]> = []
+    agentDebugLog(_debug, "A", "ward-align.service.ts:alignWardsWithConvex:entry", "pipeline start", {
+      apply,
+      mode,
+      hasUpsertWardSafe: typeof this.upsertWardSafe === "function",
+    })
+    // #endregion
 
     try {
       const dedupe = await this.dedupeWards(apply)
+      // #region agent log
+      agentDebugLog(_debug, "A", "ward-align.service.ts:afterDedupe", "dedupe finished", {
+        apply,
+        duplicateGroups: dedupe.duplicateGroups,
+        wardsSoftDeleted: dedupe.wardsSoftDeleted,
+        surveysRemapped: dedupe.surveysRemapped,
+      })
+      // #endregion
+
       const sync = await this.syncWardsFromConvex(apply, { skipPreDedupe: true })
+      // #region agent log
+      agentDebugLog(_debug, "B", "ward-align.service.ts:afterSync", "sync finished", {
+        apply,
+        catalogSize: sync.catalogSize,
+        created: sync.created,
+        updated: sync.updated,
+        merged: sync.merged,
+        conflictCount: sync.conflicts.length,
+        missingUlbCount: sync.missingUlbs.length,
+        mismatchCount: sync.wardCountMismatches.length,
+        conflictSamples: sync.conflicts.slice(0, 5),
+      })
+      // #endregion
+
       const cleanup = await this.cleanupEmptyDuplicateStates(apply)
+      // #region agent log
+      agentDebugLog(_debug, "A", "ward-align.service.ts:afterCleanup", "cleanup finished", {
+        deleted: cleanup.deleted.length,
+        skipped: cleanup.skipped.length,
+      })
+      // #endregion
 
       const mismatchedUlbs = sync.wardCountMismatches
       const nestUlbCount = await this.prisma.db.ulb.count()
@@ -749,7 +886,15 @@ export class WardAlignService {
         `alignWardsWithConvex done mode=${mode} ok=${ok} mismatches=${mismatchedUlbs.length} conflicts=${sync.conflicts.length}`
       )
 
-      return {
+      // #region agent log
+      agentDebugLog(_debug, "D", "ward-align.service.ts:alignWardsWithConvex:exit", "pipeline ok path", {
+        ok,
+        matchedUlbCount,
+        mismatchSamples: mismatchedUlbs.slice(0, 8),
+      })
+      // #endregion
+
+      const success: AlignWardsPipelineResult = {
         mode,
         ok,
         steps: {
@@ -778,35 +923,48 @@ export class WardAlignService {
             mismatchedUlbs,
           },
         },
+        _debug,
       }
+      this.rememberAlign(success)
+      return success
     } catch (error) {
-      // Never surface raw Prisma unique toasts for this pipeline — return a structured failure.
-      if (isPrismaUniqueViolation(error)) {
-        this.logger.warn(
-          `alignWardsWithConvex unique conflict mode=${mode}: ${error instanceof Error ? error.message.slice(0, 200) : String(error)}`
-        )
-        return {
-          mode,
-          ok: false,
-          steps: {
-            dedupe: { duplicateGroups: 0, wardsSoftDeleted: 0, surveysRemapped: 0, samples: [] },
-            sync: {
-              catalogSize: 0,
-              created: 0,
-              updated: 0,
-              merged: 0,
-              skipped: 0,
-              missingUlbs: [],
-              conflicts: [
-                "A duplicate ward number/code was found mid-run. Retry Align once — conflicts are now merged automatically.",
-              ],
-            },
-            cleanup: { deleted: [], skipped: [] },
-            verify: { matchedUlbCount: 0, catalogSize: 0, mismatchedUlbs: [] },
+      // #region agent log
+      agentDebugLog(_debug, "C", "ward-align.service.ts:alignWardsWithConvex:catch", "pipeline threw", {
+        isUnique: isPrismaUniqueViolation(error),
+        name: error instanceof Error ? error.name : typeof error,
+        message: error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300),
+        code: typeof error === "object" && error !== null && "code" in error ? String(error.code) : null,
+      })
+      // #endregion
+
+      // Never surface raw Prisma / unique toasts for this pipeline — always return structured failure + _debug.
+      const detail = error instanceof Error ? error.message.slice(0, 240) : String(error).slice(0, 240)
+      this.logger.warn(`alignWardsWithConvex failed mode=${mode} unique=${isPrismaUniqueViolation(error)}: ${detail}`)
+      const failure: AlignWardsPipelineResult = {
+        mode,
+        ok: false,
+        steps: {
+          dedupe: { duplicateGroups: 0, wardsSoftDeleted: 0, surveysRemapped: 0, samples: [] },
+          sync: {
+            catalogSize: 0,
+            created: 0,
+            updated: 0,
+            merged: 0,
+            skipped: 0,
+            missingUlbs: [],
+            conflicts: [
+              isPrismaUniqueViolation(error)
+                ? "A duplicate ward number/code was found mid-run. Retry Align once — conflicts are merged automatically."
+                : `Align aborted: ${detail}`,
+            ],
           },
-        }
+          cleanup: { deleted: [], skipped: [] },
+          verify: { matchedUlbCount: 0, catalogSize: 0, mismatchedUlbs: [] },
+        },
+        _debug,
       }
-      throw error
+      this.rememberAlign(failure)
+      return failure
     }
   }
 }

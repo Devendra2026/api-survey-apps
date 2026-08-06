@@ -4,7 +4,7 @@ import { DistrictDrawer, StateDrawer, ULBDrawer, WardDrawer } from "@/features/c
 import { GeographyAccordion } from "@/features/configuration/components/GeographyAccordion"
 import { useGeographyTree, useGeographyUlbWards } from "@/features/configuration/hooks/use-configuration"
 import type { GeographyTreeNode } from "@/features/configuration/lib/types"
-import { useEtlStatus, useStartEtlIncremental } from "@/features/etl/hooks/use-etl-status"
+import { useAlignWardsWithConvex, useEtlStatus, useStartEtlIncremental } from "@/features/etl/hooks/use-etl-status"
 import { isEtlJobActive } from "@/features/etl/lib/types"
 import { computeGeoStats } from "@/features/master-data/lib/geo-stats"
 import { useStates } from "@/hooks/use-api"
@@ -22,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@workspace/ui/components/dialog"
-import { MapPin, Plus, RefreshCw } from "lucide-react"
+import { GitMerge, MapPin, Plus, RefreshCw } from "lucide-react"
 import Link from "next/link"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
@@ -56,6 +56,7 @@ export function TenantsWardsPanel() {
   const { data: statesPage, isLoading: statesLoading, isError: statesError } = useStates({ limit: 100 })
   const { data: etlStatus } = useEtlStatus(canEtl)
   const startIncremental = useStartEtlIncremental()
+  const alignWards = useAlignWardsWithConvex()
   const [selected, setSelected] = useState<GeographyTreeNode | null>(null)
   const [parent, setParent] = useState<GeographyTreeNode | null>(null)
   const [drawer, setDrawer] = useState<DrawerKind>(null)
@@ -64,6 +65,7 @@ export function TenantsWardsPanel() {
   const [deleting, setDeleting] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<"ward" | "state" | null>(null)
+  const [fixDupesOpen, setFixDupesOpen] = useState(false)
   const [wardNameError, setWardNameError] = useState<string | null>(null)
   const qc = useQueryClient()
 
@@ -79,7 +81,27 @@ export function TenantsWardsPanel() {
   const loadError = treeError && statesError
 
   const stats = useMemo(() => computeGeoStats(tree), [tree])
-  const etlBusy = isEtlJobActive(etlStatus?.activeJob?.status) || startIncremental.isPending
+  const etlBusy = isEtlJobActive(etlStatus?.activeJob?.status) || startIncremental.isPending || alignWards.isPending
+
+  const runFixDuplicateWards = async () => {
+    try {
+      const result = await alignWards.mutateAsync(true)
+      setFixDupesOpen(false)
+      await invalidate()
+      if (result.ok) {
+        toast.success("Duplicate wards removed — Nest matches Convex")
+      } else {
+        const n = result.steps.dedupe.wardsSoftDeleted
+        toast.message(
+          n > 0
+            ? `Merged ${n} duplicate ward(s). Check ETL console if some ULBs still mismatch.`
+            : "Align finished — open ETL console if duplicates remain."
+        )
+      }
+    } catch (error) {
+      toast.error(getApiErrorMessage(error))
+    }
+  }
 
   const wardUlbId =
     drawer === "ward"
@@ -216,6 +238,10 @@ export function TenantsWardsPanel() {
         <div className="flex flex-wrap items-center gap-2">
           {canEtl ? (
             <>
+              <Button type="button" className="cursor-pointer" disabled={etlBusy} onClick={() => setFixDupesOpen(true)}>
+                <GitMerge className="size-4" aria-hidden />
+                Remove duplicate wards
+              </Button>
               <Button
                 type="button"
                 variant="secondary"
@@ -224,14 +250,14 @@ export function TenantsWardsPanel() {
                 onClick={async () => {
                   try {
                     const result = await startIncremental.mutateAsync(undefined)
-                    toast.success(`Convex sync queued (${result.jobId.slice(0, 8)}…)`)
+                    toast.success(`Survey sync queued (${result.jobId.slice(0, 8)}…)`)
                   } catch (error) {
                     toast.error(getApiErrorMessage(error))
                   }
                 }}
               >
                 <RefreshCw className={`size-4 ${etlBusy ? "animate-spin" : ""}`} aria-hidden />
-                Sync from Convex
+                Sync surveys
               </Button>
               <Button type="button" variant="ghost" size="sm" className="cursor-pointer" asChild>
                 <Link href="/admin/etl">ETL console</Link>
@@ -242,7 +268,7 @@ export function TenantsWardsPanel() {
                 </Badge>
               ) : etlStatus ? (
                 <Badge variant="secondary" className="font-normal">
-                  Synced {etlStatus.migrationState.completed} · failed {etlStatus.migrationState.failed}
+                  Surveys synced {etlStatus.migrationState.completed} · failed {etlStatus.migrationState.failed}
                 </Badge>
               ) : null}
             </>
@@ -483,6 +509,38 @@ export function TenantsWardsPanel() {
               onClick={() => void confirmDelete()}
             >
               {deleting ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={fixDupesOpen} onOpenChange={setFixDupesOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove duplicate wards?</DialogTitle>
+            <DialogDescription>
+              Merges wards that are the same number (for example <strong>2</strong> and <strong>W02</strong>), moves
+              surveys onto the keeper ward, then syncs names/codes from Convex. Empty UP shells (01 / UP) may be cleaned
+              up. This does <strong>not</strong> import surveys — use Sync surveys for that.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              className="cursor-pointer"
+              disabled={alignWards.isPending}
+              onClick={() => setFixDupesOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="cursor-pointer"
+              disabled={alignWards.isPending}
+              onClick={() => void runFixDuplicateWards()}
+            >
+              {alignWards.isPending ? "Fixing…" : "Remove duplicates"}
             </Button>
           </DialogFooter>
         </DialogContent>

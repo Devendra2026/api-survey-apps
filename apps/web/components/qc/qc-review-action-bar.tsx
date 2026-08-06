@@ -169,6 +169,10 @@ export function QcReviewActionBar({
                     <Pencil className="size-3.5" />
                     Edit
                   </Button>
+                ) : !editMode && !isPendingQc && !isApproved ? (
+                  <span className="text-xs text-muted-foreground">
+                    Edit only for Pending QC — use Reopen if this survey was approved/rejected.
+                  </span>
                 ) : null}
                 {isPendingQc ? (
                   <>

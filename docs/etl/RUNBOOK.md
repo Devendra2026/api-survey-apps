@@ -184,3 +184,35 @@ or was redeployed mid-run. `force=true` on a full migration still bypasses the c
 - `apps/api/src/etl` — control plane
 - `apps/worker/src/etl` — BullMQ processors + transactional load
 - `sdv-monorepo-apps/.../convex/etl` — extract HTTP + internal queries
+
+## Phase 1 runbook: Baghpat QC parity (safe sync)
+
+**Scope:** Baghpat district only. Etah QC is live — do not run Phase 1 actions against Etah until an off-hours window.
+
+**Where:** Administration → ETL Sync (`/admin/etl`) → Phase 1 card. Select district **Baghpat** before any Phase 1 button.
+
+### Operator sequence
+
+1. **Sanity — Etah unchanged.** Confirm Etah QC queues and Command Centers still behave normally before touching Baghpat.
+2. **Select district.** ETL console → Phase 1 card → District **Baghpat**.
+3. **Reconcile (read-only).** Click **Reconcile**. Save or export totals from the results panel (baseline for before/after).
+4. **Align wards.** Run **Align Wards (dry-run)** → review output → confirm → **apply**.
+5. **Refresh PENDING.** Run **Refresh PENDING (dry-run)** → review output → confirm → **apply**. Poll job history until status is **COMPLETED**.
+6. **Reconcile again.** Click **Reconcile**. Expect `statusMismatch` near **0** for PENDING rows.
+7. **QC Command Centers.** Open Nest and Convex QC Command Centers for each Baghpat ULB. Compare Field Drafts / QC Pending / QC Approved counts.
+8. **Spot-check.** Aminnagar Ward 6 — verify a sample of surveys and QC states match expectations.
+9. **Etah regression check.** Confirm Etah queues and counts are unchanged from step 1.
+10. **Stop.** Do not run Phase 1 actions for Etah or any other district in this window.
+
+### Pass criteria
+
+| Check                       | Expected                                |
+| --------------------------- | --------------------------------------- |
+| Reconcile after refresh     | `statusMismatch` ≈ 0 for PENDING rows   |
+| Baghpat ULB QC counts       | Nest ↔ Convex Command Centers aligned   |
+| Aminnagar Ward 6 spot-check | Sample surveys and QC states consistent |
+| Etah                        | Unchanged from pre-run sanity check     |
+
+### Abort / rollback
+
+If counts diverge or Etah is affected: stop immediately, do not apply further Phase 1 jobs, and escalate with reconcile exports from steps 3 and 6.

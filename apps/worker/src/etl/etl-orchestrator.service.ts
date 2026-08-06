@@ -442,21 +442,6 @@ export class EtlOrchestratorService {
     })
     const exists = wards.some((w) => wardNumbersMatch(w.wardNumber, wardNo))
     if (exists) {
-      // #region agent log
-      fetch("http://127.0.0.1:7548/ingest/d4e91970-7ad5-429b-8326-a482939a5101", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "cb377d" },
-        body: JSON.stringify({
-          sessionId: "cb377d",
-          runId: "etl-geo",
-          hypothesisId: "E",
-          location: "etl-orchestrator.service.ts:ensureGeoForBundle:exists",
-          message: "ward already matched — skip create",
-          data: { ulbCode: code, wardNo, activeWards: wards.length },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {})
-      // #endregion
       return
     }
 
@@ -471,42 +456,7 @@ export class EtlOrchestratorService {
         },
       })
       this.logger.log(`Auto-created ward ${wardNo} (${wardCode}) for ULB ${code}`)
-      // #region agent log
-      fetch("http://127.0.0.1:7548/ingest/d4e91970-7ad5-429b-8326-a482939a5101", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "cb377d" },
-        body: JSON.stringify({
-          sessionId: "cb377d",
-          runId: "etl-geo",
-          hypothesisId: "E",
-          location: "etl-orchestrator.service.ts:ensureGeoForBundle:created",
-          message: "auto-created ward",
-          data: { ulbCode: code, wardNo, wardCode },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {})
-      // #endregion
-    } catch (err) {
-      // #region agent log
-      fetch("http://127.0.0.1:7548/ingest/d4e91970-7ad5-429b-8326-a482939a5101", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "cb377d" },
-        body: JSON.stringify({
-          sessionId: "cb377d",
-          runId: "etl-geo",
-          hypothesisId: "E",
-          location: "etl-orchestrator.service.ts:ensureGeoForBundle:createFail",
-          message: "ward create failed (likely unique race)",
-          data: {
-            ulbCode: code,
-            wardNo,
-            wardCode,
-            errMsg: err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200),
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {})
-      // #endregion
+    } catch {
       // unique race — ignore
     }
   }

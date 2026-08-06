@@ -114,7 +114,6 @@ export type AlignWardsPipelineResult = {
       mismatchedUlbs: Array<{ ulb: string; nest: number; convex: number }>
     }
   }
-  _debug?: Array<{ hypothesisId: string; message: string; data?: Record<string, unknown>; timestamp: number }>
 }
 
 export function alignWardsWithConvex(apply: boolean) {

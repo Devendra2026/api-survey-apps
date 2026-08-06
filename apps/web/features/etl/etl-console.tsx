@@ -35,35 +35,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@workspace/ui/components/dialog"
-import axios from "axios"
 import { GitMerge, MapPin, RefreshCw, RotateCcw, ShieldCheck, Trash2, Upload } from "lucide-react"
 import { useState, type ReactNode } from "react"
 import { toast } from "sonner"
-
-// #region agent log
-function agentClientDebug(hypothesisId: string, location: string, message: string, data?: Record<string, unknown>) {
-  const payload = {
-    sessionId: "cb377d",
-    runId: "align-pre",
-    hypothesisId,
-    location,
-    message,
-    data: data ?? {},
-    timestamp: Date.now(),
-  }
-  // Same-origin first (works on https://admin…); direct localhost is mixed-content blocked from HTTPS.
-  fetch("/api/agent-debug-log", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  }).catch(() => {})
-  fetch("http://127.0.0.1:7548/ingest/d4e91970-7ad5-429b-8326-a482939a5101", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "cb377d" },
-    body: JSON.stringify(payload),
-  }).catch(() => {})
-}
-// #endregion
 
 function formatWhen(value: string | null | undefined) {
   if (!value) return "—"
@@ -287,25 +261,6 @@ export function EtlConsole() {
       const result = await alignPipeline.mutateAsync(apply)
       setPipelineResult(result)
       setAlignApplyConfirm(null)
-      // #region agent log
-      agentClientDebug("D", "etl-console.tsx:runAlignPipeline:ok", "align HTTP success", {
-        apply,
-        ok: result.ok,
-        conflictCount: result.steps.sync.conflicts.length,
-        mismatchCount: result.steps.verify.mismatchedUlbs.length,
-        created: result.steps.sync.created,
-        merged: result.steps.sync.merged,
-        conflictSamples: result.steps.sync.conflicts.slice(0, 5),
-        debugLen: result._debug?.length ?? 0,
-        debugTail: (result._debug ?? []).slice(-6),
-      })
-      for (const entry of result._debug ?? []) {
-        agentClientDebug(entry.hypothesisId, "etl-console.tsx:forwardServerDebug", entry.message, {
-          ...entry.data,
-          serverTs: entry.timestamp,
-        })
-      }
-      // #endregion
       if (apply) {
         toast.success(
           result.ok ? "Wards aligned — Nest matches Convex catalog" : "Align finished with mismatches — check report"
@@ -324,17 +279,6 @@ export function EtlConsole() {
         toast.message(result.steps.sync.conflicts[0]!.slice(0, 180))
       }
     } catch (error) {
-      // #region agent log
-      agentClientDebug("C", "etl-console.tsx:runAlignPipeline:error", "align HTTP error toast path", {
-        apply,
-        message: getApiErrorMessage(error),
-        status: axios.isAxiosError(error) ? (error.response?.status ?? null) : null,
-        path:
-          axios.isAxiosError(error) && error.response?.data && typeof error.response.data === "object"
-            ? String((error.response.data as { path?: string }).path ?? "")
-            : "",
-      })
-      // #endregion
       toast.error(getApiErrorMessage(error))
     }
   }
@@ -480,11 +424,6 @@ export function EtlConsole() {
               ) : (
                 <p className="mt-2 text-xs text-muted-foreground">Ward counts match Convex per ULB.</p>
               )}
-              {pipelineResult._debug && pipelineResult._debug.length > 0 ? (
-                <pre className="mt-2 max-h-40 overflow-auto rounded bg-muted/40 p-2 text-[10px] text-muted-foreground">
-                  {JSON.stringify(pipelineResult._debug, null, 2)}
-                </pre>
-              ) : null}
             </AlignResultPanel>
           ) : null}
 

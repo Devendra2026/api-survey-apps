@@ -64,8 +64,6 @@ export type AlignWardsPipelineResult = {
       mismatchedUlbs: Array<{ ulb: string; nest: number; convex: number }>
     }
   }
-  /** Debug-session only — no secrets. */
-  _debug?: Array<{ hypothesisId: string; message: string; data?: Record<string, unknown>; timestamp: number }>
 }
 
 type ConvexWardCatalogRow = {
@@ -103,63 +101,14 @@ function isPrismaRecordNotFound(error: unknown): boolean {
   return false
 }
 
-// #region agent log
-function agentDebugLog(
-  bucket: Array<{ hypothesisId: string; message: string; data?: Record<string, unknown>; timestamp: number }>,
-  hypothesisId: string,
-  location: string,
-  message: string,
-  data?: Record<string, unknown>
-) {
-  const payload = {
-    sessionId: "cb377d",
-    runId: "align-pre",
-    hypothesisId,
-    location,
-    message,
-    data: data ?? {},
-    timestamp: Date.now(),
-  }
-  bucket.push({
-    hypothesisId,
-    message,
-    data: data ?? {},
-    timestamp: payload.timestamp,
-  })
-  fetch("http://127.0.0.1:7548/ingest/d4e91970-7ad5-429b-8326-a482939a5101", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "cb377d" },
-    body: JSON.stringify(payload),
-  }).catch(() => {})
-}
-// #endregion
-
 @Injectable()
 export class WardAlignService {
   private readonly logger = new Logger(WardAlignService.name)
-  /** Last pipeline snapshot for debug fetch (no secrets). */
-  private lastAlignSnapshot: {
-    at: string
-    revision: string
-    result: AlignWardsPipelineResult
-  } | null = null
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService
   ) {}
-
-  getLastAlignSnapshot() {
-    return this.lastAlignSnapshot
-  }
-
-  private rememberAlign(result: AlignWardsPipelineResult) {
-    this.lastAlignSnapshot = {
-      at: new Date().toISOString(),
-      revision: "cb377d-align-debug-v2",
-      result,
-    }
-  }
 
   async dedupeWards(apply: boolean, ulbCode?: string): Promise<WardDedupeResult> {
     const ulbs = await this.prisma.db.ulb.findMany({
@@ -272,28 +221,6 @@ export class WardAlignService {
             }
           })
         } catch (error) {
-          // #region agent log
-          fetch("http://127.0.0.1:7548/ingest/d4e91970-7ad5-429b-8326-a482939a5101", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "cb377d" },
-            body: JSON.stringify({
-              sessionId: "cb377d",
-              runId: "align-pre",
-              hypothesisId: "A",
-              location: "ward-align.service.ts:dedupeWards:mergeThrow",
-              message: "dedupe merge threw",
-              data: {
-                primaryId: op.primaryId,
-                norm: op.norm,
-                dupeCount: op.dupeIds.length,
-                isUnique: isPrismaUniqueViolation(error),
-                isNotFound: isPrismaRecordNotFound(error),
-                err: error instanceof Error ? error.message.slice(0, 280) : String(error).slice(0, 280),
-              },
-              timestamp: Date.now(),
-            }),
-          }).catch(() => {})
-          // #endregion
           if (isPrismaRecordNotFound(error) || isPrismaUniqueViolation(error)) {
             this.logger.warn(
               `dedupe merge skipped primary=${op.primaryId} norm=${op.norm}: ${
@@ -404,21 +331,6 @@ export class WardAlignService {
         if (!isPrismaUniqueViolation(error)) throw error
         const msg = `ULB ${ulbCode} ward ${wardNumber}${wardCode ? ` (${wardCode})` : ""}: unique conflict on update (skipped)`
         this.logger.warn(msg)
-        // #region agent log
-        fetch("http://127.0.0.1:7548/ingest/d4e91970-7ad5-429b-8326-a482939a5101", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "cb377d" },
-          body: JSON.stringify({
-            sessionId: "cb377d",
-            runId: "align-pre",
-            hypothesisId: "B",
-            location: "ward-align.service.ts:upsertWardSafe:updateConflict",
-            message: msg,
-            data: { ulbCode, wardNumber, wardCode, matchId },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {})
-        // #endregion
         return { action: "skipped", conflict: msg }
       }
     }
@@ -833,48 +745,11 @@ export class WardAlignService {
   async alignWardsWithConvex(apply: boolean): Promise<AlignWardsPipelineResult> {
     const mode = apply ? "apply" : "dry-run"
     this.logger.log(`alignWardsWithConvex start mode=${mode}`)
-    // #region agent log
-    const _debug: NonNullable<AlignWardsPipelineResult["_debug"]> = []
-    agentDebugLog(_debug, "A", "ward-align.service.ts:alignWardsWithConvex:entry", "pipeline start", {
-      apply,
-      mode,
-      hasUpsertWardSafe: typeof this.upsertWardSafe === "function",
-    })
-    // #endregion
 
     try {
       const dedupe = await this.dedupeWards(apply)
-      // #region agent log
-      agentDebugLog(_debug, "A", "ward-align.service.ts:afterDedupe", "dedupe finished", {
-        apply,
-        duplicateGroups: dedupe.duplicateGroups,
-        wardsSoftDeleted: dedupe.wardsSoftDeleted,
-        surveysRemapped: dedupe.surveysRemapped,
-      })
-      // #endregion
-
       const sync = await this.syncWardsFromConvex(apply, { skipPreDedupe: true })
-      // #region agent log
-      agentDebugLog(_debug, "B", "ward-align.service.ts:afterSync", "sync finished", {
-        apply,
-        catalogSize: sync.catalogSize,
-        created: sync.created,
-        updated: sync.updated,
-        merged: sync.merged,
-        conflictCount: sync.conflicts.length,
-        missingUlbCount: sync.missingUlbs.length,
-        mismatchCount: sync.wardCountMismatches.length,
-        conflictSamples: sync.conflicts.slice(0, 5),
-      })
-      // #endregion
-
       const cleanup = await this.cleanupEmptyDuplicateStates(apply)
-      // #region agent log
-      agentDebugLog(_debug, "A", "ward-align.service.ts:afterCleanup", "cleanup finished", {
-        deleted: cleanup.deleted.length,
-        skipped: cleanup.skipped.length,
-      })
-      // #endregion
 
       const mismatchedUlbs = sync.wardCountMismatches
       const nestUlbCount = await this.prisma.db.ulb.count()
@@ -886,15 +761,7 @@ export class WardAlignService {
         `alignWardsWithConvex done mode=${mode} ok=${ok} mismatches=${mismatchedUlbs.length} conflicts=${sync.conflicts.length}`
       )
 
-      // #region agent log
-      agentDebugLog(_debug, "D", "ward-align.service.ts:alignWardsWithConvex:exit", "pipeline ok path", {
-        ok,
-        matchedUlbCount,
-        mismatchSamples: mismatchedUlbs.slice(0, 8),
-      })
-      // #endregion
-
-      const success: AlignWardsPipelineResult = {
+      return {
         mode,
         ok,
         steps: {
@@ -923,24 +790,12 @@ export class WardAlignService {
             mismatchedUlbs,
           },
         },
-        _debug,
       }
-      this.rememberAlign(success)
-      return success
     } catch (error) {
-      // #region agent log
-      agentDebugLog(_debug, "C", "ward-align.service.ts:alignWardsWithConvex:catch", "pipeline threw", {
-        isUnique: isPrismaUniqueViolation(error),
-        name: error instanceof Error ? error.name : typeof error,
-        message: error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300),
-        code: typeof error === "object" && error !== null && "code" in error ? String(error.code) : null,
-      })
-      // #endregion
-
-      // Never surface raw Prisma / unique toasts for this pipeline — always return structured failure + _debug.
+      // Never surface raw Prisma / unique toasts for this pipeline — return structured failure.
       const detail = error instanceof Error ? error.message.slice(0, 240) : String(error).slice(0, 240)
       this.logger.warn(`alignWardsWithConvex failed mode=${mode} unique=${isPrismaUniqueViolation(error)}: ${detail}`)
-      const failure: AlignWardsPipelineResult = {
+      return {
         mode,
         ok: false,
         steps: {
@@ -961,10 +816,7 @@ export class WardAlignService {
           cleanup: { deleted: [], skipped: [] },
           verify: { matchedUlbCount: 0, catalogSize: 0, mismatchedUlbs: [] },
         },
-        _debug,
       }
-      this.rememberAlign(failure)
-      return failure
     }
   }
 }

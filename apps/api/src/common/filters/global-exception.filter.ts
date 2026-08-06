@@ -52,32 +52,6 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       message =
         "A duplicate code or name already exists. Use the existing record, or run Dedupe Wards before Sync Wards."
       this.logger.warn(`Prisma unique conflict ${request.method} ${request.url}`)
-      // #region agent log
-      {
-        const meta =
-          typeof exception === "object" && exception !== null && "meta" in exception
-            ? (exception as { meta?: { target?: unknown } }).meta
-            : undefined
-        fetch("http://127.0.0.1:7548/ingest/d4e91970-7ad5-429b-8326-a482939a5101", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "cb377d" },
-          body: JSON.stringify({
-            sessionId: "cb377d",
-            runId: "align-pre",
-            hypothesisId: "C",
-            location: "global-exception.filter.ts:uniqueConflict",
-            message: "client got unique toast path",
-            data: {
-              method: request.method,
-              url: request.url,
-              target: meta?.target ?? null,
-              errMsg: exception instanceof Error ? exception.message.slice(0, 240) : String(exception).slice(0, 240),
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {})
-      }
-      // #endregion
     } else if (exception instanceof Error) {
       // Do not map every Prisma invocation dump to "duplicate" — only real unique failures above.
       const raw = exception.message
@@ -85,21 +59,6 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         status = HttpStatus.INTERNAL_SERVER_ERROR
         message = "A database operation failed. Check API logs for details."
         this.logger.error(`Prisma error ${request.method} ${request.url}: ${raw.slice(0, 400)}`, exception.stack)
-        // #region agent log
-        fetch("http://127.0.0.1:7548/ingest/d4e91970-7ad5-429b-8326-a482939a5101", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "cb377d" },
-          body: JSON.stringify({
-            sessionId: "cb377d",
-            runId: "align-pre",
-            hypothesisId: "F",
-            location: "global-exception.filter.ts:prismaNonUnique",
-            message: "prisma error was NOT unique — previously mislabeled as duplicate",
-            data: { method: request.method, url: request.url, raw: raw.slice(0, 400) },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {})
-        // #endregion
       } else {
         message = raw
         this.logger.error(exception.message, exception.stack)

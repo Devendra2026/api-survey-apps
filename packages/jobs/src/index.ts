@@ -126,6 +126,7 @@ export interface EtlSurveyBatchPayload {
   createdById?: string
   /** When true, reprocess COMPLETED imports that are still PENDING QC in Nest. */
   refreshPending?: boolean
+  districtId?: string
 }
 
 export interface EtlSurveyImportPayload {
@@ -135,6 +136,7 @@ export interface EtlSurveyImportPayload {
   type: EtlJobType
   createdById?: string
   refreshPending?: boolean
+  districtId?: string
 }
 
 export interface EtlPhotoPayload {

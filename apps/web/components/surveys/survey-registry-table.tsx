@@ -2,6 +2,7 @@
 
 import { DataTable } from "@/components/data-table/data-table"
 import type { SurveyRegistryCounts, SurveyRegistryRecord, SurveyRegistryTab } from "@/lib/api/types"
+import { formatParcelDisplay } from "@/lib/format-parcel"
 import type { ColumnDef } from "@tanstack/react-table"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
@@ -102,7 +103,7 @@ export function buildRegistryColumns(page: number, limit: number): ColumnDef<Sur
     {
       accessorKey: "parcelNumber",
       header: "Parcel Number",
-      cell: ({ row }) => <span className="tabular-nums">{row.original.parcelNumber}</span>,
+      cell: ({ row }) => <span className="tabular-nums">{formatParcelDisplay(row.original.parcelNumber)}</span>,
     },
     {
       accessorKey: "ownerName",

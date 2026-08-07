@@ -3,6 +3,7 @@
 import { DataTable } from "@/components/data-table/data-table"
 import { apiGet } from "@/lib/api/client"
 import type { QcRegistryCounts, QcRegistryRecord, QcRegistryTab, QcSurveyDetail } from "@/lib/api/types"
+import { formatParcelDisplay } from "@/lib/format-parcel"
 import { useQueryClient } from "@tanstack/react-query"
 import type { ColumnDef } from "@tanstack/react-table"
 import { Badge } from "@workspace/ui/components/badge"
@@ -134,7 +135,7 @@ export function buildQcRegistryColumns(page: number, limit: number): ColumnDef<Q
     {
       accessorKey: "parcelNumber",
       header: "Parcel Number",
-      cell: ({ row }) => <span className="tabular-nums">{row.original.parcelNumber}</span>,
+      cell: ({ row }) => <span className="tabular-nums">{formatParcelDisplay(row.original.parcelNumber)}</span>,
     },
     {
       accessorKey: "propertyUse",

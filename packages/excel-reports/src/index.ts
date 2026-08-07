@@ -15,6 +15,13 @@ export {
   toQcFinalWideRow,
 } from "./qc-final-wide.js"
 export {
+  FIXED_HEADER_COUNT,
+  FIXED_HEADERS,
+  FLOOR_GROUPS,
+  FLOOR_POSITIONS,
+  toSurveyBaseRow,
+} from "./survey-data-shared.js"
+export {
   assertExportRowCount,
   buildExportFilename,
   renderSurveyDataWorkbook,

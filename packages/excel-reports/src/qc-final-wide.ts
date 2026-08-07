@@ -3,11 +3,11 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createWorkbook, toBuffer } from "./convex-full.js"
-import { FIXED_HEADERS, FLOOR_GROUPS, toSurveyBaseRow } from "./survey-data-shared.js"
+import { FIXED_HEADER_COUNT, FIXED_HEADERS, FLOOR_GROUPS, toSurveyBaseRow } from "./survey-data-shared.js"
 import type { SurveyExportBundle } from "./types.js"
 
 /**
- * QC Final wide sheet matching survey.xlsx (64 cols).
+ * QC Final wide sheet matching survey.xlsx layout (+ blank tax columns).
  * APPROVED-only filtering belongs in the query layer; tax values intentionally blank.
  */
 export async function renderQcFinalWideWorkbook(rows: SurveyExportBundle[]): Promise<Buffer> {
@@ -67,14 +67,25 @@ export function toQcFinalWideRow(row: SurveyExportBundle, serialNumber: number):
 
 function applyColumnWidths(sheet: ExcelJS.Worksheet): void {
   sheet.columns.forEach((column, index) => {
-    column.width = index < 16 ? 18 : index === 16 ? 20 : 14
+    column.width = index < FIXED_HEADER_COUNT ? 18 : index === FIXED_HEADER_COUNT ? 20 : 14
   })
   sheet.getColumn(3).width = 24
   sheet.getColumn(4).width = 24
-  sheet.getColumn(17).width = 28
+  sheet.getColumn(12).width = 28
+  sheet.getColumn(FIXED_HEADER_COUNT + 1).width = 28
 }
 
 function addQcFinalWideHeaders(sheet: ExcelJS.Worksheet): void {
+  const floorsCol = FIXED_HEADER_COUNT + 1
+  const matrixStart = floorsCol + 1
+  const matrixEnd = matrixStart + 19
+  const plotCol = matrixEnd + 1
+  const plinthCol = plotCol + 1
+  const builtCol = plinthCol + 1
+  const demandStart = builtCol + 1
+  const demandEnd = demandStart + 20
+  const taxStart = demandEnd + 1
+
   const row1 = [
     ...FIXED_HEADERS,
     "Floors",
@@ -161,18 +172,27 @@ function addQcFinalWideHeaders(sheet: ExcelJS.Worksheet): void {
   sheet.addRow(row3)
   sheet.addRow(row4)
 
-  for (let column = 1; column <= 16; column += 1) sheet.mergeCells(1, column, 4, column)
-  sheet.mergeCells("Q1:AK1")
-  for (let column = 18; column <= 36; column += 2) sheet.mergeCells(2, column, 2, column + 1)
-  for (let column = 18; column <= 35; column += 1) sheet.mergeCells(3, column, 4, column)
-  sheet.mergeCells("AJ3:AK4")
-  for (const column of ["AL", "AM", "AN"]) sheet.mergeCells(`${column}1:${column}4`)
-  sheet.mergeCells("AO1:BI2")
-  sheet.mergeCells("AO3:AW3")
-  sheet.mergeCells("AX3:BF3")
-  sheet.mergeCells("BG3:BI3")
-  sheet.mergeCells("BJ1:BL2")
-  for (const column of ["BJ", "BK", "BL"]) sheet.mergeCells(`${column}3:${column}4`)
+  for (let column = 1; column <= FIXED_HEADER_COUNT; column += 1) sheet.mergeCells(1, column, 4, column)
+  sheet.mergeCells(1, floorsCol, 1, matrixEnd)
+  for (let column = matrixStart; column <= matrixEnd - 1; column += 2) {
+    sheet.mergeCells(2, column, 2, column + 1)
+  }
+  for (let column = matrixStart; column <= matrixEnd - 2; column += 1) {
+    sheet.mergeCells(3, column, 4, column)
+  }
+  sheet.mergeCells(3, matrixEnd - 1, 4, matrixEnd)
+  for (const column of [plotCol, plinthCol, builtCol]) {
+    sheet.mergeCells(1, column, 4, column)
+  }
+
+  sheet.mergeCells(1, demandStart, 2, demandEnd)
+  sheet.mergeCells(3, demandStart, 3, demandStart + 8)
+  sheet.mergeCells(3, demandStart + 9, 3, demandStart + 17)
+  sheet.mergeCells(3, demandStart + 18, 3, demandEnd)
+  sheet.mergeCells(1, taxStart, 2, taxStart + 2)
+  for (let column = taxStart; column <= taxStart + 2; column += 1) {
+    sheet.mergeCells(3, column, 4, column)
+  }
 
   for (let rowNumber = 1; rowNumber <= 4; rowNumber += 1) {
     const row = sheet.getRow(rowNumber)

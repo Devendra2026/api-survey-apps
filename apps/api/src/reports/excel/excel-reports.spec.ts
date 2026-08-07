@@ -2,20 +2,29 @@ import { describe, expect, it } from "@jest/globals"
 import {
   assertExportRowCount,
   buildExportFilename,
+  FIXED_HEADERS,
   renderConvexFullWorkbook,
   renderNagarPanchayatWorkbook,
   renderQcFinalWideWorkbook,
   renderSurveyDataWorkbook,
   renderSurveyDataWorkbookStreaming,
   sanitizeExportPathSegment,
-  type SurveyExportBundle,
+  toQcFinalWideRow,
+  toSurveyBaseRow,
   wardSurveyDataZipEntry,
+  type SurveyExportBundle,
 } from "@workspace/excel-reports"
 import ExcelJS from "exceljs"
 
 const bundle: SurveyExportBundle = {
   id: "survey-1",
   propertyId: "801262-001-00004-001-R",
+  parcelNumber: "4",
+  unitSubNo: "1",
+  houseDoorNo: "12-A",
+  propertyIdOld: "OLD-4",
+  colony: "Arvdishali Nagar",
+  pinCode: "271123",
   wardNumber: "001",
   respondentName: "Asha Devi",
   mobileNumber: "9876543210",
@@ -27,7 +36,7 @@ const bundle: SurveyExportBundle = {
   ward: { wardName: "Ward 1", wardNumber: "001" },
   ulb: { name: "Bakewar", code: "801262" },
   district: { name: "Etawah" },
-  coOwners: [{ ownerIndex: 1, name: "Asha Devi", fatherOrHusbandName: "Ram Kumar" }],
+  coOwners: [{ ownerIndex: 1, name: "Asha Devi", fatherOrHusbandName: "Ram Kumar", mobile: "9876543210" }],
   floors: [{ position: 0, floorPosition: "GROUND_FLOOR", areaSqFt: 1000, usageType: "SELF_OCCUPIED" }],
   photos: [{ photoType: "FRONT", url: "https://example.test/front.jpg", sizeKB: 42 }],
 }
@@ -123,15 +132,18 @@ describe("Excel report templates", () => {
     )
 
     const sheet = workbook.getWorksheet("Survey Data")!
-    expect(sheet.getCell("Q1").value).toBe("Floors")
-    expect(sheet.getCell("AL1").value).toBe("Plot Area SqFt")
-    expect(sheet.getCell("AN1").value).toBe("Total Built Up Area SqFt")
-    expect(sheet.getCell("AO1").value).toBeNull()
+    expect(sheet.getCell("R1").value).toBe("Floors")
+    expect(sheet.getCell("AM1").value).toBe("Plot Area SqFt")
+    expect(sheet.getCell("AO1").value).toBe("Total Built Up Area SqFt")
+    expect(sheet.getCell("AP1").value).toBeNull()
 
     const headerRow = rowValues(sheet, 1).join("|")
     expect(headerRow).not.toContain("Total Demand")
     expect(headerRow).not.toContain("Total Tax Demand")
     expect(headerRow).not.toContain("Total Tax 10%")
+    expect(headerRow).toContain("Unit Number")
+    expect(headerRow).toContain("Old Property Number (House Number)")
+    expect(headerRow).not.toContain("Property No")
     // All QC statuses included (header + 3 data rows)
     expect(sheet.rowCount).toBe(7)
   })
@@ -140,12 +152,12 @@ describe("Excel report templates", () => {
     const workbook = await loadFromBuffer(await renderQcFinalWideWorkbook([bundle]))
 
     const sheet = workbook.getWorksheet("Survey Data")!
-    expect(sheet.getCell("Q1").value).toBe("Floors")
-    expect(sheet.getCell("AO1").value).toBe("Total Demand")
-    expect(sheet.getCell("BJ1").value).toBe("Total Tax Demand")
-    expect(sheet.getCell("BL3").value).toBe("Total Drainage Tax 2.5%")
-    expect(sheet.getCell("AO5").value).toBe("")
-    expect(sheet.getCell("BJ5").value).toBe("")
+    expect(sheet.getCell("R1").value).toBe("Floors")
+    expect(sheet.getCell("AP1").value).toBe("Total Demand")
+    expect(sheet.getCell("BK1").value).toBe("Total Tax Demand")
+    expect(sheet.getCell("BM3").value).toBe("Total Drainage Tax 2.5%")
+    expect(sheet.getCell("AP5").value).toBe("")
+    expect(sheet.getCell("BK5").value).toBe("")
   })
 
   it("streaming Survey Data matches buffer renderer key header cells", async () => {
@@ -154,9 +166,9 @@ describe("Excel report templates", () => {
 
     const streamedSheet = streamed.getWorksheet("Survey Data")!
     const bufferedSheet = buffered.getWorksheet("Survey Data")!
-    expect(cellText(streamedSheet.getCell("Q1").value)).toBe(cellText(bufferedSheet.getCell("Q1").value))
-    expect(cellText(streamedSheet.getCell("AL1").value)).toBe(cellText(bufferedSheet.getCell("AL1").value))
-    expect(cellText(streamedSheet.getCell("AN1").value)).toBe(cellText(bufferedSheet.getCell("AN1").value))
+    expect(cellText(streamedSheet.getCell("R1").value)).toBe(cellText(bufferedSheet.getCell("R1").value))
+    expect(cellText(streamedSheet.getCell("AM1").value)).toBe(cellText(bufferedSheet.getCell("AM1").value))
+    expect(cellText(streamedSheet.getCell("AO1").value)).toBe(cellText(bufferedSheet.getCell("AO1").value))
     expect(cellText(streamedSheet.getCell("B5").value)).toBe(bundle.propertyId)
     expect(cellText(streamedSheet.getCell("C5").value)).toBe("Asha Devi")
   })
@@ -168,7 +180,8 @@ describe("Excel report templates", () => {
     }
     const workbook = await loadFromBuffer(await renderSurveyDataWorkbook([legacy]))
     const sheet = workbook.getWorksheet("Survey Data")!
-    expect(sheet.getCell("AD5").value).toBe(500)
+    // Fifth floor residential = matrix index 6 → column 19 + 12 = 31 (AE)
+    expect(sheet.getCell("AE5").value).toBe(500)
   })
 
   it("builds safe per-ward ZIP entry paths", () => {
@@ -188,5 +201,105 @@ describe("Excel report templates", () => {
   it("asserts export row counts match", () => {
     expect(() => assertExportRowCount(10, 10, "survey_data")).not.toThrow()
     expect(() => assertExportRowCount(9, 10, "qc_final")).toThrow(/row count mismatch/)
+  })
+})
+
+describe("Survey / QC shared base row mapping", () => {
+  it("maps a complete record with padded parcel, unit number, and floor code", () => {
+    const row = toSurveyBaseRow(bundle, 1)
+    expect(FIXED_HEADERS).toEqual([
+      "SN",
+      "Survey Id",
+      "Owner Name",
+      "Owner Father Name",
+      "Mobile No",
+      "Ward Name",
+      "Parcel No",
+      "Unit Number",
+      "City",
+      "Pincode",
+      "House No",
+      "Old Property Number (House Number)",
+      "Colony",
+      "Tax Rate Zone",
+      "Property Type",
+      "Property Use",
+      "Road Type",
+    ])
+    expect(row[0]).toBe(1)
+    expect(row[1]).toBe("801262-001-00004-001-R")
+    expect(row[2]).toBe("Asha Devi")
+    expect(row[3]).toBe("Ram Kumar")
+    expect(row[4]).toBe("9876543210")
+    expect(row[6]).toBe("00004")
+    expect(row[7]).toBe("001")
+    expect(row[10]).toBe("12-A")
+    expect(row[11]).toBe("OLD-4")
+    expect(row[12]).toBe("Arvdishali Nagar")
+    expect(row[17]).toBe("G")
+  })
+
+  it("applies N/A and mobile fallbacks and auto-generates Survey Id", () => {
+    const sparse: SurveyExportBundle = {
+      ...bundle,
+      propertyId: "",
+      parcelNumber: "595",
+      unitSubNo: "1",
+      propertyUse: "RESIDENTIAL",
+      respondentName: null,
+      mobileNumber: null,
+      houseDoorNo: null,
+      propertyIdOld: null,
+      colony: null,
+      coOwners: [],
+      floors: [],
+    }
+    const row = toSurveyBaseRow(sparse, 2)
+    expect(row[1]).toBe("801262-001-00595-001-R")
+    expect(row[2]).toBe("N/A")
+    expect(row[3]).toBe("N/A")
+    expect(row[4]).toBe("0000000000")
+    expect(row[6]).toBe("00595")
+    expect(row[10]).toBe("N/A")
+    expect(row[11]).toBe("N/A")
+    expect(row[12]).toBe("N/A")
+    expect(row[17]).toBe("P")
+  })
+
+  it("pads parcels 1 / 42 / 595 and builds GF1 / GF4 floor codes", () => {
+    expect(toSurveyBaseRow({ ...bundle, parcelNumber: "1" }, 1)[6]).toBe("00001")
+    expect(toSurveyBaseRow({ ...bundle, parcelNumber: "42" }, 1)[6]).toBe("00042")
+    expect(toSurveyBaseRow({ ...bundle, parcelNumber: "595" }, 1)[6]).toBe("00595")
+
+    const gf1 = toSurveyBaseRow(
+      {
+        ...bundle,
+        floors: [
+          { floorPosition: "GROUND_FLOOR", areaSqFt: 100 },
+          { floorPosition: "FIRST_FLOOR", areaSqFt: 100 },
+        ],
+      },
+      1
+    )
+    expect(gf1[17]).toBe("GF1")
+
+    const gf4 = toSurveyBaseRow(
+      {
+        ...bundle,
+        floors: [
+          { floorPosition: "GROUND_FLOOR", areaSqFt: 100 },
+          { floorPosition: "FOURTH_FLOOR", areaSqFt: 50 },
+        ],
+      },
+      1
+    )
+    expect(gf4[17]).toBe("GF4")
+  })
+
+  it("keeps Survey Data and QC Final base cells identical for the same fixture", () => {
+    const base = toSurveyBaseRow(bundle, 1)
+    const qc = toQcFinalWideRow(bundle, 1)
+    expect(qc.slice(0, base.length)).toEqual(base)
+    expect(qc.length).toBe(base.length + 24)
   })
 })

@@ -386,12 +386,17 @@ export class ExportWorkerService {
   }
 
   private async *iterateSurveyBundles(where: Prisma.SurveyWhereInput): AsyncGenerator<SurveyExportBundle> {
-    let cursor: string | undefined
+    let cursorId: string | undefined
     for (;;) {
       const batch = await this.prisma.db.survey.findMany({
-        where: cursor ? { AND: [where, { id: { gt: cursor } }] } : where,
-        orderBy: { id: "asc" },
+        where,
+        orderBy: [
+          { parcelNumber: { sort: "asc", nulls: "last" } },
+          { unitSubNo: { sort: "asc", nulls: "last" } },
+          { id: "asc" },
+        ],
         take: EXPORT_BATCH_SIZE,
+        ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
         select: SURVEY_EXPORT_SELECT,
       })
       if (batch.length === 0) break
@@ -399,7 +404,7 @@ export class ExportWorkerService {
       for (const row of withFloors) {
         yield row
       }
-      cursor = batch[batch.length - 1].id
+      cursorId = batch[batch.length - 1].id
       if (batch.length < EXPORT_BATCH_SIZE) break
     }
   }

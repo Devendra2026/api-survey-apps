@@ -1,4 +1,12 @@
-import { display, number, text } from "./convex-full.js"
+import {
+  computeFloorsAbbreviation,
+  formatExportMobile,
+  formatExportParcel,
+  formatExportText,
+  formatExportUnitNumber,
+  resolveExportSurveyId,
+} from "@workspace/validation"
+import { display, number } from "./convex-full.js"
 import type { SurveyExportBundle } from "./types.js"
 
 export const FIXED_HEADERS = [
@@ -9,16 +17,20 @@ export const FIXED_HEADERS = [
   "Mobile No",
   "Ward Name",
   "Parcel No",
-  "Property No",
+  "Unit Number",
   "City",
   "Pincode",
   "House No",
+  "Old Property Number (House Number)",
   "Colony",
   "Tax Rate Zone",
   "Property Type",
   "Property Use",
   "Road Type",
 ] as const
+
+/** Column count of FIXED_HEADERS — used for Excel merge ranges. */
+export const FIXED_HEADER_COUNT = FIXED_HEADERS.length
 
 export const FLOOR_GROUPS = [
   "Basement",
@@ -43,6 +55,7 @@ export const FLOOR_POSITIONS: Record<string, number> = {
   FIFTH_FLOOR: 6,
   FIFTH_FLOOR_PLUS: 6,
   SIXTH_FLOOR: 7,
+  SEVENTH_FLOOR: 8,
   OPEN_LAND: 9,
 }
 
@@ -57,24 +70,35 @@ export function toSurveyBaseRow(row: SurveyExportBundle, serialNumber: number): 
     floorCells[position * 2 + (isNonResidential ? 1 : 0)] = number(floor.areaSqFt)
   }
 
+  const surveyId =
+    resolveExportSurveyId({
+      propertyId: row.propertyId,
+      ulbCode: row.ulb?.code,
+      wardNo: row.ward?.wardNumber ?? row.wardNumber,
+      parcelNo: row.parcelNumber,
+      unitNo: row.unitSubNo,
+      propertyUse: row.propertyUse,
+    }) ?? "N/A"
+
   return [
     serialNumber,
-    row.propertyId,
-    text(owner?.name ?? row.respondentName),
-    text(owner?.fatherOrHusbandName),
-    text(owner?.mobile ?? row.mobileNumber),
-    text(row.ward?.wardName ?? row.wardNumber),
-    text(row.parcelNumber),
-    row.propertyId,
-    text(row.city ?? row.ulb?.name),
-    text(row.pinCode),
-    text(row.houseDoorNo),
-    text(row.colony),
+    surveyId,
+    formatExportText(owner?.name ?? row.respondentName),
+    formatExportText(owner?.fatherOrHusbandName),
+    formatExportMobile(owner?.mobile ?? row.mobileNumber),
+    formatExportText(row.ward?.wardName ?? row.wardNumber),
+    formatExportParcel(row.parcelNumber),
+    formatExportUnitNumber(row.unitSubNo),
+    formatExportText(row.city ?? row.ulb?.name),
+    formatExportText(row.pinCode),
+    formatExportText(row.houseDoorNo),
+    formatExportText(row.propertyIdOld),
+    formatExportText(row.colony),
     display(row.taxRateZone),
     display(row.propertyType),
     display(row.propertyUse),
     display(row.roadType),
-    row.floors.map((floor) => display(floor.floorPosition)).join(", "),
+    computeFloorsAbbreviation(row.floors),
     ...floorCells,
     number(row.plotAreaSqFt),
     number(row.plinthAreaSqFt),
@@ -121,8 +145,6 @@ export function assertExportRowCount(written: number, expected: number, reportTy
 }
 
 export function wardSurveyDataZipEntry(ulbCode: string, wardNumber: string, wardName: string): string {
-  return [
-    sanitizeExportPathSegment(ulbCode),
-    `${sanitizeExportPathSegment(wardNumber)}-${sanitizeExportPathSegment(wardName)}.xlsx`,
-  ].join("/")
+  const safeWard = sanitizeExportPathSegment(`${wardNumber}-${wardName}`)
+  return `${sanitizeExportPathSegment(ulbCode)}/${safeWard}.xlsx`
 }

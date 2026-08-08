@@ -44,10 +44,6 @@ function zeroCells(config: TaxConfig): CellPayload[] {
   }))
 }
 
-async function fetchWardConfig(wardId: string, assessmentYearId: string): Promise<TaxConfig> {
-  return apiGet<TaxConfig>(`/tax-configs?wardId=${wardId}&assessmentYearId=${assessmentYearId}`)
-}
-
 export function TaxRatesPanel() {
   const hasPermission = useAuthStore((s) => s.hasPermission)
   const canManage = hasPermission("settings:manage")
@@ -163,22 +159,19 @@ export function TaxRatesPanel() {
     }, 400)
   }
 
-  const applyCellsToWard = async (targetWardId: string, cells: CellPayload[]) => {
-    const target = await fetchWardConfig(targetWardId, resolvedYearId)
-    await mutations.upsertCells.mutateAsync({ id: target.id, cells })
-  }
-
   const onCopyToAll = async () => {
-    if (!config || !canManage || !resolvedYearId) return
+    if (!config || !canManage || !resolvedYearId || !ulbId) return
     if (!window.confirm("Copy this ward’s rates to all other wards in this ULB?")) return
     setBusy(true)
     try {
-      const cells = cellsFromConfig(config)
-      const others = wards.filter((w) => w.id !== resolvedWardId)
-      for (const w of others) {
-        await applyCellsToWard(w.id, cells)
-      }
-      toast.success(`Copied rates to ${others.length} ward(s)`)
+      const result = await mutations.bulkApply.mutateAsync({
+        ulbId,
+        assessmentYearId: resolvedYearId,
+        mode: "copy",
+        sourceWardId: resolvedWardId,
+        cells: cellsFromConfig(config),
+      })
+      toast.success(`Copied rates to ${result.updated} ward(s)`)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Copy failed")
     } finally {
@@ -187,19 +180,15 @@ export function TaxRatesPanel() {
   }
 
   const onUlbDefault = async () => {
-    if (!config || !canManage || !resolvedYearId) return
+    if (!config || !canManage || !resolvedYearId || !ulbId) return
     setBusy(true)
     try {
-      let source: TaxConfig | null = null
-      for (const w of wards) {
-        if (w.id === resolvedWardId) continue
-        const other = await fetchWardConfig(w.id, resolvedYearId)
-        const hasRates = other.cells.some((c) => num(c.annualRatePerSqFt) > 0)
-        if (hasRates) {
-          source = other
-          break
-        }
-      }
+      const qs = new URLSearchParams({
+        ulbId,
+        assessmentYearId: resolvedYearId,
+        excludeWardId: resolvedWardId,
+      })
+      const source = await apiGet<TaxConfig | null>(`/tax-configs/first-with-rates?${qs}`)
       if (!source) {
         toast.message("No other ward in this ULB has rates to copy")
         return
@@ -228,15 +217,16 @@ export function TaxRatesPanel() {
   }
 
   const onResetUlb = async () => {
-    if (!canManage || !resolvedYearId || wards.length === 0) return
+    if (!canManage || !resolvedYearId || !ulbId || wards.length === 0) return
     if (!window.confirm("Reset ALL wards in this ULB to system default (zero rates)?")) return
     setBusy(true)
     try {
-      for (const w of wards) {
-        const cfg = await fetchWardConfig(w.id, resolvedYearId)
-        await mutations.upsertCells.mutateAsync({ id: cfg.id, cells: zeroCells(cfg) })
-      }
-      toast.success(`Reset ${wards.length} ward(s) to system default`)
+      const result = await mutations.bulkApply.mutateAsync({
+        ulbId,
+        assessmentYearId: resolvedYearId,
+        mode: "zero",
+      })
+      toast.success(`Reset ${result.updated} ward(s) to system default`)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "ULB reset failed")
     } finally {

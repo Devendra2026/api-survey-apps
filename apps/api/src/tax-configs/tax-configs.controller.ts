@@ -1,10 +1,12 @@
 import { Body, Controller, Get, Param, Patch, Post, Put, Query } from "@nestjs/common"
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger"
+import { Throttle } from "@nestjs/throttler"
 import { PERMISSIONS } from "../common/constants/permissions.js"
 import { CurrentUser } from "../common/decorators/current-user.decorator.js"
 import { RequirePermission } from "../common/decorators/require-permission.decorator.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import {
+  BulkApplyTaxConfigDto,
   PublishTaxConfigDto,
   RollbackTaxConfigDto,
   TaxPreviewDto,
@@ -15,6 +17,7 @@ import { TaxConfigsService } from "./tax-configs.service.js"
 
 @ApiTags("tax-configs")
 @ApiBearerAuth()
+@Throttle({ default: { limit: 300, ttl: 60_000 } })
 @Controller("tax-configs")
 export class TaxConfigsController {
   constructor(private readonly taxConfigsService: TaxConfigsService) {}
@@ -27,6 +30,23 @@ export class TaxConfigsController {
     @CurrentUser() user: AuthenticatedUser
   ) {
     return this.taxConfigsService.getOrCreate(wardId, assessmentYearId, user.id)
+  }
+
+  /** Static path must be registered before @Get(":id/...") */
+  @Get("first-with-rates")
+  @RequirePermission(PERMISSIONS.SETTINGS_VIEW)
+  firstWithRates(
+    @Query("ulbId") ulbId: string,
+    @Query("assessmentYearId") assessmentYearId: string,
+    @Query("excludeWardId") excludeWardId?: string
+  ) {
+    return this.taxConfigsService.firstWithRates(ulbId, assessmentYearId, excludeWardId)
+  }
+
+  @Post("bulk-apply")
+  @RequirePermission(PERMISSIONS.SETTINGS_MANAGE)
+  bulkApply(@Body() dto: BulkApplyTaxConfigDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.taxConfigsService.bulkApply(dto, user.id)
   }
 
   @Patch(":id")

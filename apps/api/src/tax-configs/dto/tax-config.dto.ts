@@ -1,5 +1,5 @@
 import { Type } from "class-transformer"
-import { IsArray, IsNumber, IsOptional, IsString, Min, ValidateNested } from "class-validator"
+import { IsArray, IsIn, IsNumber, IsOptional, IsString, Min, ValidateIf, ValidateNested } from "class-validator"
 
 export class UpdateTaxConfigParamsDto {
   @IsOptional()
@@ -93,4 +93,27 @@ export class RollbackTaxConfigDto {
   @IsOptional()
   @IsString()
   reason?: string
+}
+
+export class BulkApplyTaxConfigDto {
+  @IsString()
+  ulbId!: string
+
+  @IsString()
+  assessmentYearId!: string
+
+  @IsIn(["copy", "zero"])
+  mode!: "copy" | "zero"
+
+  /** Required for mode=copy — ward whose rates are already saved and should be skipped. */
+  @ValidateIf((o: BulkApplyTaxConfigDto) => o.mode === "copy")
+  @IsString()
+  sourceWardId?: string
+
+  /** Required for mode=copy — cell rates to apply to every other ward in the ULB. */
+  @ValidateIf((o: BulkApplyTaxConfigDto) => o.mode === "copy")
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => UpsertTaxCellDto)
+  cells?: UpsertTaxCellDto[]
 }

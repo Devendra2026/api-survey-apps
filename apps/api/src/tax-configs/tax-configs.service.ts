@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { ConfigAuditService } from "../config-audit/config-audit.service.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import type {
+  BulkApplyTaxConfigDto,
   PublishTaxConfigDto,
   RollbackTaxConfigDto,
   TaxPreviewDto,
@@ -188,6 +189,68 @@ export class TaxConfigsService {
       where: { id },
       include: this.include,
     })
+  }
+
+  private async listActiveUlbWards(ulbId: string) {
+    const ulb = await this.prisma.db.ulb.findUnique({ where: { id: ulbId } })
+    if (!ulb) throw new NotFoundException("ULB not found")
+
+    return this.prisma.db.ward.findMany({
+      where: { ulbId, deletedAt: null, status: "ACTIVE" },
+      orderBy: { wardNumber: "asc" },
+      select: { id: true },
+    })
+  }
+
+  /**
+   * Apply rate cells to every ward in a ULB in one request (avoids client-side N×GET/PUT storms / 429).
+   * - copy: apply `cells` to all wards except `sourceWardId`
+   * - zero: reset all wards' matrices to 0
+   */
+  async bulkApply(dto: BulkApplyTaxConfigDto, actorId?: string): Promise<{ updated: number }> {
+    const wards = await this.listActiveUlbWards(dto.ulbId)
+    if (wards.length === 0) return { updated: 0 }
+
+    if (dto.mode === "copy") {
+      if (!dto.sourceWardId) throw new BadRequestException("sourceWardId is required for copy mode")
+      if (!dto.cells?.length) throw new BadRequestException("cells are required for copy mode")
+
+      const targets = wards.filter((w) => w.id !== dto.sourceWardId)
+      for (const ward of targets) {
+        const config = await this.getOrCreate(ward.id, dto.assessmentYearId, actorId)
+        await this.upsertCells(config.id, dto.cells, actorId)
+      }
+      return { updated: targets.length }
+    }
+
+    let updated = 0
+    for (const ward of wards) {
+      const config = await this.getOrCreate(ward.id, dto.assessmentYearId, actorId)
+      const zeroCells: UpsertTaxCellDto[] = config.cells.map((c) => ({
+        roadWidthEntryId: c.roadWidthEntryId,
+        constructionEntryId: c.constructionEntryId,
+        annualRatePerSqFt: 0,
+      }))
+      await this.upsertCells(config.id, zeroCells, actorId)
+      updated += 1
+    }
+    return { updated }
+  }
+
+  /** First ward config in the ULB (excluding one ward) that already has any positive rate cell. */
+  async firstWithRates(ulbId: string, assessmentYearId: string, excludeWardId?: string) {
+    const wards = await this.listActiveUlbWards(ulbId)
+    for (const ward of wards) {
+      if (excludeWardId && ward.id === excludeWardId) continue
+      const config = await this.prisma.db.taxConfig.findUnique({
+        where: { wardId_assessmentYearId: { wardId: ward.id, assessmentYearId } },
+        include: this.include,
+      })
+      if (!config) continue
+      const hasRates = config.cells.some((c) => toNumber(c.annualRatePerSqFt) > 0)
+      if (hasRates) return config
+    }
+    return null
   }
 
   async preview(dto: TaxPreviewDto) {

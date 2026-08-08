@@ -120,6 +120,16 @@ export function useTaxConfigMutations() {
         apiPut<TaxConfig>(`/tax-configs/${id}/cells`, { cells }),
       onSuccess: invalidate,
     }),
+    bulkApply: useMutation({
+      mutationFn: (body: {
+        ulbId: string
+        assessmentYearId: string
+        mode: "copy" | "zero"
+        sourceWardId?: string
+        cells?: unknown[]
+      }) => apiPost<{ updated: number }>("/tax-configs/bulk-apply", body),
+      onSuccess: invalidate,
+    }),
     preview: useMutation({
       mutationFn: (body: Record<string, unknown>) => apiPost<TaxPreviewResult>("/tax-configs/preview", body),
     }),

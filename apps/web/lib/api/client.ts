@@ -34,6 +34,23 @@ apiClient.interceptors.request.use(async (config) => {
   return config
 })
 
+apiClient.interceptors.response.use(
+  (response) => response,
+  async (error: AxiosError) => {
+    const config = error.config as (AxiosRequestConfig & { _retry429?: boolean }) | undefined
+    if (!config || error.response?.status !== 429 || config._retry429) {
+      return Promise.reject(error)
+    }
+
+    config._retry429 = true
+    const retryAfterHeader = error.response.headers?.["retry-after"]
+    const retryAfterSec = retryAfterHeader ? Number(retryAfterHeader) : NaN
+    const delayMs = Number.isFinite(retryAfterSec) && retryAfterSec > 0 ? retryAfterSec * 1000 : 1000
+    await new Promise((resolve) => setTimeout(resolve, delayMs))
+    return apiClient.request(config)
+  }
+)
+
 export function getApiErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
     if (!error.response) {

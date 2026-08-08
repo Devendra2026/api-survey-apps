@@ -6,7 +6,6 @@ import {
   buildExportFilename,
   renderConvexFullWorkbook,
   renderNagarPanchayatWorkbook,
-  renderQcFinalWideWorkbook,
   renderSurveyDataWorkbook,
   sanitizeExportPathSegment,
   streamQcFinalWideWorkbookToFile,
@@ -14,6 +13,7 @@ import {
   wardSurveyDataZipEntry,
   type SurveyExportBundle,
 } from "@workspace/excel-reports"
+import { computeExportTaxSummary, taxRateKey, toTaxNumber, type ExportTaxRateTable } from "@workspace/validation"
 import type { ExportFiltersPayload, ExportJobPayload, ExportReportType } from "@workspace/jobs"
 import { ZipArchive } from "archiver"
 import ExcelJS from "exceljs"
@@ -111,13 +111,17 @@ const SURVEY_EXPORT_SELECT = {
   gpsProvider: true,
   gpsMockLocation: true,
   qcStatus: true,
+  qcRemarks: true,
   serverVersion: true,
   clientUpdatedAt: true,
   createdBy: { select: { fullName: true, email: true } },
   ward: { select: { wardName: true, wardNumber: true } },
   ulb: { select: { name: true, code: true } },
   district: { select: { name: true, code: true } },
-  coOwners: { select: { name: true, fatherOrHusbandName: true, mobile: true, alternateMobile: true } },
+  coOwners: {
+    select: { name: true, fatherOrHusbandName: true, mobile: true, alternateMobile: true },
+    orderBy: { ownerIndex: "asc" },
+  },
   photos: { select: { photoType: true, url: true, capturedAt: true, sizeKB: true, width: true, height: true } },
 } satisfies Prisma.SurveySelect
 
@@ -299,20 +303,31 @@ export class ExportWorkerService {
 
   private async resolveGeoNames(filters: ExportFiltersPayload): Promise<{
     wardName?: string
+    wardNumber?: string
     districtName?: string
+    municipalityName?: string
   }> {
     if (!filters.wardId) {
       const district = filters.districtId
         ? await this.prisma.db.district.findUnique({ where: { id: filters.districtId }, select: { name: true } })
         : null
-      return { districtName: district?.name }
+      const ulb = filters.ulbId
+        ? await this.prisma.db.ulb.findUnique({ where: { id: filters.ulbId }, select: { name: true } })
+        : null
+      return { districtName: district?.name, municipalityName: ulb?.name }
     }
 
     const ward = await this.prisma.db.ward.findUnique({
       where: { id: filters.wardId },
       select: {
         wardName: true,
-        ulb: { select: { district: { select: { name: true } } } },
+        wardNumber: true,
+        ulb: {
+          select: {
+            name: true,
+            district: { select: { name: true } },
+          },
+        },
       },
     })
 
@@ -325,7 +340,12 @@ export class ExportWorkerService {
       districtName = district?.name
     }
 
-    return { wardName: ward?.wardName, districtName }
+    return {
+      wardName: ward?.wardName,
+      wardNumber: ward?.wardNumber,
+      districtName,
+      municipalityName: ward?.ulb.name,
+    }
   }
 
   private async assertRowBudget(where: Prisma.SurveyWhereInput): Promise<number> {
@@ -377,12 +397,110 @@ export class ExportWorkerService {
 
   private async attachFloors<T extends { id: string }>(
     surveys: T[]
-  ): Promise<Array<T & { floors: SurveyExportBundle["floors"] }>> {
+  ): Promise<Array<T & { floors: SurveyExportBundle["floors"]; qcApprovedByName: string | null }>> {
     const floorsBySurvey = await this.loadFloorsBySurveyId(surveys.map((survey) => survey.id))
+    const approverBySurvey = await this.loadQcApproverNames(surveys.map((survey) => survey.id))
     return surveys.map((survey) => ({
       ...survey,
       floors: floorsBySurvey.get(survey.id) ?? [],
+      qcApprovedByName: approverBySurvey.get(survey.id) ?? null,
     }))
+  }
+
+  private async loadQcApproverNames(surveyIds: string[]): Promise<Map<string, string>> {
+    const bySurvey = new Map<string, string>()
+    if (surveyIds.length === 0) return bySurvey
+    const audits = await this.prisma.db.surveyAudit.findMany({
+      where: {
+        surveyId: { in: surveyIds },
+        action: { in: ["APPROVED", "SURVEY_BULK_APPROVE"] },
+      },
+      orderBy: { changedAt: "desc" },
+      select: {
+        surveyId: true,
+        changer: { select: { fullName: true } },
+      },
+    })
+    for (const audit of audits) {
+      if (bySurvey.has(audit.surveyId)) continue
+      bySurvey.set(audit.surveyId, audit.changer.fullName)
+    }
+    return bySurvey
+  }
+
+  /** Load published tax rate tables for a ward, keyed by assessment year code. */
+  private async loadWardTaxRateTables(wardId: string): Promise<Map<string, ExportTaxRateTable>> {
+    const configs = await this.prisma.db.taxConfig.findMany({
+      where: { wardId, status: "PUBLISHED" },
+      include: {
+        assessmentYear: { select: { code: true } },
+        cells: {
+          include: {
+            roadWidthEntry: { select: { code: true } },
+            constructionEntry: { select: { code: true } },
+          },
+        },
+      },
+    })
+    const byAy = new Map<string, ExportTaxRateTable>()
+    for (const config of configs) {
+      const rateByZoneAndConstruction = new Map<string, number>()
+      const anyRateByZone = new Map<string, number>()
+      for (const cell of config.cells) {
+        const zone = cell.roadWidthEntry.code
+        const construction = cell.constructionEntry.code
+        const rate = toTaxNumber(cell.annualRatePerSqFt)
+        if (rate <= 0) continue
+        rateByZoneAndConstruction.set(taxRateKey(zone, construction), rate)
+        if (!anyRateByZone.has(zone)) anyRateByZone.set(zone, rate)
+      }
+      byAy.set(config.assessmentYear.code, {
+        assessablePct: toTaxNumber(config.assessablePct),
+        propertyTaxPct: toTaxNumber(config.propertyTaxPct),
+        waterTaxPct: toTaxNumber(config.waterTaxPct),
+        drainageTaxPct: toTaxNumber(config.drainageTaxPct),
+        penaltyPct: toTaxNumber(config.penaltyPct),
+        rateByZoneAndConstruction,
+        anyRateByZone,
+      })
+    }
+    return byAy
+  }
+
+  private async *iterateQcBundles(
+    where: Prisma.SurveyWhereInput,
+    ratesByAssessmentYear: Map<string, ExportTaxRateTable>
+  ): AsyncGenerator<
+    SurveyExportBundle & { taxSummary?: ReturnType<typeof computeExportTaxSummary>; taxRate?: number | null }
+  > {
+    for await (const row of this.iterateSurveyBundles(where)) {
+      const rates = ratesByAssessmentYear.get(row.assessmentYear)
+      if (!rates) {
+        this.logger.warn(
+          `QC export soft-skip tax: no published config for AY ${row.assessmentYear} (Survey Id ${row.propertyId})`
+        )
+        yield { ...row, taxSummary: undefined, taxRate: null }
+        continue
+      }
+      try {
+        const taxSummary = computeExportTaxSummary({
+          taxRateZone: row.taxRateZone,
+          propertyUse: row.propertyUse,
+          waterConnection: row.waterConnection,
+          totalBuiltAreaSqFt: row.totalBuiltAreaSqFt,
+          plinthAreaSqFt: row.plinthAreaSqFt,
+          floors: row.floors,
+          rates,
+        })
+        const zone = (row.taxRateZone ?? "").trim()
+        const taxRate = zone ? (rates.anyRateByZone.get(zone) ?? null) : null
+        yield { ...row, taxSummary, taxRate }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "unknown"
+        this.logger.warn(`QC export soft-skip tax for ${row.propertyId}: ${message}`)
+        yield { ...row, taxSummary: undefined, taxRate: null }
+      }
+    }
   }
 
   private async *iterateSurveyBundles(where: Prisma.SurveyWhereInput): AsyncGenerator<SurveyExportBundle> {
@@ -420,7 +538,16 @@ export class ExportWorkerService {
     const dir = await mkdtemp(join(tmpdir(), "export-survey-data-"))
     const filename = join(dir, "survey-data.xlsx")
     try {
-      const { rowCount } = await streamSurveyDataWorkbookToFile(filename, this.iterateSurveyBundles(where))
+      const { rowCount, duplicateSurveyIds } = await streamSurveyDataWorkbookToFile(
+        filename,
+        this.iterateSurveyBundles(where),
+        { enableAutoFilter: payload.enableAutoFilter === true }
+      )
+      if (duplicateSurveyIds.length > 0) {
+        this.logger.warn(
+          `Survey Data export job ${payload.jobId}: ${duplicateSurveyIds.length} duplicate Survey Id(s) (soft)`
+        )
+      }
       this.assertWrittenRowCount(rowCount, total, "survey_data")
       await updateProgress(80)
       const buffer = await readFile(filename)
@@ -443,12 +570,29 @@ export class ExportWorkerService {
 
     const where = this.buildSurveyWhere(payload)
     const total = await this.assertRowBudget(where)
-    await updateProgress(20)
+    await updateProgress(15)
+
+    const ratesByAy = await this.loadWardTaxRateTables(payload.filters.wardId)
+    if (ratesByAy.size === 0) {
+      this.logger.warn(
+        `QC Final export job ${payload.jobId}: no published tax config for ward — tax columns will be placeholders`
+      )
+    }
+    await updateProgress(25)
 
     const dir = await mkdtemp(join(tmpdir(), "export-qc-final-"))
     const filename = join(dir, "qc-final.xlsx")
     try {
-      const { rowCount } = await streamQcFinalWideWorkbookToFile(filename, this.iterateSurveyBundles(where))
+      const { rowCount, duplicateSurveyIds } = await streamQcFinalWideWorkbookToFile(
+        filename,
+        this.iterateQcBundles(where, ratesByAy),
+        { enableAutoFilter: payload.enableAutoFilter === true }
+      )
+      if (duplicateSurveyIds.length > 0) {
+        this.logger.warn(
+          `QC Final export job ${payload.jobId}: ${duplicateSurveyIds.length} duplicate Survey Id(s) (soft)`
+        )
+      }
       this.assertWrittenRowCount(rowCount, total, "qc_final")
       await updateProgress(80)
       const buffer = await readFile(filename)
@@ -685,7 +829,9 @@ export class ExportWorkerService {
     if (reportType === "convex_full") return renderConvexFullWorkbook(bundles)
     if (reportType === "nagar_panchayat") return renderNagarPanchayatWorkbook(bundles)
     if (reportType === "survey_data") return renderSurveyDataWorkbook(bundles)
-    if (reportType === "qc_final") return renderQcFinalWideWorkbook(bundles)
+    if (reportType === "qc_final") {
+      throw new Error("qc_final Excel requires the ward streaming export path with published tax rates")
+    }
     const workbook = new ExcelJS.Workbook()
     workbook.creator = "Municipal Property Tax Survey Worker"
     const sheet = workbook.addWorksheet(reportType)

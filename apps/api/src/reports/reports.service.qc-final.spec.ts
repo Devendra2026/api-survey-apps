@@ -72,4 +72,29 @@ describe("ReportsService qc_final / survey_data enqueue", () => {
       })
     )
   })
+
+  it("passes enableAutoFilter for survey_data and qc_final", async () => {
+    await service.enqueueExport(user, "xlsx", "survey_data", { wardId: "ward-1" }, { enableAutoFilter: true })
+    expect(jobsService.enqueueExport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reportType: "survey_data",
+        enableAutoFilter: true,
+      })
+    )
+
+    await service.enqueueExport(user, "xlsx", "qc_final", { wardId: "ward-1" }, { enableAutoFilter: true })
+    expect(jobsService.enqueueExport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reportType: "qc_final",
+        enableAutoFilter: true,
+      })
+    )
+
+    await service.enqueueExport(user, "xlsx", "ulb", {}, { enableAutoFilter: true })
+    expect(jobsService.enqueueExport).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        enableAutoFilter: true,
+      })
+    )
+  })
 })

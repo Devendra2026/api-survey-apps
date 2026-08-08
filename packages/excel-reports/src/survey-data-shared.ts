@@ -5,32 +5,11 @@ import {
   formatExportText,
   formatExportUnitNumber,
   resolveExportSurveyId,
+  type ExportTaxSummary,
 } from "@workspace/validation"
 import { display, number } from "./convex-full.js"
+import type { ColumnKind } from "./workbook-shell.js"
 import type { SurveyExportBundle } from "./types.js"
-
-export const FIXED_HEADERS = [
-  "SN",
-  "Survey Id",
-  "Owner Name",
-  "Owner Father Name",
-  "Mobile No",
-  "Ward Name",
-  "Parcel No",
-  "Unit Number",
-  "City",
-  "Pincode",
-  "House No",
-  "Old Property Number (House Number)",
-  "Colony",
-  "Tax Rate Zone",
-  "Property Type",
-  "Property Use",
-  "Road Type",
-] as const
-
-/** Column count of FIXED_HEADERS — used for Excel merge ranges. */
-export const FIXED_HEADER_COUNT = FIXED_HEADERS.length
 
 export const FLOOR_GROUPS = [
   "Basement",
@@ -59,9 +38,133 @@ export const FLOOR_POSITIONS: Record<string, number> = {
   OPEN_LAND: 9,
 }
 
-/** Shared SN → floor matrix → plot/plinth/built cells (no tax columns). */
-export function toSurveyBaseRow(row: SurveyExportBundle, serialNumber: number): unknown[] {
-  const owner = row.coOwners[0]
+const FLOOR_AREA_HEADERS: string[] = FLOOR_GROUPS.flatMap((group) => [
+  `${group} Residential`,
+  `${group} Non-Residential`,
+])
+
+/** Flat capture headers shared by Survey Data and QC Final prefix. */
+export const SURVEY_CAPTURE_HEADERS = [
+  "SN",
+  "Survey Id",
+  "Assessment Year",
+  "Local ID",
+  "Owner Name",
+  "Owner Father Name",
+  "Mobile No",
+  "Alternate Mobile",
+  "Ward Name",
+  "Parcel No",
+  "Unit Number",
+  "House No",
+  "Old Property Number (House Number)",
+  "Colony",
+  "Locality",
+  "City",
+  "Pincode",
+  "Tax Rate Zone",
+  "Property Type",
+  "Property Use",
+  "Road Type",
+  "Ownership Type",
+  "Situation",
+  "Floors",
+  ...FLOOR_AREA_HEADERS,
+  "Plot Area SqFt",
+  "Plinth Area SqFt",
+  "Total Built Up Area SqFt",
+  "Surveyor Name",
+  "Survey Date",
+  "Last Updated",
+  "Latitude",
+  "Longitude",
+  "GPS Accuracy",
+  "Survey Status",
+] as const
+
+export const SURVEY_CAPTURE_COLUMN_KINDS: ColumnKind[] = [
+  "number", // SN
+  "text",
+  "text",
+  "text",
+  "text",
+  "text",
+  "text",
+  "text",
+  "text",
+  "text",
+  "text",
+  "text",
+  "text",
+  "text",
+  "text",
+  "text",
+  "text",
+  "text",
+  "text",
+  "text",
+  "text",
+  "text",
+  "text",
+  "text", // Floors
+  ...FLOOR_AREA_HEADERS.map((): ColumnKind => "number"),
+  "number",
+  "number",
+  "number",
+  "text",
+  "date",
+  "date",
+  "number",
+  "number",
+  "number",
+  "text",
+]
+
+export const QC_FINAL_EXTRA_HEADERS = [
+  "QC Status",
+  "QC Approved By",
+  "QC Approval Date",
+  "Remarks",
+  "Property Tax",
+  "Water Tax",
+  "Drainage Tax",
+  "Penalty",
+  "Total Demand",
+] as const
+
+export const QC_FINAL_EXTRA_COLUMN_KINDS: ColumnKind[] = [
+  "text",
+  "text",
+  "date",
+  "text",
+  "money",
+  "money",
+  "money",
+  "money",
+  "money",
+]
+
+export const QC_FINAL_HEADERS = [...SURVEY_CAPTURE_HEADERS, ...QC_FINAL_EXTRA_HEADERS] as const
+export const QC_FINAL_COLUMN_KINDS = [...SURVEY_CAPTURE_COLUMN_KINDS, ...QC_FINAL_EXTRA_COLUMN_KINDS]
+
+if (SURVEY_CAPTURE_HEADERS.length !== SURVEY_CAPTURE_COLUMN_KINDS.length) {
+  throw new Error(
+    `SURVEY_CAPTURE_HEADERS (${SURVEY_CAPTURE_HEADERS.length}) != COLUMN_KINDS (${SURVEY_CAPTURE_COLUMN_KINDS.length})`
+  )
+}
+if (QC_FINAL_HEADERS.length !== QC_FINAL_COLUMN_KINDS.length) {
+  throw new Error(`QC_FINAL_HEADERS (${QC_FINAL_HEADERS.length}) != COLUMN_KINDS (${QC_FINAL_COLUMN_KINDS.length})`)
+}
+
+/** @deprecated Use SURVEY_CAPTURE_HEADERS — kept for callers expecting FIXED_HEADERS length checks. */
+export const FIXED_HEADERS = SURVEY_CAPTURE_HEADERS
+export const FIXED_HEADER_COUNT = SURVEY_CAPTURE_HEADERS.length
+
+function surveyDate(row: SurveyExportBundle): Date | "" {
+  return row.submittedAt ?? row.capturedAt ?? ""
+}
+
+function buildFloorAreaCells(row: SurveyExportBundle): unknown[] {
   const floorCells = new Array<unknown>(20).fill("")
   for (const floor of row.floors) {
     const position = FLOOR_POSITIONS[floor.floorPosition]
@@ -69,8 +172,11 @@ export function toSurveyBaseRow(row: SurveyExportBundle, serialNumber: number): 
     const isNonResidential = ["COMMERCIAL", "GODOWN", "MIXED"].includes(floor.usageFactor ?? "")
     floorCells[position * 2 + (isNonResidential ? 1 : 0)] = number(floor.areaSqFt)
   }
+  return floorCells
+}
 
-  const surveyId =
+export function resolveSurveyIdForExport(row: SurveyExportBundle): string {
+  return (
     resolveExportSurveyId({
       propertyId: row.propertyId,
       ulbCode: row.ulb?.code,
@@ -79,30 +185,70 @@ export function toSurveyBaseRow(row: SurveyExportBundle, serialNumber: number): 
       unitNo: row.unitSubNo,
       propertyUse: row.propertyUse,
     }) ?? "N/A"
+  )
+}
+
+/** Shared capture row (Survey Data full sheet; QC Final prefix). */
+export function toSurveyCaptureRow(row: SurveyExportBundle, serialNumber: number): unknown[] {
+  const owner = row.coOwners[0]
+  const surveyId = resolveSurveyIdForExport(row)
 
   return [
     serialNumber,
     surveyId,
+    display(row.assessmentYear) || formatExportText(row.assessmentYear),
+    formatExportText(row.localId),
     formatExportText(owner?.name ?? row.respondentName),
     formatExportText(owner?.fatherOrHusbandName),
     formatExportMobile(owner?.mobile ?? row.mobileNumber),
+    formatExportText(owner?.alternateMobile ?? row.alternateMobile),
     formatExportText(row.ward?.wardName ?? row.wardNumber),
     formatExportParcel(row.parcelNumber),
     formatExportUnitNumber(row.unitSubNo),
-    formatExportText(row.city ?? row.ulb?.name),
-    formatExportText(row.pinCode),
     formatExportText(row.houseDoorNo),
     formatExportText(row.propertyIdOld),
     formatExportText(row.colony),
+    formatExportText(row.locality),
+    formatExportText(row.city ?? row.ulb?.name),
+    formatExportText(row.pinCode),
     display(row.taxRateZone),
     display(row.propertyType),
     display(row.propertyUse),
     display(row.roadType),
+    display(row.ownershipType),
+    display(row.situation),
     computeFloorsAbbreviation(row.floors),
-    ...floorCells,
+    ...buildFloorAreaCells(row),
     number(row.plotAreaSqFt),
     number(row.plinthAreaSqFt),
     number(row.totalBuiltAreaSqFt),
+    formatExportText(row.createdBy?.fullName),
+    surveyDate(row),
+    row.clientUpdatedAt ?? row.createdAt,
+    number(row.latitude),
+    number(row.longitude),
+    number(row.gpsAccuracyMeters),
+    display(row.surveyStatus),
+  ]
+}
+
+/** @deprecated Alias for toSurveyCaptureRow */
+export function toSurveyBaseRow(row: SurveyExportBundle, serialNumber: number): unknown[] {
+  return toSurveyCaptureRow(row, serialNumber)
+}
+
+export function toQcFinalRow(row: SurveyExportBundle, serialNumber: number, tax: ExportTaxSummary): unknown[] {
+  return [
+    ...toSurveyCaptureRow(row, serialNumber),
+    display(row.qcStatus),
+    formatExportText(row.qcApprovedByName),
+    row.approvedAt ?? "",
+    formatExportText(row.qcRemarks),
+    tax.propertyTax,
+    tax.waterTax,
+    tax.drainageTax,
+    tax.penalty,
+    tax.totalDemand,
   ]
 }
 
@@ -122,11 +268,9 @@ export type BuildExportFilenameInput = {
   report: "qc_final" | "survey_data"
   wardName?: string | null
   districtName?: string | null
-  /** Unused for Ward_District filenames; kept for callers that still pass ulb. */
   ulbName?: string | null
 }
 
-/** Filenames: QC_Final_Report_<Ward>_<District>.xlsx / Survey_<Ward>_<District>.xlsx */
 export function buildExportFilename(input: BuildExportFilenameInput): string {
   const ward = sanitizeExportPathSegment(input.wardName ?? "Ward")
   const district = sanitizeExportPathSegment(input.districtName ?? "District")
@@ -147,4 +291,30 @@ export function assertExportRowCount(written: number, expected: number, reportTy
 export function wardSurveyDataZipEntry(ulbCode: string, wardNumber: string, wardName: string): string {
   const safeWard = sanitizeExportPathSegment(`${wardNumber}-${wardName}`)
   return `${sanitizeExportPathSegment(ulbCode)}/${safeWard}.xlsx`
+}
+
+/** Hard-fail validators used by exporters / worker. */
+export function assertValidSurveyId(surveyId: string, context: string): void {
+  if (!surveyId || surveyId === "N/A") {
+    throw new Error(`${context}: blank Survey Id`)
+  }
+}
+
+export function assertUniqueSurveyId(seen: Set<string>, surveyId: string, context: string): void {
+  assertValidSurveyId(surveyId, context)
+  if (seen.has(surveyId)) {
+    throw new Error(`${context}: duplicate Survey Id ${surveyId}`)
+  }
+  seen.add(surveyId)
+}
+
+export function assertQcMandatoryFields(row: SurveyExportBundle, surveyId: string): void {
+  const owner = formatExportText(row.coOwners[0]?.name ?? row.respondentName)
+  const parcel = formatExportParcel(row.parcelNumber)
+  if (!owner || owner === "N/A") {
+    throw new Error(`qc_final: blank Owner Name for Survey Id ${surveyId}`)
+  }
+  if (!parcel) {
+    throw new Error(`qc_final: blank Parcel Number for Survey Id ${surveyId}`)
+  }
 }

@@ -1,203 +1,135 @@
-import ExcelJS from "exceljs"
+import { computeExportTaxSummary, type ExportTaxRateTable, type ExportTaxSummary } from "@workspace/validation"
 import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { createWorkbook, toBuffer } from "./convex-full.js"
-import { FIXED_HEADER_COUNT, FIXED_HEADERS, FLOOR_GROUPS, toSurveyBaseRow } from "./survey-data-shared.js"
+import { QC_FINAL_COLUMNS, SURVEY_ID_COLUMN_INDEX, toCommonSurveyRow, toQcFinalRow } from "./premium-columns.js"
+import { renderEnterpriseWorkbook, streamEnterpriseWorkbookToFile } from "./premium-workbook.js"
 import type { SurveyExportBundle } from "./types.js"
 
-/**
- * QC Final wide sheet matching survey.xlsx layout (+ blank tax columns).
- * APPROVED-only filtering belongs in the query layer; tax values intentionally blank.
- */
-export async function renderQcFinalWideWorkbook(rows: SurveyExportBundle[]): Promise<Buffer> {
-  const workbook = createWorkbook()
-  const sheet = workbook.addWorksheet("Survey Data", { views: [{ state: "frozen", ySplit: 4 }] })
-  addQcFinalWideHeaders(sheet)
-  for (const [index, row] of rows.entries()) sheet.addRow(toQcFinalWideRow(row, index + 1))
-  applyColumnWidths(sheet)
-  return toBuffer(workbook)
+export type QcFinalRowSource = SurveyExportBundle & {
+  taxSummary?: ExportTaxSummary | null
+  taxRate?: number | null
+}
+
+export type QcPremiumExportOptions = {
+  rates?: ExportTaxRateTable
+  exportedAt?: Date
+  enableAutoFilter?: boolean
+}
+
+function resolveTaxSoft(
+  row: QcFinalRowSource,
+  rates?: ExportTaxRateTable
+): {
+  tax: ExportTaxSummary | null
+  taxRate: number | null
+} {
+  if (row.taxSummary) {
+    return { tax: row.taxSummary, taxRate: row.taxRate ?? null }
+  }
+  if (!rates) return { tax: null, taxRate: null }
+  try {
+    const tax = computeExportTaxSummary({
+      taxRateZone: row.taxRateZone,
+      propertyUse: row.propertyUse,
+      waterConnection: row.waterConnection,
+      totalBuiltAreaSqFt: row.totalBuiltAreaSqFt,
+      plinthAreaSqFt: row.plinthAreaSqFt,
+      floors: row.floors,
+      rates,
+    })
+    const zone = (row.taxRateZone ?? "").trim()
+    const taxRate = zone ? (rates.anyRateByZone.get(zone) ?? null) : null
+    return { tax, taxRate }
+  } catch {
+    return { tax: null, taxRate: null }
+  }
+}
+
+async function* mapQcRows(
+  rows: AsyncIterable<QcFinalRowSource> | Iterable<QcFinalRowSource>,
+  rates: ExportTaxRateTable | undefined,
+  duplicateLog: string[]
+): AsyncGenerator<unknown[]> {
+  const seen = new Set<string>()
+  let serial = 0
+  for await (const row of rows) {
+    serial += 1
+    const { tax, taxRate } = resolveTaxSoft(row, rates)
+    const values = toQcFinalRow(row, serial, tax, taxRate)
+    const surveyId = String(values[1] ?? "")
+    if (surveyId && surveyId !== "N/A") {
+      if (seen.has(surveyId)) duplicateLog.push(surveyId)
+      else seen.add(surveyId)
+    }
+    yield values
+  }
+}
+
+function isRateTable(value: ExportTaxRateTable | QcPremiumExportOptions): value is ExportTaxRateTable {
+  return "rateByZoneAndConstruction" in value
+}
+
+function normalizeOptions(ratesOrOptions?: ExportTaxRateTable | QcPremiumExportOptions): QcPremiumExportOptions {
+  if (!ratesOrOptions) return {}
+  if (isRateTable(ratesOrOptions)) return { rates: ratesOrOptions }
+  return ratesOrOptions
+}
+
+/** QC Final Report — common survey + QC + ExportTaxSummary tax/demand. */
+export async function renderQcFinalWideWorkbook(
+  rows: QcFinalRowSource[],
+  ratesOrOptions?: ExportTaxRateTable | QcPremiumExportOptions
+): Promise<Buffer> {
+  const options = normalizeOptions(ratesOrOptions)
+  const duplicates: string[] = []
+  return renderEnterpriseWorkbook({
+    dataSheetName: "QC Final Report",
+    columns: QC_FINAL_COLUMNS,
+    freezeCol: SURVEY_ID_COLUMN_INDEX,
+    exportedAt: options.exportedAt,
+    enableAutoFilter: options.enableAutoFilter,
+    rows: mapQcRows(rows, options.rates, duplicates),
+  })
 }
 
 export async function streamQcFinalWideWorkbookToFile(
   filename: string,
-  rows: AsyncIterable<SurveyExportBundle> | Iterable<SurveyExportBundle>
-): Promise<{ rowCount: number }> {
-  const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
+  rows: AsyncIterable<QcFinalRowSource> | Iterable<QcFinalRowSource>,
+  ratesOrOptions?: ExportTaxRateTable | QcPremiumExportOptions
+): Promise<{ rowCount: number; duplicateSurveyIds: string[] }> {
+  const options = normalizeOptions(ratesOrOptions)
+  const duplicates: string[] = []
+  const { rowCount } = await streamEnterpriseWorkbookToFile({
     filename,
-    useStyles: true,
-    useSharedStrings: false,
+    dataSheetName: "QC Final Report",
+    columns: QC_FINAL_COLUMNS,
+    freezeCol: SURVEY_ID_COLUMN_INDEX,
+    exportedAt: options.exportedAt,
+    enableAutoFilter: options.enableAutoFilter,
+    rows: mapQcRows(rows, options.rates, duplicates),
   })
-  workbook.creator = "Municipal Property Tax Survey"
-  const sheet = workbook.addWorksheet("Survey Data", { views: [{ state: "frozen", ySplit: 4 }] })
-  addQcFinalWideHeaders(sheet)
-  for (let rowNumber = 1; rowNumber <= 4; rowNumber += 1) {
-    sheet.getRow(rowNumber).commit()
-  }
-  applyColumnWidths(sheet)
-
-  let rowCount = 0
-  for await (const row of rows) {
-    rowCount += 1
-    sheet.addRow(toQcFinalWideRow(row, rowCount)).commit()
-  }
-
-  await sheet.commit()
-  await workbook.commit()
-  return { rowCount }
+  return { rowCount, duplicateSurveyIds: duplicates }
 }
 
 export async function renderQcFinalWideWorkbookStreaming(
-  rows: AsyncIterable<SurveyExportBundle> | Iterable<SurveyExportBundle>
+  rows: AsyncIterable<QcFinalRowSource> | Iterable<QcFinalRowSource>,
+  ratesOrOptions?: ExportTaxRateTable | QcPremiumExportOptions
 ): Promise<Buffer> {
   const dir = await mkdtemp(join(tmpdir(), "qc-final-wide-"))
   const filename = join(dir, "qc-final.xlsx")
   try {
-    await streamQcFinalWideWorkbookToFile(filename, rows)
+    await streamQcFinalWideWorkbookToFile(filename, rows, ratesOrOptions)
     return await readFile(filename)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
 }
 
-/** Base survey row + blank Total Demand / Total Tax Demand placeholders (21 + 3 cells). */
-export function toQcFinalWideRow(row: SurveyExportBundle, serialNumber: number): unknown[] {
-  return [...toSurveyBaseRow(row, serialNumber), ...new Array<unknown>(21).fill(""), "", "", ""]
+export function toQcFinalWideRow(row: QcFinalRowSource, serialNumber = 1, tax?: ExportTaxSummary): unknown[] {
+  return toQcFinalRow(row, serialNumber, tax ?? row.taxSummary ?? null, row.taxRate ?? null)
 }
 
-function applyColumnWidths(sheet: ExcelJS.Worksheet): void {
-  sheet.columns.forEach((column, index) => {
-    column.width = index < FIXED_HEADER_COUNT ? 18 : index === FIXED_HEADER_COUNT ? 20 : 14
-  })
-  sheet.getColumn(3).width = 24
-  sheet.getColumn(4).width = 24
-  sheet.getColumn(12).width = 28
-  sheet.getColumn(FIXED_HEADER_COUNT + 1).width = 28
-}
-
-function addQcFinalWideHeaders(sheet: ExcelJS.Worksheet): void {
-  const floorsCol = FIXED_HEADER_COUNT + 1
-  const matrixStart = floorsCol + 1
-  const matrixEnd = matrixStart + 19
-  const plotCol = matrixEnd + 1
-  const plinthCol = plotCol + 1
-  const builtCol = plinthCol + 1
-  const demandStart = builtCol + 1
-  const demandEnd = demandStart + 20
-  const taxStart = demandEnd + 1
-
-  const row1 = [
-    ...FIXED_HEADERS,
-    "Floors",
-    ...new Array(20).fill(""),
-    "Plot Area SqFt",
-    "Plinth Area SqFt",
-    "Total Built Up Area SqFt",
-    "Total Demand",
-    ...new Array(20).fill(""),
-    "Total Tax Demand",
-    "",
-    "",
-  ]
-  const row2 = [
-    ...FIXED_HEADERS,
-    "",
-    ...FLOOR_GROUPS.flatMap((group) => [group, ""]),
-    "Plot Area SqFt",
-    "Plinth Area SqFt",
-    "Total Built Up Area SqFt",
-    "Total Demand",
-    ...new Array(20).fill(""),
-    "Total Tax Demand",
-    "",
-    "",
-  ]
-  const row3 = [
-    ...FIXED_HEADERS,
-    "",
-    ...FLOOR_GROUPS.flatMap((group) =>
-      group === "Open Land (Plot)" ? ["Open Land", ""] : ["Residential", "Non-Residential"]
-    ),
-    "Plot Area SqFt",
-    "Plinth Area SqFt",
-    "Total Built Up Area SqFt",
-    "Residential",
-    ...new Array(8).fill(""),
-    "Non-Residential",
-    ...new Array(8).fill(""),
-    "Open Land",
-    ...new Array(2).fill(""),
-    "Total Tax 10%",
-    "Total Water Tax 7.5%",
-    "Total Drainage Tax 2.5%",
-  ]
-  const row4 = [
-    ...FIXED_HEADERS,
-    "Floor",
-    ...FLOOR_GROUPS.flatMap((group) =>
-      group === "Open Land (Plot)" ? ["Open Land", "Open Land"] : ["Residential", "Non-Residential"]
-    ),
-    "Plot Area SqFt",
-    "Plinth Area SqFt",
-    "Total Built Up Area SqFt",
-    ...[
-      "RCC",
-      "T.Rate",
-      "Tax",
-      "TEEN",
-      "T.Rate",
-      "Tax",
-      "KATCHA",
-      "T.Rate",
-      "Tax",
-      "RCC",
-      "T.Rate",
-      "Tax",
-      "TEEN",
-      "T.Rate",
-      "Tax",
-      "KATCHA",
-      "T.Rate",
-      "Tax",
-      "Plot Area",
-      "Plot T.Rete",
-      "Plot Tax",
-    ],
-    "Total Tax 10%",
-    "Total Water Tax 7.5%",
-    "Total Drainage Tax 2.5%",
-  ]
-  sheet.addRow(row1)
-  sheet.addRow(row2)
-  sheet.addRow(row3)
-  sheet.addRow(row4)
-
-  for (let column = 1; column <= FIXED_HEADER_COUNT; column += 1) sheet.mergeCells(1, column, 4, column)
-  sheet.mergeCells(1, floorsCol, 1, matrixEnd)
-  for (let column = matrixStart; column <= matrixEnd - 1; column += 2) {
-    sheet.mergeCells(2, column, 2, column + 1)
-  }
-  for (let column = matrixStart; column <= matrixEnd - 2; column += 1) {
-    sheet.mergeCells(3, column, 4, column)
-  }
-  sheet.mergeCells(3, matrixEnd - 1, 4, matrixEnd)
-  for (const column of [plotCol, plinthCol, builtCol]) {
-    sheet.mergeCells(1, column, 4, column)
-  }
-
-  sheet.mergeCells(1, demandStart, 2, demandEnd)
-  sheet.mergeCells(3, demandStart, 3, demandStart + 8)
-  sheet.mergeCells(3, demandStart + 9, 3, demandStart + 17)
-  sheet.mergeCells(3, demandStart + 18, 3, demandEnd)
-  sheet.mergeCells(1, taxStart, 2, taxStart + 2)
-  for (let column = taxStart; column <= taxStart + 2; column += 1) {
-    sheet.mergeCells(3, column, 4, column)
-  }
-
-  for (let rowNumber = 1; rowNumber <= 4; rowNumber += 1) {
-    const row = sheet.getRow(rowNumber)
-    row.font = { bold: true }
-    row.alignment = { horizontal: "center", vertical: "middle", wrapText: true }
-    row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: rowNumber === 1 ? "FF1F4E78" : "FFD9EAF7" } }
-  }
+export function toSurveyDataRowFromQc(row: SurveyExportBundle, serialNumber = 1): unknown[] {
+  return toCommonSurveyRow(row, serialNumber)
 }

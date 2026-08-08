@@ -15,6 +15,8 @@ import { useAuthStore } from "@/stores/app-store"
 import { useAuth } from "@clerk/nextjs"
 import { Button } from "@workspace/ui/components/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card"
+import { Checkbox } from "@workspace/ui/components/checkbox"
+import { Label } from "@workspace/ui/components/label"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { cn } from "@workspace/ui/lib/utils"
 import type { LucideIcon } from "lucide-react"
@@ -123,6 +125,7 @@ function ReportsPageInner() {
   const hasPermission = useAuthStore((s) => s.hasPermission)
   const { getToken } = useAuth()
   const [filters, setFilters] = useState<ReportScopeState>({})
+  const [enableExcelFilter, setEnableExcelFilter] = useState(false)
   const [exporting, setExporting] = useState<string | null>(null)
 
   useHydrateGeoScopeFromSearchParams(
@@ -186,6 +189,12 @@ function ReportsPageInner() {
     return params
   }, [filters])
 
+  const surveyQcExportParams = useMemo(() => {
+    const params = { ...scopeParams }
+    if (enableExcelFilter) params.enableAutoFilter = "true"
+    return params
+  }, [scopeParams, enableExcelFilter])
+
   async function readExportErrorMessage(response: Response): Promise<string> {
     const fallback = `Export failed (${response.status})`
     try {
@@ -229,8 +238,9 @@ function ReportsPageInner() {
     options: { timeoutMs?: number; preparingMessage?: string } = {}
   ) {
     toast.info(options.preparingMessage ?? "Large export — generating in the background…")
+    const params = reportType === "survey_data" || reportType === "qc_final" ? surveyQcExportParams : scopeParams
     const enqueued = await enqueueReportExport(format, {
-      ...scopeParams,
+      ...params,
       reportType,
     })
     const job = await waitForExportJob(enqueued.jobId, {
@@ -292,8 +302,10 @@ function ReportsPageInner() {
       }
 
       const token = await getToken()
+      const exportParams =
+        reportType === "survey_data" || reportType === "qc_final" ? surveyQcExportParams : scopeParams
       const url = await exportReport(format, {
-        ...scopeParams,
+        ...exportParams,
         reportType,
         sync: "true",
       })
@@ -348,6 +360,22 @@ function ReportsPageInner() {
         </CardHeader>
         <CardContent>
           <ReportScopeFiltersPanel value={filters} onChange={onFiltersChange} />
+          <div className="mt-4 flex items-start gap-2 border-t border-border/60 pt-4">
+            <Checkbox
+              id="enable-excel-filter"
+              checked={enableExcelFilter}
+              onCheckedChange={(checked) => setEnableExcelFilter(checked === true)}
+              disabled={!canExport}
+            />
+            <div className="grid gap-1 leading-none">
+              <Label htmlFor="enable-excel-filter" className="cursor-pointer text-sm font-medium">
+                Enable Excel Filter
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Adds AutoFilter to Survey Data and QC Final Excel header rows (off by default).
+              </p>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -505,7 +533,7 @@ function ReportsPageInner() {
             <ReportActionCard
               icon={LayoutTemplate}
               title="QC Final Report"
-              description="Ward-wise Excel of QC-approved properties. Select a ward first. Tax demand columns stay blank."
+              description="Ward-wise Excel of QC-approved properties. Includes shared survey fields plus QC and tax demand from published rates."
             >
               <Button
                 variant="outline"

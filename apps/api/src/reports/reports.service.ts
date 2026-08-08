@@ -4,7 +4,6 @@ import {
   buildExportFilename,
   renderConvexFullWorkbook,
   renderNagarPanchayatWorkbook,
-  renderQcFinalWideWorkbook,
   renderSurveyDataWorkbook,
   type SurveyExportBundle,
 } from "@workspace/excel-reports"
@@ -59,7 +58,7 @@ export class ReportsService {
     format: ExportFormat,
     reportType: ExportReportType,
     filters: ExportFilters,
-    options: { maxRows?: number; maxBytes?: number } = {}
+    options: { maxRows?: number; maxBytes?: number; enableAutoFilter?: boolean } = {}
   ): Promise<
     | { format: ExportFormat; reportType: ExportReportType; count: number; data: unknown }
     | { contentType: string; filename: string; buffer: Buffer }
@@ -91,7 +90,7 @@ export class ReportsService {
       )
     }
     if (format === "xlsx") {
-      const buffer = await this.toExcel(rows, reportType)
+      const buffer = await this.toExcel(rows, reportType, { enableAutoFilter: options.enableAutoFilter })
       return this.assertExportSize(
         {
           contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -113,13 +112,20 @@ export class ReportsService {
     )
   }
 
-  exportSync(user: AuthenticatedUser, format: ExportFormat, reportType: ExportReportType, filters: ExportFilters) {
+  exportSync(
+    user: AuthenticatedUser,
+    format: ExportFormat,
+    reportType: ExportReportType,
+    filters: ExportFilters,
+    options: { enableAutoFilter?: boolean } = {}
+  ) {
     if (reportType === "district_ward_zip") {
       throw new BadRequestException("district_ward_zip export cannot run synchronously. Retry without ?sync=true.")
     }
     return this.export(user, format, reportType, filters, {
       maxRows: SYNC_EXPORT_MAX_ROWS,
       maxBytes: SYNC_EXPORT_MAX_BYTES,
+      enableAutoFilter: options.enableAutoFilter,
     })
   }
 
@@ -127,7 +133,8 @@ export class ReportsService {
     user: AuthenticatedUser,
     format: ExportFormat,
     reportType: ExportReportType,
-    filters: ExportFilters
+    filters: ExportFilters,
+    options: { enableAutoFilter?: boolean } = {}
   ) {
     if (reportType === "demand_notices") {
       if (format !== "pdf") {
@@ -163,6 +170,9 @@ export class ReportsService {
       select: { id: true, status: true },
     })
 
+    const enableAutoFilter =
+      (reportType === "survey_data" || reportType === "qc_final") && options.enableAutoFilter === true
+
     await this.jobsService.enqueueExport({
       jobId: job.id,
       createdById: user.id,
@@ -170,6 +180,7 @@ export class ReportsService {
       reportType,
       filters: normalizedFilters,
       tenantRoles: user.tenantRoles,
+      ...(enableAutoFilter ? { enableAutoFilter: true } : {}),
     })
 
     await this.prisma.db.securityAudit.create({
@@ -178,7 +189,7 @@ export class ReportsService {
         actorId: user.id,
         targetType: "ExportJob",
         targetId: job.id,
-        metadata: { format, reportType },
+        metadata: { format, reportType, enableAutoFilter },
       },
     })
 
@@ -427,12 +438,20 @@ export class ReportsService {
     return lines.join("\n")
   }
 
-  private async toExcel(rows: Array<Record<string, unknown>>, reportType: string) {
+  private async toExcel(
+    rows: Array<Record<string, unknown>>,
+    reportType: string,
+    options: { enableAutoFilter?: boolean } = {}
+  ) {
     const bundles = rows as unknown as SurveyExportBundle[]
     if (reportType === "convex_full") return renderConvexFullWorkbook(bundles)
     if (reportType === "nagar_panchayat") return renderNagarPanchayatWorkbook(bundles)
-    if (reportType === "survey_data") return renderSurveyDataWorkbook(bundles)
-    if (reportType === "qc_final") return renderQcFinalWideWorkbook(bundles)
+    if (reportType === "survey_data") {
+      return renderSurveyDataWorkbook(bundles, { enableAutoFilter: options.enableAutoFilter })
+    }
+    if (reportType === "qc_final") {
+      throw new Error("qc_final Excel requires the ward streaming export path with published tax rates")
+    }
     const workbook = new ExcelJS.Workbook()
     workbook.creator = "Municipal Property Tax Survey API"
     const sheet = workbook.addWorksheet(reportType)

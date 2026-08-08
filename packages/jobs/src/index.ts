@@ -97,6 +97,8 @@ export interface ExportJobPayload {
   reportType: ExportReportType
   filters: ExportFiltersPayload
   tenantRoles: TenantRolePayload[]
+  /** Survey Data / QC Final: enable Excel AutoFilter on the header row. Default false. */
+  enableAutoFilter?: boolean
 }
 
 export interface StorageCleanupPayload {

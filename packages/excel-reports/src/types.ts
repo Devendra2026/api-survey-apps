@@ -48,6 +48,10 @@ export interface SurveyExportBundle {
   serverVersion?: number | null
   clientUpdatedAt?: Date | null
   submittedAt?: Date | null
+  approvedAt?: Date | null
+  qcRemarks?: string | null
+  /** Latest QC approver display name (from SurveyAudit). */
+  qcApprovedByName?: string | null
   createdAt: Date
   createdBy?: Person | null
   assignedTo?: Person | null
@@ -57,6 +61,14 @@ export interface SurveyExportBundle {
   coOwners: CoOwnerExportRow[]
   floors: FloorExportRow[]
   photos: PhotoExportRow[]
+  /** Optional precomputed tax for QC Final rows. */
+  taxSummary?: {
+    propertyTax: number
+    waterTax: number
+    drainageTax: number
+    penalty: number
+    totalDemand: number
+  } | null
 }
 
 export type Numeric = number | { toString(): string }

@@ -122,6 +122,14 @@ class ExportQueryDto {
   @IsDateString()
   dateTo?: string
 
+  @ApiPropertyOptional({
+    description: "Survey Data / QC Final only: enable Excel AutoFilter on header row",
+    default: "false",
+  })
+  @IsOptional()
+  @IsBooleanString()
+  enableAutoFilter?: string
+
   @ApiPropertyOptional({ description: "Run immediately for small exports only", default: "false" })
   @IsOptional()
   @IsBooleanString()
@@ -173,14 +181,18 @@ export class ReportsController {
     }
 
     if (query.sync !== "true") {
-      return this.reportsService.enqueueExport(user, query.format, query.reportType, filters)
+      return this.reportsService.enqueueExport(user, query.format, query.reportType, filters, {
+        enableAutoFilter: query.enableAutoFilter === "true",
+      })
     }
 
     if (query.reportType === "district_ward_zip") {
       throw new BadRequestException("district_ward_zip export cannot run synchronously. Retry without ?sync=true.")
     }
 
-    const result = await this.reportsService.exportSync(user, query.format, query.reportType, filters)
+    const result = await this.reportsService.exportSync(user, query.format, query.reportType, filters, {
+      enableAutoFilter: query.enableAutoFilter === "true",
+    })
 
     if ("buffer" in result) {
       res.setHeader("Content-Type", result.contentType)

@@ -8,8 +8,9 @@ import {
   useTaxConfigMutations,
   useTaxVersions,
 } from "@/features/configuration/hooks/use-configuration"
+import { useTaxConfigPreview } from "@/features/configuration/hooks/use-tax-config-preview"
 import { num } from "@/features/configuration/lib/formulas"
-import type { TaxConfig, TaxPreviewResult } from "@/features/configuration/lib/types"
+import type { TaxConfig } from "@/features/configuration/lib/types"
 import { flattenDistricts } from "@/features/master-data/lib/geo-stats"
 import { TaxRatesBanner } from "@/features/master-data/tax/tax-rates-banner"
 import { TaxScopeSelectors } from "@/features/master-data/tax/tax-scope-selectors"
@@ -60,7 +61,6 @@ export function TaxRatesPanel() {
   const [areaSqFt, setAreaSqFt] = useState(394)
   const [roadWidthEntryId, setRoadWidthEntryId] = useState("")
   const [constructionEntryId, setConstructionEntryId] = useState("")
-  const [preview, setPreview] = useState<TaxPreviewResult | null>(null)
   const [publishOpen, setPublishOpen] = useState(false)
   const [rollbackOpen, setRollbackOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -89,6 +89,13 @@ export function TaxRatesPanel() {
   const { data: config, isLoading } = useTaxConfig(resolvedWardId || undefined, resolvedYearId || undefined)
   const { data: versions = [] } = useTaxVersions(config?.id)
   const mutations = useTaxConfigMutations()
+  const { preview } = useTaxConfigPreview({
+    wardId: resolvedWardId || undefined,
+    assessmentYearId: resolvedYearId || undefined,
+    areaSqFt,
+    roadWidthEntryId: resolvedRoadId || undefined,
+    constructionEntryId: resolvedConstructionId || undefined,
+  })
 
   const filteredWards = useMemo(() => {
     const q = wardSearch.trim().toLowerCase()
@@ -97,27 +104,6 @@ export function TaxRatesPanel() {
   }, [wards, wardSearch])
 
   const selectedWard = wards.find((w) => w.id === resolvedWardId)
-
-  const runPreview = useCallback(async () => {
-    if (!resolvedWardId || !resolvedYearId || !resolvedRoadId || !resolvedConstructionId) return
-    try {
-      const result = await mutations.preview.mutateAsync({
-        wardId: resolvedWardId,
-        assessmentYearId: resolvedYearId,
-        areaSqFt,
-        roadWidthEntryId: resolvedRoadId,
-        constructionEntryId: resolvedConstructionId,
-      })
-      setPreview(result)
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Preview failed")
-    }
-  }, [resolvedWardId, resolvedYearId, areaSqFt, resolvedRoadId, resolvedConstructionId, mutations.preview])
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- async preview sync
-    void runPreview()
-  }, [runPreview])
 
   // Clear pending edits when switching wards
   useEffect(() => {

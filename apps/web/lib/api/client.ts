@@ -38,7 +38,10 @@ apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const config = error.config as (AxiosRequestConfig & { _retry429?: boolean }) | undefined
-    if (!config || error.response?.status !== 429 || config._retry429) {
+    const requestUrl = String(config?.url ?? "")
+    // Never auto-retry preview — a client loop + Retry-After retry amplifies 429 storms.
+    const isTaxPreview = requestUrl.includes("/tax-configs/preview")
+    if (!config || error.response?.status !== 429 || config._retry429 || isTaxPreview) {
       return Promise.reject(error)
     }
 

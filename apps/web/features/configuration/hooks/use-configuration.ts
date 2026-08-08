@@ -9,7 +9,6 @@ import type {
   ReferenceEntry,
   TaxConfig,
   TaxConfigVersion,
-  TaxPreviewResult,
 } from "../lib/types"
 
 export function useReferenceCategories() {
@@ -129,9 +128,6 @@ export function useTaxConfigMutations() {
         cells?: unknown[]
       }) => apiPost<{ updated: number }>("/tax-configs/bulk-apply", body),
       onSuccess: invalidate,
-    }),
-    preview: useMutation({
-      mutationFn: (body: Record<string, unknown>) => apiPost<TaxPreviewResult>("/tax-configs/preview", body),
     }),
     publish: useMutation({
       mutationFn: ({ id, ...body }: { id: string } & Record<string, unknown>) =>

@@ -12,6 +12,7 @@
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
+    "test:tax-preview": "node --experimental-strip-types --test features/configuration/lib/tax-preview-request.spec.ts",
     "verify:google-maps-key": "node ../../scripts/verify-google-maps-key.mjs"
   },
   "dependencies": {

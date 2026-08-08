@@ -6,8 +6,8 @@ import { useAuthStore } from "@/stores/app-store"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { useReferenceEntries, useTaxConfig, useTaxConfigMutations, useTaxVersions } from "../hooks/use-configuration"
+import { useTaxConfigPreview } from "../hooks/use-tax-config-preview"
 import { num } from "../lib/formulas"
-import type { TaxPreviewResult } from "../lib/types"
 import { StickyActionBar } from "./ConfigurationToolbar"
 import { PublishDialog, RollbackDialog, VersionHistoryDrawer } from "./PublishDialogs"
 import { TaxMatrix } from "./TaxMatrix"
@@ -27,7 +27,6 @@ export function TaxWorkspace() {
   const [areaSqFt, setAreaSqFt] = useState(1000)
   const [roadWidthEntryId, setRoadWidthEntryId] = useState("")
   const [constructionEntryId, setConstructionEntryId] = useState("")
-  const [preview, setPreview] = useState<TaxPreviewResult | null>(null)
   const [publishOpen, setPublishOpen] = useState(false)
   const [rollbackOpen, setRollbackOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -47,25 +46,13 @@ export function TaxWorkspace() {
     if (!constructionEntryId && constructions?.items[0]) setConstructionEntryId(constructions.items[0].id)
   }, [roads, constructions, roadWidthEntryId, constructionEntryId])
 
-  const runPreview = useCallback(async () => {
-    if (!wardId || !assessmentYearId || !roadWidthEntryId || !constructionEntryId) return
-    try {
-      const result = await mutations.preview.mutateAsync({
-        wardId,
-        assessmentYearId,
-        areaSqFt,
-        roadWidthEntryId,
-        constructionEntryId,
-      })
-      setPreview(result)
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Preview failed")
-    }
-  }, [wardId, assessmentYearId, areaSqFt, roadWidthEntryId, constructionEntryId, mutations.preview])
-
-  useEffect(() => {
-    void runPreview()
-  }, [runPreview])
+  const { preview } = useTaxConfigPreview({
+    wardId: wardId || undefined,
+    assessmentYearId: assessmentYearId || undefined,
+    areaSqFt,
+    roadWidthEntryId: roadWidthEntryId || undefined,
+    constructionEntryId: constructionEntryId || undefined,
+  })
 
   const flushCells = useCallback(async () => {
     if (!config || pendingCells.current.size === 0) return

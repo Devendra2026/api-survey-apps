@@ -181,12 +181,17 @@ const SANITATION_OPTIONS = ["SEWER_SYSTEM", "SEPTIC_TANK", "SURFACE_DRAIN", "NO_
 export function QcReviewSections({
   survey,
   audits,
+  auditStatus = "success",
+  auditErrorMessage,
   editMode,
   draft,
   onDraftChange,
 }: {
   survey: QcSurveyDetail
   audits: SurveyAuditHistoryItem[]
+  /** Loading / error for `/qc/survey/:id/audit-history` — do not collapse failures into empty. */
+  auditStatus?: "loading" | "error" | "success"
+  auditErrorMessage?: string | null
   editMode: boolean
   draft: QcSurveyEditable
   onDraftChange: (next: QcSurveyEditable) => void
@@ -719,7 +724,17 @@ export function QcReviewSections({
       </GlassSection>
 
       <GlassSection title="Audit History" subtitle="Real-time QC and survey workflow timeline.">
-        <GlassTable columns={auditColumns} data={audits} empty="No audit history yet." />
+        {auditStatus === "loading" ? (
+          <p className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-center text-sm text-muted-foreground">
+            Loading audit history…
+          </p>
+        ) : auditStatus === "error" ? (
+          <p className="rounded-lg border border-dashed border-destructive/40 bg-destructive/5 px-4 py-6 text-center text-sm text-destructive">
+            {auditErrorMessage?.trim() || "Could not load audit history. Try refreshing the page."}
+          </p>
+        ) : (
+          <GlassTable columns={auditColumns} data={audits} empty="No audit history yet." />
+        )}
       </GlassSection>
     </div>
   )

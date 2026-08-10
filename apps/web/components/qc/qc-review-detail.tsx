@@ -374,6 +374,8 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
       <QcReviewSections
         survey={survey}
         audits={auditQuery.data ?? []}
+        auditStatus={auditQuery.isLoading ? "loading" : auditQuery.isError ? "error" : "success"}
+        auditErrorMessage={auditQuery.isError ? getApiErrorMessage(auditQuery.error) : null}
         editMode={editMode}
         draft={draft}
         onDraftChange={setDraft}

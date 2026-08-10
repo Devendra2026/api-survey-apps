@@ -30,7 +30,7 @@ import type {
   WardStatsQueryDto,
 } from "./dto/survey.dto.js"
 import { refreshSurveyPhotoUrls } from "./survey-photo-urls.js"
-import { mapAuditsToHistoryDto, mapSurveyToDetailsDto } from "./survey-view.mapper.js"
+import { buildSurveyAuditHistory, mapSurveyToDetailsDto } from "./survey-view.mapper.js"
 import { SurveysRepository } from "./surveys.repository.js"
 
 const EDITABLE: SurveyStatus[] = ["DRAFT", "IN_PROGRESS", "REOPENED"]
@@ -116,7 +116,20 @@ export class SurveysService {
     }
     const survey = await this.surveysRepository.findById(idOrPropertyId, user)
     const audits = await this.surveysRepository.listAudits(survey.id)
-    return mapAuditsToHistoryDto(survey.propertyId, audits)
+    return buildSurveyAuditHistory(
+      {
+        propertyId: survey.propertyId,
+        createdAt: survey.createdAt,
+        submittedAt: survey.submittedAt,
+        approvedAt: survey.approvedAt,
+        rejectedAt: survey.rejectedAt,
+        surveyStatus: survey.surveyStatus,
+        qcStatus: survey.qcStatus,
+        createdBy: survey.createdBy,
+        assignedTo: survey.assignedTo,
+      },
+      audits
+    )
   }
 
   async create(dto: CreateSurveyDto, user: AuthenticatedUser) {

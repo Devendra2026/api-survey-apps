@@ -820,6 +820,38 @@ export class EtlOrchestratorService {
         },
       })
 
+      // Seed survey_audits so QC Review Audit History is not empty for Convex→Nest imports.
+      const createdAt = survey.capturedAt ?? survey.clientUpdatedAt ?? new Date()
+      await tx.surveyAudit.create({
+        data: {
+          surveyId: created.id,
+          action: "CREATED",
+          newValue: {
+            source: "convex_etl",
+            surveyStatus: created.surveyStatus,
+            propertyId: created.propertyId,
+          },
+          changedBy: survey.createdById,
+          changedAt: createdAt,
+        },
+      })
+      if (survey.submittedAt) {
+        await tx.surveyAudit.create({
+          data: {
+            surveyId: created.id,
+            action: "SUBMITTED",
+            oldValue: { surveyStatus: "DRAFT" },
+            newValue: {
+              source: "convex_etl",
+              surveyStatus: created.surveyStatus,
+              qcStatus: created.qcStatus,
+            },
+            changedBy: survey.createdById,
+            changedAt: survey.submittedAt,
+          },
+        })
+      }
+
       return { surveyId: created.id }
     })
   }

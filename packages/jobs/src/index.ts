@@ -9,6 +9,7 @@ export const JOB_QUEUE_NAMES = {
   etlValidation: "etl-validation",
   etlRetry: "etl-retry",
   etlReport: "etl-report",
+  auditEtl: "audit-etl",
 } as const
 
 export const JOB_NAMES = {
@@ -23,6 +24,7 @@ export const JOB_NAMES = {
   validateJob: "validate-job",
   retryFailed: "retry-failed",
   generateReport: "generate-report",
+  runAuditEtl: "run-audit-etl",
 } as const
 
 export type JobQueueName = (typeof JOB_QUEUE_NAMES)[keyof typeof JOB_QUEUE_NAMES]
@@ -170,4 +172,11 @@ export interface EtlRetryPayload {
 export interface EtlReportPayload {
   migrationJobId: string
   correlationId: string
+}
+
+export interface AuditEtlJobPayload {
+  /** When true, run hourly count/checksum verification after the catch-up tick. */
+  verify?: boolean
+  /** Cap batches per tick (default from AUDIT_ETL_MAX_BATCHES_PER_TICK or unlimited). */
+  maxBatches?: number
 }

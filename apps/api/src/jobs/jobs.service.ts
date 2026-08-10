@@ -3,6 +3,7 @@ import { Injectable } from "@nestjs/common"
 import {
   JOB_NAMES,
   JOB_QUEUE_NAMES,
+  type AuditEtlJobPayload,
   type EtlReportPayload,
   type EtlRetryPayload,
   type EtlSurveyBatchPayload,
@@ -25,7 +26,8 @@ export class JobsService {
     private readonly etlSurveyImportQueue: Queue<EtlSurveyBatchPayload>,
     @InjectQueue(JOB_QUEUE_NAMES.etlValidation) private readonly etlValidationQueue: Queue<EtlValidatePayload>,
     @InjectQueue(JOB_QUEUE_NAMES.etlRetry) private readonly etlRetryQueue: Queue<EtlRetryPayload>,
-    @InjectQueue(JOB_QUEUE_NAMES.etlReport) private readonly etlReportQueue: Queue<EtlReportPayload>
+    @InjectQueue(JOB_QUEUE_NAMES.etlReport) private readonly etlReportQueue: Queue<EtlReportPayload>,
+    @InjectQueue(JOB_QUEUE_NAMES.auditEtl) private readonly auditEtlQueue: Queue<AuditEtlJobPayload>
   ) {}
 
   async enqueueImport(payload: ImportJobPayload): Promise<string> {
@@ -117,5 +119,34 @@ export class JobsService {
       removeOnComplete: true,
       removeOnFail: { count: 500 },
     })
+  }
+
+  async scheduleAuditEtl(payload: AuditEtlJobPayload, cronPattern: string): Promise<void> {
+    await this.auditEtlQueue.add(
+      JOB_NAMES.runAuditEtl,
+      {
+        ...payload,
+        // Cap cron ticks so backfill progresses without unbounded overlap risk.
+        maxBatches: payload.maxBatches ?? 20,
+      },
+      {
+        jobId: `audit-etl-cron`,
+        repeat: { pattern: cronPattern },
+        removeOnComplete: true,
+        removeOnFail: { count: 500 },
+        // Do not stack delayed retries while another tick may still be running.
+        attempts: 2,
+        backoff: { type: "exponential", delay: 5_000 },
+      }
+    )
+  }
+
+  async enqueueAuditEtl(payload: AuditEtlJobPayload = {}): Promise<string> {
+    const job = await this.auditEtlQueue.add(JOB_NAMES.runAuditEtl, payload, {
+      jobId: `audit-etl-manual-${Date.now()}`,
+      removeOnComplete: true,
+      removeOnFail: { count: 500 },
+    })
+    return job.id ?? ""
   }
 }

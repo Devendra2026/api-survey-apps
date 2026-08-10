@@ -1028,3 +1028,56 @@ model FailedImport {
   @@index([resolvedAt])
   @@map("failed_imports")
 }
+
+/// Flattened Convex audit log event store (analytical / point-lookup optimized).
+model AuditEvent {
+  id              String   @id @default(cuid())
+  /// Convex auditLogs._id — idempotent upsert key
+  eventId         String   @unique
+  occurredAt      DateTime
+  actorId         String?
+  action          String
+  resourceType    String
+  resourceId      String?
+  tenantId        String?
+  changesBefore   Json?
+  changesAfter    Json?
+  ip              String?
+  userAgent       String?
+  metadata        Json?
+  payloadChecksum String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId, occurredAt])
+  @@index([action, occurredAt])
+  @@index([occurredAt])
+  @@index([actorId, occurredAt])
+  @@map("audit_events")
+}
+
+/// Atomic cursor checkpoint for audit ETL resume-from-failure.
+model AuditEtlCursor {
+  id                     String   @id @default(cuid())
+  /// Pipeline key, e.g. "convex-audit-logs"
+  pipelineKey            String   @unique
+  lastProcessedTimestamp BigInt   @default(0)
+  lastProcessedId        String   @default("")
+  version                Int      @default(0)
+  updatedAt              DateTime @updatedAt
+  createdAt              DateTime @default(now())
+
+  @@map("audit_etl_cursors")
+}
+
+/// Dead-letter queue for malformed / unparseable audit payloads.
+model AuditEtlDlq {
+  id        String   @id @default(cuid())
+  payload   Json
+  error     String
+  stack     String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("audit_etl_dlq")
+}

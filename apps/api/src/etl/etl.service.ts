@@ -66,30 +66,54 @@ export class EtlService implements OnModuleInit {
       this.logger.warn(`Stale ETL job sweep failed: ${err instanceof Error ? err.message : String(err)}`)
     }
 
+    const hasConvexCreds =
+      Boolean(this.config.get<string>("CONVEX_SITE_URL")?.trim()) &&
+      Boolean(this.config.get<string>("ETL_CONVEX_SECRET")?.trim())
+
     const enabled = this.isEtlEnabled()
     if (!enabled) {
       this.logger.log("ETL scheduler disabled (ETL_ENABLED!=true)")
-      return
-    }
-    if (!this.config.get<string>("CONVEX_SITE_URL")?.trim() || !this.config.get<string>("ETL_CONVEX_SECRET")?.trim()) {
+    } else if (!hasConvexCreds) {
       this.logger.warn("ETL enabled but CONVEX_SITE_URL / ETL_CONVEX_SECRET missing — cron not registered")
+    } else {
+      const cron = this.config.get<string>("ETL_CRON")?.trim() || "*/15 * * * *"
+      try {
+        await this.jobs.scheduleIncrementalEtl(
+          {
+            migrationJobId: "cron-incremental",
+            correlationId: "cron",
+            type: "INCREMENTAL",
+            cursor: null,
+            batchSize: this.batchSize(),
+          },
+          cron
+        )
+        this.logger.log(`ETL incremental cron registered: ${cron}`)
+      } catch (err) {
+        this.logger.warn(`Failed to register ETL cron: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
+    const auditEnabled = this.config.get<string>("AUDIT_ETL_ENABLED")?.trim().toLowerCase()
+    if (auditEnabled === "false") {
+      this.logger.log("Audit ETL scheduler disabled (AUDIT_ETL_ENABLED=false)")
       return
     }
-    const cron = this.config.get<string>("ETL_CRON")?.trim() || "*/15 * * * *"
+    if (!hasConvexCreds) {
+      this.logger.warn("Audit ETL skipped — CONVEX_SITE_URL / ETL_CONVEX_SECRET missing")
+      return
+    }
+    const auditCron = this.config.get<string>("AUDIT_ETL_CRON")?.trim() || "*/5 * * * *"
     try {
-      await this.jobs.scheduleIncrementalEtl(
+      await this.jobs.scheduleAuditEtl(
         {
-          migrationJobId: "cron-incremental",
-          correlationId: "cron",
-          type: "INCREMENTAL",
-          cursor: null,
-          batchSize: this.batchSize(),
+          verify: this.config.get<string>("AUDIT_ETL_VERIFY_EVERY_TICK")?.trim() === "true",
         },
-        cron
+        auditCron
       )
-      this.logger.log(`ETL incremental cron registered: ${cron}`)
+      this.logger.log(`Audit ETL cron registered: ${auditCron}`)
     } catch (err) {
-      this.logger.warn(`Failed to register ETL cron: ${err instanceof Error ? err.message : String(err)}`)
+      this.logger.warn(`Failed to register audit ETL cron: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 

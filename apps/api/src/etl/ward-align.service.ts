@@ -28,6 +28,12 @@ export type WardSyncResult = {
   missingUlbs: string[]
   wardCountMismatches: Array<{ ulb: string; nest: number; convex: number }>
   conflicts: string[]
+  /** Auto-run before sync (unless skipPreDedupe). Null when skipped by the align pipeline. */
+  preDedupe: {
+    duplicateGroups: number
+    wardsSoftDeleted: number
+    surveysRemapped: number
+  } | null
 }
 
 export type EmptyStateCleanupResult = {
@@ -142,6 +148,7 @@ export class WardAlignService {
         id: true,
         ulbId: true,
         wardNumber: true,
+        wardCode: true,
         createdAt: true,
         _count: { select: { surveys: { where: { deletedAt: null } } } },
       },
@@ -178,6 +185,8 @@ export class WardAlignService {
         byNorm.set(key, list)
       }
 
+      const claimedAsDupe = new Set<string>()
+
       for (const [norm, group] of byNorm) {
         if (group.length < 2) continue
         duplicateGroups += 1
@@ -191,6 +200,7 @@ export class WardAlignService {
         })
         const primary = sorted[0]!
         const dupes = sorted.slice(1)
+        for (const d of dupes) claimedAsDupe.add(d.id)
 
         if (samples.length < 20) {
           samples.push({
@@ -205,6 +215,42 @@ export class WardAlignService {
           primaryId: primary.id,
           primaryNumber: primary.wardNumber === norm ? primary.wardNumber : norm,
           norm,
+          dupeIds: dupes.map((d) => d.id),
+          remapped: 0,
+        })
+      }
+
+      // Also collapse active rows that share the same wardCode (partial unique index).
+      const byCode = new Map<string, typeof ulbWards>()
+      for (const w of ulbWards) {
+        if (!w.wardCode || claimedAsDupe.has(w.id)) continue
+        const list = byCode.get(w.wardCode) ?? []
+        list.push(w)
+        byCode.set(w.wardCode, list)
+      }
+      for (const [code, group] of byCode) {
+        const live = group.filter((w) => !claimedAsDupe.has(w.id))
+        if (live.length < 2) continue
+        duplicateGroups += 1
+        const sorted = [...live].sort((a, b) => {
+          if (b._count.surveys !== a._count.surveys) return b._count.surveys - a._count.surveys
+          return a.createdAt.getTime() - b.createdAt.getTime()
+        })
+        const primary = sorted[0]!
+        const dupes = sorted.slice(1)
+        for (const d of dupes) claimedAsDupe.add(d.id)
+        if (samples.length < 20) {
+          samples.push({
+            ulb: ulbById.get(ulb.id) ?? ulb.code,
+            norm: `code:${code}`,
+            primary: { id: primary.id, wardNumber: primary.wardNumber, surveys: primary._count.surveys },
+            dupes: dupes.map((d) => ({ id: d.id, wardNumber: d.wardNumber, surveys: d._count.surveys })),
+          })
+        }
+        mergeOps.push({
+          primaryId: primary.id,
+          primaryNumber: normalizeWardNumber(primary.wardNumber),
+          norm: normalizeWardNumber(primary.wardNumber),
           dupeIds: dupes.map((d) => d.id),
           remapped: 0,
         })
@@ -424,18 +470,26 @@ export class WardAlignService {
       throw new ServiceUnavailableException("CONVEX_SITE_URL / ETL_CONVEX_SECRET not configured")
     }
 
-    if (apply && !opts?.skipPreDedupe) {
+    let preDedupe: WardSyncResult["preDedupe"] = null
+    // Always run dedupe before sync (dry-run or apply) unless the align pipeline already did.
+    // Apply merges duplicates; dry-run only reports groups so Sync UI can warn first.
+    if (!opts?.skipPreDedupe) {
       let preDedupeUlbIds: string[] | undefined
       if (opts?.ulbCodes) {
-        const ulbs = await this.prisma.db.ulb.findMany({
+        const scopedUlbs = await this.prisma.db.ulb.findMany({
           where: { code: { in: opts.ulbCodes } },
           select: { id: true },
         })
-        preDedupeUlbIds = ulbs.map((u) => u.id)
+        preDedupeUlbIds = scopedUlbs.map((u) => u.id)
       }
-      const dedupe = await this.dedupeWards(true, undefined, preDedupeUlbIds)
+      const dedupe = await this.dedupeWards(apply, undefined, preDedupeUlbIds)
+      preDedupe = {
+        duplicateGroups: dedupe.duplicateGroups,
+        wardsSoftDeleted: dedupe.wardsSoftDeleted,
+        surveysRemapped: dedupe.surveysRemapped,
+      }
       this.logger.log(
-        `Pre-sync dedupe: groups=${dedupe.duplicateGroups} softDeleted=${dedupe.wardsSoftDeleted} remapped=${dedupe.surveysRemapped}`
+        `Pre-sync dedupe (${apply ? "apply" : "dry-run"}): groups=${dedupe.duplicateGroups} softDeleted=${dedupe.wardsSoftDeleted} remapped=${dedupe.surveysRemapped}`
       )
     }
 
@@ -728,6 +782,7 @@ export class WardAlignService {
       missingUlbs: [...missingUlbs],
       wardCountMismatches,
       conflicts,
+      preDedupe,
     }
   }
 

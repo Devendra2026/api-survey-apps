@@ -6,6 +6,8 @@ import { FloorsRepository } from "./floors.repository.js"
 describe("FloorsRepository mixed-use floors", () => {
   const findFirst = jest.fn<(...args: unknown[]) => Promise<unknown>>()
   const create = jest.fn<(...args: unknown[]) => Promise<unknown>>()
+  const update = jest.fn<(...args: unknown[]) => Promise<unknown>>()
+  const upsert = jest.fn<(...args: unknown[]) => Promise<unknown>>()
   const findMany = jest.fn<(...args: unknown[]) => Promise<unknown>>()
   const surveyFindUnique = jest.fn<(...args: unknown[]) => Promise<unknown>>()
   const surveyUpdate = jest.fn<(...args: unknown[]) => Promise<unknown>>()
@@ -17,6 +19,8 @@ describe("FloorsRepository mixed-use floors", () => {
         findFirst,
         findUnique: jest.fn(),
         create,
+        update,
+        upsert,
         findMany,
       },
       survey: {
@@ -30,9 +34,15 @@ describe("FloorsRepository mixed-use floors", () => {
   const repo = new FloorsRepository(prisma as never)
 
   function mockSuccessfulCreateTx(created: Record<string, unknown>, existingFloors: unknown[] = []) {
+    findFirst.mockResolvedValue(null)
     transaction.mockImplementation(async (fn: unknown) => {
       const run = fn as (tx: {
-        floor: { create: typeof create; findMany: typeof findMany }
+        floor: {
+          findFirst: typeof findFirst
+          create: typeof create
+          update: typeof update
+          findMany: typeof findMany
+        }
         survey: { findUnique: typeof surveyFindUnique; update: typeof surveyUpdate }
       }) => Promise<unknown>
       // assertAreasWithinPlot + recalculateAreas each call findMany / findUnique
@@ -41,7 +51,9 @@ describe("FloorsRepository mixed-use floors", () => {
         .mockResolvedValueOnce([...(existingFloors as object[]), created] as never)
       return run({
         floor: {
+          findFirst,
           create: create.mockResolvedValue(created),
+          update,
           findMany,
         },
         survey: {
@@ -79,21 +91,53 @@ describe("FloorsRepository mixed-use floors", () => {
     ).rejects.toThrow(/Construction type is required/)
   })
 
-  it("throws on duplicate floor position + usage factor + construction type", async () => {
-    findFirst.mockResolvedValue({ id: "existing" })
-    await expect(
-      repo.create({
-        surveyId: "s1",
-        floorPosition: FloorPosition.GROUND_FLOOR,
-        usageFactor: UsageFactor.RESIDENTIAL,
-        constructionType: ConstructionType.TIN_SHED,
-        areaSqFt: 100,
+  it("updates existing row when floor position + usage + construction already exists", async () => {
+    const existing = {
+      id: "existing",
+      surveyId: "s1",
+      floorPosition: FloorPosition.GROUND_FLOOR,
+      usageFactor: UsageFactor.RESIDENTIAL,
+      constructionType: ConstructionType.TIN_SHED,
+      areaSqFt: 50,
+    }
+    const updated = { ...existing, areaSqFt: 100, usageType: null }
+    findFirst.mockResolvedValue(existing)
+    transaction.mockImplementation(async (fn: unknown) => {
+      const run = fn as (tx: {
+        floor: {
+          findFirst: typeof findFirst
+          update: typeof update
+          findMany: typeof findMany
+        }
+        survey: { findUnique: typeof surveyFindUnique; update: typeof surveyUpdate }
+      }) => Promise<unknown>
+      findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([updated] as never)
+      update.mockResolvedValue(updated)
+      return run({
+        floor: { findFirst, update, findMany },
+        survey: { findUnique: surveyFindUnique, update: surveyUpdate },
       })
-    ).rejects.toThrow(/Duplicate floor usage: GROUND_FLOOR \+ RESIDENTIAL \+ TIN_SHED/)
+    })
+
+    const result = await repo.create({
+      surveyId: "s1",
+      floorPosition: FloorPosition.GROUND_FLOOR,
+      usageFactor: UsageFactor.RESIDENTIAL,
+      constructionType: ConstructionType.TIN_SHED,
+      areaSqFt: 100,
+    })
+    expect(result.id).toBe("existing")
+    expect(result.areaSqFt).toBe(100)
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "existing" },
+        data: expect.objectContaining({ areaSqFt: 100 }),
+      })
+    )
+    expect(create).not.toHaveBeenCalled()
   })
 
   it("allows same floor + same usage with different construction (Residential Pakka + Tin Shed)", async () => {
-    findFirst.mockResolvedValue(null)
     mockSuccessfulCreateTx(
       {
         id: "f-tin",
@@ -133,7 +177,6 @@ describe("FloorsRepository mixed-use floors", () => {
   })
 
   it("allows same floor position with a different usage factor within plot", async () => {
-    findFirst.mockResolvedValue(null)
     mockSuccessfulCreateTx(
       {
         id: "f2",
@@ -168,7 +211,7 @@ describe("FloorsRepository mixed-use floors", () => {
     surveyFindUnique.mockResolvedValue({ plotAreaSqFt: 600, propertyUse: "MIX_PROPERTY" })
     transaction.mockImplementation(async (fn: unknown) => {
       const run = fn as (tx: {
-        floor: { create: typeof create; findMany: typeof findMany }
+        floor: { findFirst: typeof findFirst; create: typeof create; findMany: typeof findMany }
         survey: { findUnique: typeof surveyFindUnique; update: typeof surveyUpdate }
       }) => Promise<unknown>
       findMany.mockResolvedValue([
@@ -180,7 +223,7 @@ describe("FloorsRepository mixed-use floors", () => {
         },
       ] as never)
       return run({
-        floor: { create, findMany },
+        floor: { findFirst, create, findMany },
         survey: { findUnique: surveyFindUnique, update: surveyUpdate },
       })
     })
@@ -197,7 +240,6 @@ describe("FloorsRepository mixed-use floors", () => {
   })
 
   it("allows multi-story stacking when each floor is within plot", async () => {
-    findFirst.mockResolvedValue(null)
     surveyFindUnique.mockResolvedValue({ plotAreaSqFt: 750, propertyUse: "RESIDENTIAL" })
     mockSuccessfulCreateTx(
       {
@@ -233,11 +275,11 @@ describe("FloorsRepository mixed-use floors", () => {
     surveyFindUnique.mockResolvedValue({ plotAreaSqFt: 750, propertyUse: "OPEN_LAND" })
     transaction.mockImplementation(async (fn: unknown) => {
       const run = fn as (tx: {
-        floor: { create: typeof create; findMany: typeof findMany }
+        floor: { findFirst: typeof findFirst; create: typeof create; findMany: typeof findMany }
         survey: { findUnique: typeof surveyFindUnique; update: typeof surveyUpdate }
       }) => Promise<unknown>
       return run({
-        floor: { create, findMany },
+        floor: { findFirst, create, findMany },
         survey: { findUnique: surveyFindUnique, update: surveyUpdate },
       })
     })
@@ -254,8 +296,6 @@ describe("FloorsRepository mixed-use floors", () => {
   })
 
   it("ignores OPEN_LAND area when checking per-floor footprint", async () => {
-    findFirst.mockResolvedValue(null)
-    surveyFindUnique.mockResolvedValue({ plotAreaSqFt: 600, propertyUse: "RESIDENTIAL" })
     mockSuccessfulCreateTx(
       {
         id: "f4",
@@ -279,7 +319,6 @@ describe("FloorsRepository mixed-use floors", () => {
   })
 
   it("skips plot hard-check when plot area is unset", async () => {
-    findFirst.mockResolvedValue(null)
     surveyFindUnique.mockResolvedValue({ plotAreaSqFt: null, propertyUse: "RESIDENTIAL" })
     mockSuccessfulCreateTx({
       id: "f3",
@@ -300,21 +339,53 @@ describe("FloorsRepository mixed-use floors", () => {
     expect(result.id).toBe("f3")
   })
 
-  it("maps Prisma P2002 unique conflicts to BadRequestException", async () => {
-    findFirst.mockResolvedValue(null)
-    transaction.mockRejectedValue({
-      code: "P2002",
-      meta: { target: ["surveyId", "floorPosition", "usageFactor", "constructionType"] },
-    })
-
-    await expect(
-      repo.create({
-        surveyId: "s1",
-        floorPosition: FloorPosition.GROUND_FLOOR,
-        usageFactor: UsageFactor.RESIDENTIAL,
-        constructionType: ConstructionType.PAKKA_BUILDING_WITH_RCC_ROOF,
-        areaSqFt: 100,
+  it("recovers from Prisma P2002 unique conflicts by updating the existing row", async () => {
+    const upserted = {
+      id: "raced",
+      surveyId: "s1",
+      floorPosition: FloorPosition.GROUND_FLOOR,
+      usageFactor: UsageFactor.RESIDENTIAL,
+      constructionType: ConstructionType.PAKKA_BUILDING_WITH_RCC_ROOF,
+      areaSqFt: 100,
+    }
+    findFirst.mockResolvedValue(upserted)
+    transaction
+      .mockRejectedValueOnce({
+        code: "P2002",
+        meta: { target: ["surveyId", "floorPosition", "usageFactor", "constructionType"] },
       })
-    ).rejects.toThrow(/Duplicate floor usage: GROUND_FLOOR \+ RESIDENTIAL \+ PAKKA_BUILDING_WITH_RCC_ROOF/)
+      .mockImplementationOnce(async (fn: unknown) => {
+        const run = fn as (tx: {
+          floor: {
+            findFirst: typeof findFirst
+            update: typeof update
+            create: typeof create
+            findMany: typeof findMany
+          }
+          survey: { findUnique: typeof surveyFindUnique; update: typeof surveyUpdate }
+        }) => Promise<unknown>
+        findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([upserted] as never)
+        update.mockResolvedValue(upserted)
+        return run({
+          floor: { findFirst, update, create, findMany },
+          survey: { findUnique: surveyFindUnique, update: surveyUpdate },
+        })
+      })
+
+    const result = await repo.create({
+      surveyId: "s1",
+      floorPosition: FloorPosition.GROUND_FLOOR,
+      usageFactor: UsageFactor.RESIDENTIAL,
+      constructionType: ConstructionType.PAKKA_BUILDING_WITH_RCC_ROOF,
+      areaSqFt: 100,
+    })
+    expect(result.id).toBe("raced")
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "raced" },
+        data: expect.objectContaining({ areaSqFt: 100 }),
+      })
+    )
+    expect(upsert).not.toHaveBeenCalled()
   })
 })

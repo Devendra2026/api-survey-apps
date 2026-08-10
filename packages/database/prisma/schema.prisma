@@ -766,7 +766,7 @@ model Floor {
 
   survey Survey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
 
-  @@unique([surveyId, floorPosition, usageFactor, constructionType])
+  @@unique([surveyId, floorPosition, usageFactor, constructionType], map: "floors_surveyId_floorPosition_usageFactor_constructionType_key")
   @@index([surveyId])
   @@index([surveyId, clientFloorId])
   @@map("floors")

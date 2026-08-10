@@ -1028,26 +1028,46 @@ export class QcRepository {
       }
     }
 
+    // Avoid Prisma upsert/ON CONFLICT (PG 42P10 if unique index not applied yet).
+    const byKey = await tx.floor.findFirst({
+      where: {
+        surveyId,
+        floorPosition: floor.floorPosition,
+        usageFactor: floor.usageFactor,
+        constructionType: floor.constructionType,
+      },
+    })
+    if (byKey) {
+      await tx.floor.update({
+        where: { id: byKey.id },
+        data,
+      })
+      return byKey.id
+    }
+
     try {
-      const upserted = await tx.floor.upsert({
-        where: {
-          surveyId_floorPosition_usageFactor_constructionType: {
+      const created = await tx.floor.create({
+        data: {
+          surveyId,
+          floorPosition: floor.floorPosition,
+          ...data,
+        },
+      })
+      return created.id
+    } catch (error) {
+      if (isPrismaUniqueConflict(error)) {
+        const raced = await tx.floor.findFirst({
+          where: {
             surveyId,
             floorPosition: floor.floorPosition,
             usageFactor: floor.usageFactor,
             constructionType: floor.constructionType,
           },
-        },
-        create: {
-          surveyId,
-          floorPosition: floor.floorPosition,
-          ...data,
-        },
-        update: data,
-      })
-      return upserted.id
-    } catch (error) {
-      if (isPrismaUniqueConflict(error)) {
+        })
+        if (raced) {
+          await tx.floor.update({ where: { id: raced.id }, data })
+          return raced.id
+        }
         throw new BadRequestException(
           `Duplicate floor usage: ${floor.floorPosition} + ${floor.usageFactor} + ${floor.constructionType} already exists on this survey`
         )

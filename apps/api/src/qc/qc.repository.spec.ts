@@ -90,6 +90,7 @@ describe("QcRepository.qcCorrectSurvey", () => {
       floor: {
         findFirst: jest.fn(),
         update: jest.fn(),
+        create: jest.fn().mockResolvedValue({ id: "f-new" } as never),
         upsert: jest.fn().mockResolvedValue({ id: "f-new" } as never),
         findMany: jest.fn().mockResolvedValue([
           {

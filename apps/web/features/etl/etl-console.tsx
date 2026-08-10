@@ -694,6 +694,14 @@ export function EtlConsole() {
                 Catalog: {syncResult.catalogSize} · created: {syncResult.created} · updated: {syncResult.updated} ·
                 merged: {syncResult.merged} · skipped: {syncResult.skipped}
               </p>
+              {syncResult.preDedupe ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Pre-sync dedupe: {syncResult.preDedupe.duplicateGroups} group(s)
+                  {syncResult.mode === "apply"
+                    ? ` · soft-deleted ${syncResult.preDedupe.wardsSoftDeleted} · remapped ${syncResult.preDedupe.surveysRemapped} surveys`
+                    : " (dry-run — apply Sync to merge)"}
+                </p>
+              ) : null}
               {syncResult.conflicts.length > 0 ? (
                 <ul className="mt-2 max-h-32 list-inside list-disc overflow-y-auto text-xs text-amber-700 dark:text-amber-400">
                   {syncResult.conflicts.slice(0, 20).map((c) => (

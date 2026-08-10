@@ -16,7 +16,7 @@ import { warningsFromSurveyRow, type FloorUsageWarning } from "./floor-usage-war
 
 const AREA_TOLERANCE_SQ_FT = 0.01
 
-/** Hard-fail message for duplicate (surveyId, floorPosition, usageFactor, constructionType). */
+/** Hard-fail when update would steal another row's unique segment (create upserts instead). */
 function duplicateFloorUsageMessage(floorPosition: string, usageFactor: string, constructionType: string): string {
   return `Duplicate floor usage: ${floorPosition} + ${usageFactor} + ${constructionType} already exists on this survey`
 }
@@ -113,50 +113,89 @@ export class FloorsRepository {
     if (!data.constructionType) {
       throw new BadRequestException("Construction type is required")
     }
-    const dup = await this.prisma.db.floor.findFirst({
-      where: {
-        surveyId: data.surveyId,
-        floorPosition: data.floorPosition,
-        usageFactor: data.usageFactor,
-        constructionType: data.constructionType,
-      },
-    })
-    if (dup) {
-      throw new BadRequestException(
-        duplicateFloorUsageMessage(data.floorPosition, data.usageFactor, data.constructionType)
-      )
+
+    const writePayload = {
+      usageType: data.usageType,
+      occupancy: data.occupancy,
+      areaSqFt: data.areaSqFt,
     }
 
     try {
       return await this.prisma.db.$transaction(async (tx) => {
-        // One Floor row per (floorPosition, usageFactor, constructionType); siblings share floorPosition.
+        const existing = await tx.floor.findFirst({
+          where: {
+            surveyId: data.surveyId,
+            floorPosition: data.floorPosition,
+            usageFactor: data.usageFactor,
+            constructionType: data.constructionType,
+          },
+        })
+
+        // Same (floorPosition, usageFactor, constructionType) → update that row (upsert).
         await this.assertAreasWithinPlot(tx, {
           surveyId: data.surveyId,
           floorPosition: data.floorPosition,
           usageFactor: data.usageFactor,
           nextAreaSqFt: toAreaNumber(data.areaSqFt),
+          excludeFloorId: existing?.id,
         })
 
-        const floor = await tx.floor.create({
-          data: {
-            surveyId: data.surveyId,
-            floorPosition: data.floorPosition,
-            usageFactor: data.usageFactor,
-            usageType: data.usageType,
-            constructionType: data.constructionType,
-            occupancy: data.occupancy,
-            areaSqFt: data.areaSqFt,
-          },
-        })
+        const floor = existing
+          ? await tx.floor.update({
+              where: { id: existing.id },
+              data: writePayload,
+            })
+          : await tx.floor.create({
+              data: {
+                surveyId: data.surveyId,
+                floorPosition: data.floorPosition,
+                usageFactor: data.usageFactor,
+                constructionType: data.constructionType,
+                ...writePayload,
+              },
+            })
         const areas = await this.recalculateAreas(tx, data.surveyId)
         return { ...floor, areas }
       })
     } catch (error) {
       if (error instanceof BadRequestException || error instanceof NotFoundException) throw error
       if (isPrismaUniqueConflict(error)) {
-        throw new BadRequestException(
-          duplicateFloorUsageMessage(data.floorPosition, data.usageFactor, data.constructionType)
-        )
+        // Race: peer insert won the unique key — update that row instead of failing.
+        // Prefer findFirst + update/create over upsert: upsert's ON CONFLICT needs the DB
+        // unique index applied (42P10 if migration pending / name mismatch).
+        return await this.prisma.db.$transaction(async (tx) => {
+          const raced = await tx.floor.findFirst({
+            where: {
+              surveyId: data.surveyId,
+              floorPosition: data.floorPosition,
+              usageFactor: data.usageFactor,
+              constructionType: data.constructionType,
+            },
+          })
+          await this.assertAreasWithinPlot(tx, {
+            surveyId: data.surveyId,
+            floorPosition: data.floorPosition,
+            usageFactor: data.usageFactor,
+            nextAreaSqFt: toAreaNumber(data.areaSqFt),
+            excludeFloorId: raced?.id,
+          })
+          const floor = raced
+            ? await tx.floor.update({
+                where: { id: raced.id },
+                data: writePayload,
+              })
+            : await tx.floor.create({
+                data: {
+                  surveyId: data.surveyId,
+                  floorPosition: data.floorPosition,
+                  usageFactor: data.usageFactor,
+                  constructionType: data.constructionType,
+                  ...writePayload,
+                },
+              })
+          const areas = await this.recalculateAreas(tx, data.surveyId)
+          return { ...floor, areas }
+        })
       }
       throw error
     }

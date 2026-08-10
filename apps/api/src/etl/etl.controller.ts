@@ -93,7 +93,9 @@ export class EtlController {
   @Post("sync-wards-from-convex")
   @RequirePermission(PERMISSIONS.ETL_MANAGE)
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
-  @ApiOperation({ summary: "Upsert Nest wards from Convex ward catalog (dry-run or apply)" })
+  @ApiOperation({
+    summary: "Upsert Nest wards from Convex ward catalog (auto-dedupes first; dry-run or apply)",
+  })
   async syncWardsFromConvex(@Body() body: AlignWardsDto) {
     const ulbCodes = body.districtId
       ? (await this.wardAlign.getDistrictUlbAllowlist(body.districtId)).ulbCodes

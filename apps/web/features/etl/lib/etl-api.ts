@@ -114,6 +114,11 @@ export type WardSyncResult = {
   missingUlbs: string[]
   wardCountMismatches: Array<{ ulb: string; nest: number; convex: number }>
   conflicts: string[]
+  preDedupe: {
+    duplicateGroups: number
+    wardsSoftDeleted: number
+    surveysRemapped: number
+  } | null
 }
 
 export type EmptyStateCleanupResult = {

@@ -174,6 +174,26 @@ describe("evaluateMixedUseFloorWarnings", () => {
     })
     expect(warnings.some((w) => w.code === "FLOOR_AREA_EXCEEDS_PLOT" && w.floorPosition)).toBe(false)
   })
+
+  it("allows Residential Pakka + Tin Shed segments on the same floor without mix mismatch", () => {
+    const warnings = evaluateMixedUseFloorWarnings({
+      propertyUse: "RESIDENTIAL",
+      plotAreaSqFt: 1000,
+      totalBuiltAreaSqFt: 1000,
+      floors: [
+        { floorPosition: "GROUND_FLOOR", usageFactor: "RESIDENTIAL", areaSqFt: 600 },
+        { floorPosition: "GROUND_FLOOR", usageFactor: "RESIDENTIAL", areaSqFt: 400 },
+      ],
+    })
+    expect(warnings.some((w) => w.code === "MIXED_USE_PROPERTY_USE_MISMATCH")).toBe(false)
+    expect(warnings.some((w) => w.code === "FLOOR_AREA_EXCEEDS_PLOT")).toBe(false)
+    expect(
+      sumBuiltUpArea([
+        { floorPosition: "GROUND_FLOOR", usageFactor: "RESIDENTIAL", areaSqFt: 600 },
+        { floorPosition: "GROUND_FLOOR", usageFactor: "RESIDENTIAL", areaSqFt: 400 },
+      ])
+    ).toBe(1000)
+  })
 })
 
 describe("sumBuiltUpArea", () => {

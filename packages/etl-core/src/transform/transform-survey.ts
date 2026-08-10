@@ -170,11 +170,11 @@ export function transformSurveyBundle(
     areaSqFt: floor.areaSqft ?? 0,
     position: floor.position ?? index,
   }))
-  // Keep separate rows for same floor + different usage (mixed-use).
-  // Only merge areas when floorPosition AND usageFactor match.
+  // Keep separate rows for same floor + different usage/construction
+  // (mixed-use and Residential Pakka + Tin Shed). Merge only on the full segment key.
   const floorsByKey = new Map<string, (typeof floorsRaw)[number]>()
   for (const floor of floorsRaw) {
-    const key = `${floor.floorPosition}::${floor.usageFactor ?? "UNKNOWN"}`
+    const key = `${floor.floorPosition}::${floor.usageFactor ?? "UNKNOWN"}::${floor.constructionType ?? "UNKNOWN"}`
     const existing = floorsByKey.get(key)
     if (!existing) {
       floorsByKey.set(key, floor)

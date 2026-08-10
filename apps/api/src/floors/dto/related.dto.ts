@@ -39,10 +39,9 @@ export class CreateFloorDto {
   @IsEnum(UsageType)
   usageType?: UsageType
 
-  @ApiPropertyOptional({ enum: ConstructionType })
-  @IsOptional()
+  @ApiProperty({ enum: ConstructionType })
   @IsEnum(ConstructionType)
-  constructionType?: ConstructionType
+  constructionType!: ConstructionType
 
   @ApiPropertyOptional()
   @IsOptional()

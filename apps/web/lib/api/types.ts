@@ -728,7 +728,7 @@ export interface QcSurveyActionPayload {
       floorPosition: string
       usageType?: string | null
       usageFactor?: string | null
-      constructionType?: string | null
+      constructionType: string
       areaSqFt?: number | null
     }>
     coOwners?: Array<{

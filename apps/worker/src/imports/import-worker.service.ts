@@ -393,7 +393,10 @@ export class ImportWorkerService {
                 if (!positionRaw || !isFloorPosition(positionRaw)) continue
                 const usageFactor = asEnum(mapUsageFactor(floorRow["Usage Factor"]), isUsageFactor)
                 if (!usageFactor) continue
-                const floorKey = `${positionRaw}::${usageFactor}`
+                const constructionType =
+                  asEnum(mapConstructionType(floorRow["Construction Type"]), isConstructionType) ??
+                  ConstructionType.PAKKA_BUILDING_WITH_RCC_ROOF
+                const floorKey = `${positionRaw}::${usageFactor}::${constructionType}`
                 if (seenFloorKeys.has(floorKey)) continue
                 seenFloorKeys.add(floorKey)
                 const areaSqFt = parseNumber(floorRow["Area (Sqft)"])
@@ -404,7 +407,7 @@ export class ImportWorkerService {
                     floorPosition: positionRaw,
                     usageFactor,
                     usageType: asEnum(mapUsageType(floorRow["Usage Type"]), isUsageType),
-                    constructionType: asEnum(mapConstructionType(floorRow["Construction Type"]), isConstructionType),
+                    constructionType,
                     occupancy: emptyToUndefined(floorRow.Occupancy),
                     areaSqFt: areaSqFt ?? undefined,
                     position: parseNumber(floorRow.Position) ?? 0,

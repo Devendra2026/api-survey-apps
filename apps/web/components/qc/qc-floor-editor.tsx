@@ -55,7 +55,7 @@ const emptyForm = (): FloorForm => ({
   floorPosition: "GROUND_FLOOR",
   usageType: "",
   usageFactor: "RESIDENTIAL",
-  constructionType: "",
+  constructionType: "PAKKA_BUILDING_WITH_RCC_ROOF",
   areaSqFt: "",
 })
 
@@ -64,7 +64,7 @@ function formFromFloor(floor: QcSurveyFloorEditable): FloorForm {
     floorPosition: floor.floorPosition,
     usageType: floor.usageType ?? "",
     usageFactor: floor.usageFactor ?? "",
-    constructionType: floor.constructionType ?? "",
+    constructionType: floor.constructionType ?? "PAKKA_BUILDING_WITH_RCC_ROOF",
     areaSqFt: floor.areaSqFt != null ? String(floor.areaSqFt) : "",
   }
 }
@@ -73,30 +73,52 @@ function labelEnum(value: string) {
   return value.replaceAll("_", " ")
 }
 
-/** Usage factors already present on a floor position (mixed-use rows). */
-function usedUsageFactors(floors: QcSurveyFloorEditable[], floorPosition: string): Set<string> {
+function segmentKey(usageFactor: string, constructionType: string) {
+  return `${usageFactor}::${constructionType}`
+}
+
+/** Segments already present on a floor position (usage + construction). */
+function usedSegments(floors: QcSurveyFloorEditable[], floorPosition: string, excludeId?: string | null): Set<string> {
   const used = new Set<string>()
   for (const floor of floors) {
-    if (floor.floorPosition === floorPosition && floor.usageFactor) {
-      used.add(floor.usageFactor)
+    if (excludeId && floor.id === excludeId) continue
+    if (floor.floorPosition === floorPosition && floor.usageFactor && floor.constructionType) {
+      used.add(segmentKey(floor.usageFactor, floor.constructionType))
     }
   }
   return used
 }
 
-/** Prefer next unused usage for mixed-use adds (Res → Com → …). */
-function nextUnusedUsageFactor(floors: QcSurveyFloorEditable[], floorPosition: string): string {
-  const used = usedUsageFactors(floors, floorPosition)
-  const next = USAGE_FACTOR_OPTIONS.find((o) => !used.has(o))
-  return next ?? "RESIDENTIAL"
-}
-
-function findFloorByPositionAndUsage(
+/** Prefer next free (usage, construction) pair for adds on this floor. */
+function nextFreeSegment(
   floors: QcSurveyFloorEditable[],
   floorPosition: string,
-  usageFactor: string
+  excludeId?: string | null
+): { usageFactor: string; constructionType: string } | null {
+  const used = usedSegments(floors, floorPosition, excludeId)
+  for (const usageFactor of USAGE_FACTOR_OPTIONS) {
+    for (const constructionType of CONSTRUCTION_OPTIONS) {
+      if (!used.has(segmentKey(usageFactor, constructionType))) {
+        return { usageFactor, constructionType }
+      }
+    }
+  }
+  return null
+}
+
+function findFloorBySegment(
+  floors: QcSurveyFloorEditable[],
+  floorPosition: string,
+  usageFactor: string,
+  constructionType: string
 ): QcSurveyFloorEditable | undefined {
-  return floors.find((f) => f.floorPosition === floorPosition && f.usageFactor === usageFactor)
+  return floors.find(
+    (f) => f.floorPosition === floorPosition && f.usageFactor === usageFactor && f.constructionType === constructionType
+  )
+}
+
+function duplicateSegmentMessage(floorPosition: string, usageFactor: string, constructionType: string) {
+  return `${labelEnum(floorPosition)} + ${labelEnum(usageFactor)} + ${labelEnum(constructionType)} already exists on this survey. Edit that row instead.`
 }
 
 export function QcFloorEditor({
@@ -121,9 +143,15 @@ export function QcFloorEditor({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const [form, setForm] = useState<FloorForm>(emptyForm)
+  const [fieldError, setFieldError] = useState<string | null>(null)
 
   const busy = floorsApi.create.isPending || floorsApi.update.isPending || floorsApi.remove.isPending
   const canEdit = editMode && !disabled
+
+  const takenSegments = useMemo(
+    () => usedSegments(editableFloors, form.floorPosition, editingId),
+    [editableFloors, form.floorPosition, editingId]
+  )
 
   const derivedFloorTotals = useMemo(() => {
     const byPosition = new Map<string, number>()
@@ -140,18 +168,26 @@ export function QcFloorEditor({
 
   const startAdd = () => {
     if (disabled) return
-    setEditingId(null)
-    setAdding(true)
     const floorPosition = "GROUND_FLOOR"
+    const free = nextFreeSegment(editableFloors, floorPosition)
+    if (!free) {
+      toast.error("Every usage/construction combination is already on this floor. Edit an existing row.")
+      return
+    }
+    setEditingId(null)
+    setFieldError(null)
+    setAdding(true)
     setForm({
       ...emptyForm(),
       floorPosition,
-      usageFactor: nextUnusedUsageFactor(editableFloors, floorPosition),
+      usageFactor: free.usageFactor,
+      constructionType: free.constructionType,
     })
   }
 
   const startEdit = (floor: QcSurveyFloorEditable) => {
     setAdding(false)
+    setFieldError(null)
     setEditingId(floor.id)
     setForm(formFromFloor(floor))
   }
@@ -159,20 +195,71 @@ export function QcFloorEditor({
   const cancel = () => {
     setAdding(false)
     setEditingId(null)
+    setFieldError(null)
     setForm(emptyForm())
   }
 
   const onFloorPositionChange = (floorPosition: string) => {
-    setForm((f) => {
-      const used = usedUsageFactors(editableFloors, floorPosition)
-      // Keep current usage if still free on the new floor; otherwise pick next free.
-      const usageFactor =
-        f.usageFactor && !used.has(f.usageFactor) ? f.usageFactor : nextUnusedUsageFactor(editableFloors, floorPosition)
-      return { ...f, floorPosition, usageFactor }
-    })
+    const used = usedSegments(editableFloors, floorPosition, editingId)
+    const currentKey = segmentKey(form.usageFactor, form.constructionType)
+    if (form.usageFactor && form.constructionType && !used.has(currentKey)) {
+      setFieldError(null)
+      setForm((f) => ({ ...f, floorPosition }))
+      return
+    }
+    const free = nextFreeSegment(editableFloors, floorPosition, editingId)
+    if (!free) {
+      setFieldError(
+        `No free usage/construction left on ${labelEnum(floorPosition)}. Pick another floor or edit an existing row.`
+      )
+      setForm((f) => ({ ...f, floorPosition }))
+      return
+    }
+    setFieldError(null)
+    setForm((f) => ({
+      ...f,
+      floorPosition,
+      usageFactor: free.usageFactor,
+      constructionType: free.constructionType,
+    }))
+  }
+
+  const onUsageFactorChange = (value: string) => {
+    const usageFactor = value === "__none" ? "" : value
+    if (!usageFactor) {
+      setFieldError(null)
+      setForm((f) => ({ ...f, usageFactor: "" }))
+      return
+    }
+    const used = usedSegments(editableFloors, form.floorPosition, editingId)
+    if (form.constructionType && !used.has(segmentKey(usageFactor, form.constructionType))) {
+      setFieldError(null)
+      setForm((f) => ({ ...f, usageFactor }))
+      return
+    }
+    for (const constructionType of CONSTRUCTION_OPTIONS) {
+      if (!used.has(segmentKey(usageFactor, constructionType))) {
+        setFieldError(null)
+        setForm((f) => ({ ...f, usageFactor, constructionType }))
+        return
+      }
+    }
+    setFieldError(duplicateSegmentMessage(form.floorPosition, usageFactor, form.constructionType || "—"))
+    setForm((f) => ({ ...f, usageFactor }))
+  }
+
+  const onConstructionTypeChange = (value: string) => {
+    const constructionType = value === "__none" ? "" : value
+    if (constructionType && form.usageFactor && takenSegments.has(segmentKey(form.usageFactor, constructionType))) {
+      setFieldError(duplicateSegmentMessage(form.floorPosition, form.usageFactor, constructionType))
+    } else {
+      setFieldError(null)
+    }
+    setForm((f) => ({ ...f, constructionType }))
   }
 
   const save = async () => {
+    setFieldError(null)
     if (!form.floorPosition) {
       toast.error("Floor position is required")
       return
@@ -181,22 +268,35 @@ export function QcFloorEditor({
       toast.error("Usage factor is required")
       return
     }
+    if (!form.constructionType) {
+      toast.error("Construction type is required")
+      return
+    }
     const areaSqFt = form.areaSqFt === "" ? null : Number(form.areaSqFt)
     if (form.areaSqFt !== "" && Number.isNaN(areaSqFt)) {
       toast.error("Area must be a number")
       return
     }
+
+    const existing = findFloorBySegment(editableFloors, form.floorPosition, form.usageFactor, form.constructionType)
+    // Edit must not collide with another row; add may merge into the matching segment.
+    if (editingId && existing && existing.id !== editingId) {
+      const message = duplicateSegmentMessage(form.floorPosition, form.usageFactor, form.constructionType)
+      setFieldError(message)
+      toast.error(message)
+      return
+    }
+
     const body = {
       floorPosition: form.floorPosition,
       usageType: form.usageType || null,
       usageFactor: form.usageFactor,
-      constructionType: form.constructionType || null,
+      constructionType: form.constructionType,
       areaSqFt,
     }
     try {
       if (adding) {
-        // Same floor + usage already exists → update that row (avoids duplicate toast on retry).
-        const existing = findFloorByPositionAndUsage(editableFloors, form.floorPosition, form.usageFactor)
+        // Same floor + usage + construction already exists → update that row.
         if (existing) {
           await floorsApi.update.mutateAsync({ id: existing.id, body })
           toast.success("Floor usage updated")
@@ -210,7 +310,11 @@ export function QcFloorEditor({
       }
       cancel()
     } catch (err) {
-      toast.error(getApiErrorMessage(err))
+      const message = getApiErrorMessage(err)
+      if (/Duplicate floor usage/i.test(message)) {
+        setFieldError(message)
+      }
+      toast.error(message)
     }
   }
 
@@ -282,7 +386,8 @@ export function QcFloorEditor({
         </p>
       ) : (
         <p className="text-xs text-muted-foreground">
-          Mixed use: add one row per usage on the same floor (e.g. Ground + Residential and Ground + Commercial).
+          Mixed use: add one row per usage/construction on the same floor (e.g. Ground + Residential + Pakka and Ground
+          + Residential + Tin Shed).
         </p>
       )}
       {derivedFloorTotals.length > 0 ? (
@@ -395,18 +500,17 @@ export function QcFloorEditor({
             </div>
             <div className="space-y-1">
               <p className="text-[10px] font-semibold tracking-[0.14em] text-slate-500 uppercase">Usage Factor</p>
-              <Select
-                value={form.usageFactor || "__none"}
-                onValueChange={(v) => setForm((f) => ({ ...f, usageFactor: v === "__none" ? "" : v }))}
-              >
-                <SelectTrigger>
+              <Select value={form.usageFactor || "__none"} onValueChange={onUsageFactorChange}>
+                <SelectTrigger aria-invalid={Boolean(fieldError) || undefined}>
                   <SelectValue placeholder="Select" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none">—</SelectItem>
                   {USAGE_FACTOR_OPTIONS.map((o) => {
-                    const taken =
-                      adding && usedUsageFactors(editableFloors, form.floorPosition).has(o) && form.usageFactor !== o
+                    // Disable usage when every construction pair for it is already taken.
+                    const allTaken = CONSTRUCTION_OPTIONS.every((c) => takenSegments.has(segmentKey(o, c)))
+                    const isCurrent = form.usageFactor === o
+                    const taken = allTaken && !isCurrent
                     return (
                       <SelectItem key={o} value={o} disabled={taken}>
                         {labelEnum(o)}
@@ -419,20 +523,23 @@ export function QcFloorEditor({
             </div>
             <div className="space-y-1">
               <p className="text-[10px] font-semibold tracking-[0.14em] text-slate-500 uppercase">Construction</p>
-              <Select
-                value={form.constructionType || "__none"}
-                onValueChange={(v) => setForm((f) => ({ ...f, constructionType: v === "__none" ? "" : v }))}
-              >
-                <SelectTrigger>
+              <Select value={form.constructionType || "__none"} onValueChange={onConstructionTypeChange}>
+                <SelectTrigger aria-invalid={Boolean(fieldError) || undefined}>
                   <SelectValue placeholder="Select" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__none">—</SelectItem>
-                  {CONSTRUCTION_OPTIONS.map((o) => (
-                    <SelectItem key={o} value={o}>
-                      {labelEnum(o)}
-                    </SelectItem>
-                  ))}
+                  {CONSTRUCTION_OPTIONS.map((o) => {
+                    const taken =
+                      !!form.usageFactor &&
+                      takenSegments.has(segmentKey(form.usageFactor, o)) &&
+                      form.constructionType !== o
+                    return (
+                      <SelectItem key={o} value={o} disabled={taken}>
+                        {labelEnum(o)}
+                        {taken ? " (already on this floor)" : ""}
+                      </SelectItem>
+                    )
+                  })}
                 </SelectContent>
               </Select>
             </div>
@@ -445,8 +552,9 @@ export function QcFloorEditor({
               />
             </div>
           </div>
+          {fieldError ? <p className="text-sm text-destructive">{fieldError}</p> : null}
           <div className="flex gap-2">
-            <Button type="button" size="sm" disabled={busy} onClick={() => void save()}>
+            <Button type="button" size="sm" disabled={busy || Boolean(fieldError)} onClick={() => void save()}>
               Save floor
             </Button>
             <Button type="button" size="sm" variant="outline" disabled={busy} onClick={cancel}>

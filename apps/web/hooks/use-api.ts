@@ -1000,7 +1000,7 @@ export function useFloorMutations(surveyId: string) {
       floorPosition: string
       usageType?: string | null
       usageFactor?: string | null
-      constructionType?: string | null
+      constructionType: string
       areaSqFt?: number | null
     }) =>
       apiPost(`/floors`, {
@@ -1008,7 +1008,7 @@ export function useFloorMutations(surveyId: string) {
         floorPosition: body.floorPosition,
         usageType: body.usageType ?? undefined,
         usageFactor: body.usageFactor ?? undefined,
-        constructionType: body.constructionType ?? undefined,
+        constructionType: body.constructionType,
         areaSqFt: body.areaSqFt ?? undefined,
       }),
     onSuccess: invalidateSurvey,

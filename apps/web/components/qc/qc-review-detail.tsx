@@ -215,6 +215,30 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
       toast.error("JOINT ownership requires at least one co-owner")
       return
     }
+
+    // Floors are mutated via /floors immediately; always send server editable floors
+    // so Save cannot wipe (or resurrect) floors from a stale draft.
+    const floorsPayload = survey.editable.floors.map((f) => ({
+      id: f.id,
+      floorPosition: f.floorPosition,
+      usageType: f.usageType,
+      // Legacy rows may still have null/empty until migration backfill; coerce for validation.
+      usageFactor: f.usageFactor || "RESIDENTIAL",
+      constructionType: f.constructionType || "PAKKA_BUILDING_WITH_RCC_ROOF",
+      areaSqFt: f.areaSqFt,
+    }))
+    const seenFloorKeys = new Set<string>()
+    for (const floor of floorsPayload) {
+      const key = `${floor.floorPosition}::${floor.usageFactor}::${floor.constructionType}`
+      if (seenFloorKeys.has(key)) {
+        toast.error(
+          `Duplicate floor usage: ${floor.floorPosition.replaceAll("_", " ")} + ${floor.usageFactor.replaceAll("_", " ")} + ${floor.constructionType.replaceAll("_", " ")} already exists. Edit the existing floor row instead of saving duplicates.`
+        )
+        return
+      }
+      seenFloorKeys.add(key)
+    }
+
     try {
       const updated = await actions.correct.mutateAsync({
         id: survey.id,
@@ -257,17 +281,7 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
           electricityConsumerNo: draft.electricityConsumerNo,
           latitude: draft.latitude,
           longitude: draft.longitude,
-          // Floors are mutated via /floors immediately; always send server editable floors
-          // so Save cannot wipe (or resurrect) floors from a stale draft.
-          floors: survey.editable.floors.map((f) => ({
-            id: f.id,
-            floorPosition: f.floorPosition,
-            usageType: f.usageType,
-            // Legacy rows may still have null/empty until migration backfill; coerce for validation.
-            usageFactor: f.usageFactor || "RESIDENTIAL",
-            constructionType: f.constructionType,
-            areaSqFt: f.areaSqFt,
-          })),
+          floors: floorsPayload,
           coOwners: draft.coOwners.map((o) => ({
             id: o.id,
             name: o.name,

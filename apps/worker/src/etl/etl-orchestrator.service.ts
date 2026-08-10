@@ -791,7 +791,9 @@ export class EtlOrchestratorService {
               floorPosition: (asEnum(f.floorPosition, FloorPosition) as FloorPosition) ?? FloorPosition.GROUND_FLOOR,
               usageFactor: (asEnum(f.usageFactor, UsageFactor) as UsageFactor) ?? UsageFactor.RESIDENTIAL,
               usageType: asEnum(f.usageType, UsageType),
-              constructionType: asEnum(f.constructionType, ConstructionType),
+              constructionType:
+                (asEnum(f.constructionType, ConstructionType) as ConstructionType) ??
+                ConstructionType.PAKKA_BUILDING_WITH_RCC_ROOF,
               occupancy: f.occupancy,
               areaSqFt: f.areaSqFt,
               position: f.position,

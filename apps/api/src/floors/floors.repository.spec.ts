@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, jest } from "@jest/globals"
 import { BadRequestException } from "@nestjs/common"
-import { FloorPosition, UsageFactor } from "@workspace/database"
+import { ConstructionType, FloorPosition, UsageFactor } from "@workspace/database"
 import { FloorsRepository } from "./floors.repository.js"
 
 describe("FloorsRepository mixed-use floors", () => {
@@ -62,21 +62,74 @@ describe("FloorsRepository mixed-use floors", () => {
       repo.create({
         surveyId: "s1",
         floorPosition: FloorPosition.GROUND_FLOOR,
+        constructionType: ConstructionType.PAKKA_BUILDING_WITH_RCC_ROOF,
         areaSqFt: 100,
       } as never)
     ).rejects.toThrow(BadRequestException)
   })
 
-  it("throws on duplicate floor position + usage factor", async () => {
-    findFirst.mockResolvedValue({ id: "existing" })
+  it("throws when construction type is missing", async () => {
     await expect(
       repo.create({
         surveyId: "s1",
         floorPosition: FloorPosition.GROUND_FLOOR,
         usageFactor: UsageFactor.RESIDENTIAL,
         areaSqFt: 100,
+      } as never)
+    ).rejects.toThrow(/Construction type is required/)
+  })
+
+  it("throws on duplicate floor position + usage factor + construction type", async () => {
+    findFirst.mockResolvedValue({ id: "existing" })
+    await expect(
+      repo.create({
+        surveyId: "s1",
+        floorPosition: FloorPosition.GROUND_FLOOR,
+        usageFactor: UsageFactor.RESIDENTIAL,
+        constructionType: ConstructionType.TIN_SHED,
+        areaSqFt: 100,
       })
-    ).rejects.toThrow(/Duplicate floor usage/)
+    ).rejects.toThrow(/Duplicate floor usage: GROUND_FLOOR \+ RESIDENTIAL \+ TIN_SHED/)
+  })
+
+  it("allows same floor + same usage with different construction (Residential Pakka + Tin Shed)", async () => {
+    findFirst.mockResolvedValue(null)
+    mockSuccessfulCreateTx(
+      {
+        id: "f-tin",
+        surveyId: "s1",
+        floorPosition: FloorPosition.GROUND_FLOOR,
+        usageFactor: UsageFactor.RESIDENTIAL,
+        constructionType: ConstructionType.TIN_SHED,
+        areaSqFt: 400,
+      },
+      [
+        {
+          floorPosition: FloorPosition.GROUND_FLOOR,
+          areaSqFt: 600,
+          usageFactor: UsageFactor.RESIDENTIAL,
+          constructionType: ConstructionType.PAKKA_BUILDING_WITH_RCC_ROOF,
+        },
+      ]
+    )
+
+    const result = await repo.create({
+      surveyId: "s1",
+      floorPosition: FloorPosition.GROUND_FLOOR,
+      usageFactor: UsageFactor.RESIDENTIAL,
+      constructionType: ConstructionType.TIN_SHED,
+      areaSqFt: 400,
+    })
+    expect(result.id).toBe("f-tin")
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          floorPosition: FloorPosition.GROUND_FLOOR,
+          usageFactor: UsageFactor.RESIDENTIAL,
+          constructionType: ConstructionType.TIN_SHED,
+        }),
+      })
+    )
   })
 
   it("allows same floor position with a different usage factor within plot", async () => {
@@ -87,15 +140,24 @@ describe("FloorsRepository mixed-use floors", () => {
         surveyId: "s1",
         floorPosition: FloorPosition.GROUND_FLOOR,
         usageFactor: UsageFactor.COMMERCIAL,
+        constructionType: ConstructionType.PAKKA_BUILDING_WITH_RCC_ROOF,
         areaSqFt: 300,
       },
-      [{ floorPosition: FloorPosition.GROUND_FLOOR, areaSqFt: 300, usageFactor: UsageFactor.RESIDENTIAL }]
+      [
+        {
+          floorPosition: FloorPosition.GROUND_FLOOR,
+          areaSqFt: 300,
+          usageFactor: UsageFactor.RESIDENTIAL,
+          constructionType: ConstructionType.PAKKA_BUILDING_WITH_RCC_ROOF,
+        },
+      ]
     )
 
     const result = await repo.create({
       surveyId: "s1",
       floorPosition: FloorPosition.GROUND_FLOOR,
       usageFactor: UsageFactor.COMMERCIAL,
+      constructionType: ConstructionType.PAKKA_BUILDING_WITH_RCC_ROOF,
       areaSqFt: 300,
     })
     expect(result.id).toBe("f2")
@@ -110,7 +172,12 @@ describe("FloorsRepository mixed-use floors", () => {
         survey: { findUnique: typeof surveyFindUnique; update: typeof surveyUpdate }
       }) => Promise<unknown>
       findMany.mockResolvedValue([
-        { floorPosition: FloorPosition.GROUND_FLOOR, areaSqFt: 300, usageFactor: UsageFactor.RESIDENTIAL },
+        {
+          floorPosition: FloorPosition.GROUND_FLOOR,
+          areaSqFt: 300,
+          usageFactor: UsageFactor.RESIDENTIAL,
+          constructionType: ConstructionType.PAKKA_BUILDING_WITH_RCC_ROOF,
+        },
       ] as never)
       return run({
         floor: { create, findMany },
@@ -123,6 +190,7 @@ describe("FloorsRepository mixed-use floors", () => {
         surveyId: "s1",
         floorPosition: FloorPosition.GROUND_FLOOR,
         usageFactor: UsageFactor.COMMERCIAL,
+        constructionType: ConstructionType.PAKKA_BUILDING_WITH_RCC_ROOF,
         areaSqFt: 350,
       })
     ).rejects.toThrow(/Total area on this floor exceeds plot area/)
@@ -137,6 +205,7 @@ describe("FloorsRepository mixed-use floors", () => {
         surveyId: "s1",
         floorPosition: FloorPosition.SIXTH_FLOOR,
         usageFactor: UsageFactor.RESIDENTIAL,
+        constructionType: ConstructionType.PAKKA_BUILDING_WITH_RCC_ROOF,
         areaSqFt: 750,
       },
       [
@@ -153,6 +222,7 @@ describe("FloorsRepository mixed-use floors", () => {
       surveyId: "s1",
       floorPosition: FloorPosition.SIXTH_FLOOR,
       usageFactor: UsageFactor.RESIDENTIAL,
+      constructionType: ConstructionType.PAKKA_BUILDING_WITH_RCC_ROOF,
       areaSqFt: 750,
     })
     expect(result.id).toBe("f6")
@@ -177,6 +247,7 @@ describe("FloorsRepository mixed-use floors", () => {
         surveyId: "s1",
         floorPosition: FloorPosition.GROUND_FLOOR,
         usageFactor: UsageFactor.RESIDENTIAL,
+        constructionType: ConstructionType.PAKKA_BUILDING_WITH_RCC_ROOF,
         areaSqFt: 100,
       })
     ).rejects.toThrow(/OPEN_LAND/)
@@ -191,6 +262,7 @@ describe("FloorsRepository mixed-use floors", () => {
         surveyId: "s1",
         floorPosition: FloorPosition.GROUND_FLOOR,
         usageFactor: UsageFactor.RESIDENTIAL,
+        constructionType: ConstructionType.PAKKA_BUILDING_WITH_RCC_ROOF,
         areaSqFt: 600,
       },
       [{ floorPosition: FloorPosition.OPEN_LAND, areaSqFt: 600, usageFactor: UsageFactor.OPEN_LAND }]
@@ -200,6 +272,7 @@ describe("FloorsRepository mixed-use floors", () => {
       surveyId: "s1",
       floorPosition: FloorPosition.GROUND_FLOOR,
       usageFactor: UsageFactor.RESIDENTIAL,
+      constructionType: ConstructionType.PAKKA_BUILDING_WITH_RCC_ROOF,
       areaSqFt: 600,
     })
     expect(result.id).toBe("f4")
@@ -213,6 +286,7 @@ describe("FloorsRepository mixed-use floors", () => {
       surveyId: "s1",
       floorPosition: FloorPosition.GROUND_FLOOR,
       usageFactor: UsageFactor.RESIDENTIAL,
+      constructionType: ConstructionType.PAKKA_BUILDING_WITH_RCC_ROOF,
       areaSqFt: 5000,
     })
 
@@ -220,6 +294,7 @@ describe("FloorsRepository mixed-use floors", () => {
       surveyId: "s1",
       floorPosition: FloorPosition.GROUND_FLOOR,
       usageFactor: UsageFactor.RESIDENTIAL,
+      constructionType: ConstructionType.PAKKA_BUILDING_WITH_RCC_ROOF,
       areaSqFt: 5000,
     })
     expect(result.id).toBe("f3")
@@ -227,15 +302,19 @@ describe("FloorsRepository mixed-use floors", () => {
 
   it("maps Prisma P2002 unique conflicts to BadRequestException", async () => {
     findFirst.mockResolvedValue(null)
-    transaction.mockRejectedValue({ code: "P2002", meta: { target: ["surveyId", "floorPosition", "usageFactor"] } })
+    transaction.mockRejectedValue({
+      code: "P2002",
+      meta: { target: ["surveyId", "floorPosition", "usageFactor", "constructionType"] },
+    })
 
     await expect(
       repo.create({
         surveyId: "s1",
         floorPosition: FloorPosition.GROUND_FLOOR,
         usageFactor: UsageFactor.RESIDENTIAL,
+        constructionType: ConstructionType.PAKKA_BUILDING_WITH_RCC_ROOF,
         areaSqFt: 100,
       })
-    ).rejects.toThrow(/Duplicate floor usage: GROUND_FLOOR \+ RESIDENTIAL/)
+    ).rejects.toThrow(/Duplicate floor usage: GROUND_FLOOR \+ RESIDENTIAL \+ PAKKA_BUILDING_WITH_RCC_ROOF/)
   })
 })

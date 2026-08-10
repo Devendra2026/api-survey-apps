@@ -63,10 +63,9 @@ export class QcFloorInputDto {
   @IsEnum(UsageFactor)
   usageFactor!: UsageFactor
 
-  @ApiPropertyOptional({ enum: ConstructionType })
-  @IsOptional()
+  @ApiProperty({ enum: ConstructionType })
   @IsEnum(ConstructionType)
-  constructionType?: ConstructionType
+  constructionType!: ConstructionType
 
   @ApiPropertyOptional()
   @IsOptional()

@@ -172,6 +172,48 @@ describe("transformSurveyBundle", () => {
       expect(result.survey.surveyStatus).toBe("DRAFT")
     }
   })
+
+  it("keeps Residential Pakka and Tin Shed as separate ground-floor segments", () => {
+    const result = transformSurveyBundle(
+      fixtureBundle({
+        floors: [
+          {
+            _id: "floor1",
+            clientFloorId: "flr_1",
+            position: 0,
+            floorName: "ground_floor",
+            usageFactor: "residential",
+            usageType: "self_occupied",
+            constructionType: "pakka_building_with_rcc_roof",
+            isOccupied: true,
+            areaSqft: 600,
+          },
+          {
+            _id: "floor2",
+            clientFloorId: "flr_2",
+            position: 1,
+            floorName: "ground_floor",
+            usageFactor: "residential",
+            usageType: "self_occupied",
+            constructionType: "tin_shed",
+            isOccupied: true,
+            areaSqft: 400,
+          },
+        ],
+      }),
+      ctx
+    )
+    expect(result.ok).toBe(true)
+    if (result.ok && "survey" in result && result.survey) {
+      expect(result.survey.floors).toHaveLength(2)
+      expect(result.survey.floors.map((f) => f.constructionType).sort()).toEqual([
+        "PAKKA_BUILDING_WITH_RCC_ROOF",
+        "TIN_SHED",
+      ])
+      expect(result.survey.floors.every((f) => f.floorPosition === "GROUND_FLOOR")).toBe(true)
+      expect(result.survey.floors.every((f) => f.usageFactor === "RESIDENTIAL")).toBe(true)
+    }
+  })
 })
 
 describe("validateImageBuffer", () => {

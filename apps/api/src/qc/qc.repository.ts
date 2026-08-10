@@ -902,6 +902,9 @@ export class QcRepository {
   }
 
   private async syncFloors(tx: Prisma.TransactionClient, surveyId: string, floors: QcFloorInputDto[]) {
+    // Fail fast if the patch itself repeats the unique 4-key (e.g. null→default coercion).
+    this.assertNoDuplicateFloorKeysInPayload(floors)
+
     const keptIds: string[] = []
     let position = 0
     for (const floor of floors) {
@@ -916,6 +919,21 @@ export class QcRepository {
         ...(keptIds.length > 0 ? { id: { notIn: keptIds } } : {}),
       },
     })
+  }
+
+  /** Reject payloads that would violate (surveyId, floorPosition, usageFactor, constructionType). */
+  private assertNoDuplicateFloorKeysInPayload(floors: QcFloorInputDto[]) {
+    const seen = new Set<string>()
+    for (const floor of floors) {
+      if (!floor.usageFactor || !floor.constructionType) continue
+      const key = `${floor.floorPosition}::${floor.usageFactor}::${floor.constructionType}`
+      if (seen.has(key)) {
+        throw new BadRequestException(
+          `Duplicate floor usage: ${floor.floorPosition} + ${floor.usageFactor} + ${floor.constructionType} already exists on this survey`
+        )
+      }
+      seen.add(key)
+    }
   }
 
   private async syncCoOwners(tx: Prisma.TransactionClient, surveyId: string, coOwners: QcCoOwnerInputDto[]) {
@@ -964,11 +982,14 @@ export class QcRepository {
     if (!floor.usageFactor) {
       throw new BadRequestException("Floor usage factor is required")
     }
+    if (!floor.constructionType) {
+      throw new BadRequestException("Floor construction type is required")
+    }
 
     const data = {
       usageType: floor.usageType ?? null,
       usageFactor: floor.usageFactor,
-      constructionType: floor.constructionType ?? null,
+      constructionType: floor.constructionType,
       areaSqFt: floor.areaSqFt ?? null,
       position,
     }
@@ -976,6 +997,26 @@ export class QcRepository {
     if (floor.id) {
       const existing = await tx.floor.findFirst({ where: { id: floor.id, surveyId } })
       if (existing) {
+        const keyChanged =
+          existing.floorPosition !== floor.floorPosition ||
+          existing.usageFactor !== floor.usageFactor ||
+          existing.constructionType !== floor.constructionType
+        if (keyChanged) {
+          const dup = await tx.floor.findFirst({
+            where: {
+              surveyId,
+              floorPosition: floor.floorPosition,
+              usageFactor: floor.usageFactor,
+              constructionType: floor.constructionType,
+              NOT: { id: floor.id },
+            },
+          })
+          if (dup) {
+            throw new BadRequestException(
+              `Duplicate floor usage: ${floor.floorPosition} + ${floor.usageFactor} + ${floor.constructionType} already exists on this survey`
+            )
+          }
+        }
         await tx.floor.update({
           where: { id: floor.id },
           data: {
@@ -987,21 +1028,31 @@ export class QcRepository {
       }
     }
 
-    const upserted = await tx.floor.upsert({
-      where: {
-        surveyId_floorPosition_usageFactor: {
+    try {
+      const upserted = await tx.floor.upsert({
+        where: {
+          surveyId_floorPosition_usageFactor_constructionType: {
+            surveyId,
+            floorPosition: floor.floorPosition,
+            usageFactor: floor.usageFactor,
+            constructionType: floor.constructionType,
+          },
+        },
+        create: {
           surveyId,
           floorPosition: floor.floorPosition,
-          usageFactor: floor.usageFactor,
+          ...data,
         },
-      },
-      create: {
-        surveyId,
-        floorPosition: floor.floorPosition,
-        ...data,
-      },
-      update: data,
-    })
-    return upserted.id
+        update: data,
+      })
+      return upserted.id
+    } catch (error) {
+      if (isPrismaUniqueConflict(error)) {
+        throw new BadRequestException(
+          `Duplicate floor usage: ${floor.floorPosition} + ${floor.usageFactor} + ${floor.constructionType} already exists on this survey`
+        )
+      }
+      throw error
+    }
   }
 }

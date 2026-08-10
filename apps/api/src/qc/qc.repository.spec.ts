@@ -54,7 +54,7 @@ describe("QcRepository.qcCorrectSurvey", () => {
         floorPosition: "GROUND_FLOOR",
         usageType: null,
         usageFactor: null,
-        constructionType: null,
+        constructionType: "PAKKA_BUILDING_WITH_RCC_ROOF",
         areaSqFt: 100,
         position: 0,
       },
@@ -184,7 +184,14 @@ describe("QcRepository.qcCorrectSurvey", () => {
       surveyId,
       {
         coOwners: [{ name: "Co Owner", mobile: "9876543210" }],
-        floors: [{ floorPosition: "GROUND_FLOOR", usageFactor: "RESIDENTIAL", areaSqFt: 120 }],
+        floors: [
+          {
+            floorPosition: "GROUND_FLOOR",
+            usageFactor: "RESIDENTIAL",
+            constructionType: "PAKKA_BUILDING_WITH_RCC_ROOF",
+            areaSqFt: 120,
+          },
+        ],
       },
       "user-1"
     )
@@ -242,8 +249,18 @@ describe("QcRepository.qcCorrectSurvey", () => {
       surveyId,
       {
         floors: [
-          { floorPosition: "GROUND_FLOOR", usageFactor: "RESIDENTIAL", areaSqFt: 80 },
-          { floorPosition: "FIRST_FLOOR", usageFactor: "COMMERCIAL", areaSqFt: 40 },
+          {
+            floorPosition: "GROUND_FLOOR",
+            usageFactor: "RESIDENTIAL",
+            constructionType: "PAKKA_BUILDING_WITH_RCC_ROOF",
+            areaSqFt: 80,
+          },
+          {
+            floorPosition: "FIRST_FLOOR",
+            usageFactor: "COMMERCIAL",
+            constructionType: "TIN_SHED",
+            areaSqFt: 40,
+          },
         ],
         coOwners: [{ name: "Co Owner" }],
       },
@@ -255,6 +272,37 @@ describe("QcRepository.qcCorrectSurvey", () => {
         data: expect.objectContaining({ totalBuiltAreaSqFt: 120 }),
       })
     )
+  })
+
+  it("rejects QC floor patches that repeat the same position+usage+construction key", async () => {
+    const { repo, tx } = makeRepo()
+    await expect(
+      repo.qcCorrectSurvey(
+        surveyId,
+        {
+          floors: [
+            {
+              id: "f1",
+              floorPosition: "GROUND_FLOOR",
+              usageFactor: "RESIDENTIAL",
+              constructionType: "PAKKA_BUILDING_WITH_RCC_ROOF",
+              areaSqFt: 80,
+            },
+            {
+              id: "f2",
+              floorPosition: "GROUND_FLOOR",
+              usageFactor: "RESIDENTIAL",
+              constructionType: "PAKKA_BUILDING_WITH_RCC_ROOF",
+              areaSqFt: 40,
+            },
+          ],
+          coOwners: [{ name: "Co Owner" }],
+        },
+        "user-1"
+      )
+    ).rejects.toThrow(/Duplicate floor usage: GROUND_FLOOR \+ RESIDENTIAL \+ PAKKA_BUILDING_WITH_RCC_ROOF/)
+    expect(tx.floor.update).not.toHaveBeenCalled()
+    expect(tx.floor.upsert).not.toHaveBeenCalled()
   })
 
   it("rewrites propertyId when parcelNumber changes", async () => {

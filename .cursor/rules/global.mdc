@@ -1,0 +1,59 @@
+---
+description: Monorepo structure, stack, workspace boundaries, and universal TypeScript rules
+alwaysApply: true
+---
+
+# api-survey-apps — global
+
+## Stack & layout
+
+Turborepo + pnpm workspaces (`apps/*`, `packages/*`). Node `>=24`, `pnpm@11`, all apps/packages use `"type": "module"`.
+
+| App                      | Role                                            | Port |
+| ------------------------ | ----------------------------------------------- | ---- |
+| `apps/web` (`web`)       | Next.js 16 admin UI + Clerk                     | 3000 |
+| `apps/api` (`api`)       | NestJS HTTP API, BullMQ producers               | 4000 |
+| `apps/worker` (`worker`) | NestJS BullMQ consumers (ETL, imports, exports) | 4001 |
+
+| Package                        | Use for                                              |
+| ------------------------------ | ---------------------------------------------------- |
+| `@workspace/database`          | Prisma client, enums, RBAC/seed helpers              |
+| `@workspace/validation`        | Shared Zod / domain validators                       |
+| `@workspace/ui`                | shadcn/Radix components + `globals.css`              |
+| `@workspace/jobs`              | BullMQ queue/job name constants + payload types      |
+| `@workspace/etl-core`          | Convex→Nest survey ETL (pure transform logic)        |
+| `@workspace/excel-reports`     | ExcelJS workbook builders/parsers                    |
+| `@workspace/typescript-config` | Shared TSConfigs (`base`, `nextjs`, `react-library`) |
+| `@workspace/eslint-config`     | Shared ESLint (`base`, `next-js`, `react-internal`)  |
+
+Root scripts orchestrate via Turbo (`pnpm dev` = api+web+worker). Env lives at **repo root** (`.env.local` → `.env.{NODE_ENV}` → `.env`), not per-app.
+
+## Workspace boundaries
+
+- Prefer `@workspace/*` over duplicating Zod schemas, queue names, Prisma types, or UI primitives inside apps.
+- Domain HTTP lives in `apps/api`; background work in `apps/worker`; UI in `apps/web`.
+- Schema/migrations only in `packages/database/prisma/`. Import via `@workspace/database` — never reach into `src/generated` from apps.
+- Queue contracts only in `@workspace/jobs` — never invent string queue/job names in api/worker.
+- Do not put Nest controllers in worker or Prisma repositories in web.
+
+## TypeScript (universal)
+
+- `strict: true` and `noUncheckedIndexedAccess: true` (from `@workspace/typescript-config/base.json`).
+- Packages/base: `module`/`moduleResolution` = `NodeNext`. Web extends `nextjs.json` (`Bundler`). Nest apps use **local** tsconfigs with decorators (there is no `nestjs.json`).
+- No `any`. Prefer `unknown` + narrowing. Exhaustive `switch` with `never` default for unions/enums.
+- Nest/api/worker relative imports use **`.js` extensions** (ESM). Web uses `@/` path alias.
+- Colocate unit tests as `*.spec.ts` next to source.
+
+## Commands
+
+```bash
+pnpm dev                 # api + web + worker
+pnpm build && pnpm test && pnpm typecheck && pnpm lint
+pnpm db:generate         # Prisma client
+pnpm db:migrate          # migrate via @workspace/database
+```
+
+## Agent notes
+
+- Next.js 16 differs from older docs — read `node_modules/next/dist/docs/` and root `AGENTS.md` before changing web.
+- Product RBAC is Nest permissions (`survey:view`, etc.), not Clerk roles. Clerk only authenticates.

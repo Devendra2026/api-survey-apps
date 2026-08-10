@@ -709,7 +709,10 @@ export class ImportsService {
               if (!positionRaw || !isFloorPosition(positionRaw)) continue
               const usageFactor = asEnum(mapUsageFactor(floorRow["Usage Factor"]), isUsageFactor)
               if (!usageFactor) continue
-              const floorKey = `${positionRaw}::${usageFactor}`
+              const constructionType =
+                asEnum(mapConstructionType(floorRow["Construction Type"]), isConstructionType) ??
+                ConstructionType.PAKKA_BUILDING_WITH_RCC_ROOF
+              const floorKey = `${positionRaw}::${usageFactor}::${constructionType}`
               if (seenFloorKeys.has(floorKey)) continue
               seenFloorKeys.add(floorKey)
               await tx.floor.create({
@@ -719,7 +722,7 @@ export class ImportsService {
                   floorPosition: positionRaw,
                   usageFactor,
                   usageType: asEnum(mapUsageType(floorRow["Usage Type"]), isUsageType),
-                  constructionType: asEnum(mapConstructionType(floorRow["Construction Type"]), isConstructionType),
+                  constructionType,
                   occupancy: emptyToUndefined(floorRow.Occupancy),
                   areaSqFt: parseNumber(floorRow["Area (Sqft)"]),
                   position: parseNumber(floorRow.Position) ?? 0,

@@ -16,9 +16,9 @@ import { warningsFromSurveyRow, type FloorUsageWarning } from "./floor-usage-war
 
 const AREA_TOLERANCE_SQ_FT = 0.01
 
-/** Hard-fail message for duplicate (surveyId, floorPosition, usageFactor). Same floor + different usage is allowed. */
-function duplicateFloorUsageMessage(floorPosition: string, usageFactor: string): string {
-  return `Duplicate floor usage: ${floorPosition} + ${usageFactor} already exists on this survey`
+/** Hard-fail message for duplicate (surveyId, floorPosition, usageFactor, constructionType). */
+function duplicateFloorUsageMessage(floorPosition: string, usageFactor: string, constructionType: string): string {
+  return `Duplicate floor usage: ${floorPosition} + ${usageFactor} + ${constructionType} already exists on this survey`
 }
 
 function toAreaNumber(value: unknown): number {
@@ -110,20 +110,26 @@ export class FloorsRepository {
     if (!data.usageFactor) {
       throw new BadRequestException("Usage factor is required")
     }
+    if (!data.constructionType) {
+      throw new BadRequestException("Construction type is required")
+    }
     const dup = await this.prisma.db.floor.findFirst({
       where: {
         surveyId: data.surveyId,
         floorPosition: data.floorPosition,
         usageFactor: data.usageFactor,
+        constructionType: data.constructionType,
       },
     })
     if (dup) {
-      throw new BadRequestException(duplicateFloorUsageMessage(data.floorPosition, data.usageFactor))
+      throw new BadRequestException(
+        duplicateFloorUsageMessage(data.floorPosition, data.usageFactor, data.constructionType)
+      )
     }
 
     try {
       return await this.prisma.db.$transaction(async (tx) => {
-        // Approach B: one Floor row per (floorPosition, usageFactor); siblings share floorPosition.
+        // One Floor row per (floorPosition, usageFactor, constructionType); siblings share floorPosition.
         await this.assertAreasWithinPlot(tx, {
           surveyId: data.surveyId,
           floorPosition: data.floorPosition,
@@ -148,7 +154,9 @@ export class FloorsRepository {
     } catch (error) {
       if (error instanceof BadRequestException || error instanceof NotFoundException) throw error
       if (isPrismaUniqueConflict(error)) {
-        throw new BadRequestException(duplicateFloorUsageMessage(data.floorPosition, data.usageFactor))
+        throw new BadRequestException(
+          duplicateFloorUsageMessage(data.floorPosition, data.usageFactor, data.constructionType)
+        )
       }
       throw error
     }
@@ -158,22 +166,25 @@ export class FloorsRepository {
     const existing = await this.findById(id)
     const nextPosition = data.floorPosition ?? existing.floorPosition
     const nextUsage = data.usageFactor ?? existing.usageFactor
+    const nextConstruction = data.constructionType ?? existing.constructionType
     const nextArea = data.areaSqFt !== undefined ? toAreaNumber(data.areaSqFt) : toAreaNumber(existing.areaSqFt)
 
     if (
       (data.floorPosition && data.floorPosition !== existing.floorPosition) ||
-      (data.usageFactor && data.usageFactor !== existing.usageFactor)
+      (data.usageFactor && data.usageFactor !== existing.usageFactor) ||
+      (data.constructionType && data.constructionType !== existing.constructionType)
     ) {
       const dup = await this.prisma.db.floor.findFirst({
         where: {
           surveyId: existing.surveyId,
           floorPosition: nextPosition,
           usageFactor: nextUsage,
+          constructionType: nextConstruction,
           NOT: { id },
         },
       })
       if (dup) {
-        throw new BadRequestException(duplicateFloorUsageMessage(nextPosition, nextUsage))
+        throw new BadRequestException(duplicateFloorUsageMessage(nextPosition, nextUsage, nextConstruction))
       }
     }
 
@@ -204,7 +215,7 @@ export class FloorsRepository {
     } catch (error) {
       if (error instanceof BadRequestException || error instanceof NotFoundException) throw error
       if (isPrismaUniqueConflict(error)) {
-        throw new BadRequestException(duplicateFloorUsageMessage(nextPosition, nextUsage))
+        throw new BadRequestException(duplicateFloorUsageMessage(nextPosition, nextUsage, nextConstruction))
       }
       throw error
     }

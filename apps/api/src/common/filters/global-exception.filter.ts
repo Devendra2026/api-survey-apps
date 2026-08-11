@@ -60,9 +60,14 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         message =
           "Database is missing MigrationJobType.REFRESH_PENDING. Redeploy migrate (`prisma migrate deploy`), then retry."
         this.logger.error(`Missing REFRESH_PENDING enum ${request.method} ${request.url}: ${raw.slice(0, 400)}`)
-      } else if (/prisma\./i.test(raw)) {
+      } else if (/prisma\./i.test(raw) || /\bP20\d{2}\b/.test(raw)) {
         status = HttpStatus.INTERNAL_SERVER_ERROR
-        message = "A database operation failed. Check API logs for details."
+        if (/column .* does not exist|P2022/i.test(raw)) {
+          message =
+            "Database schema is behind the API. Run `prisma migrate deploy` (survey_audits legacy fields), then retry."
+        } else {
+          message = "A database operation failed. Check API logs for details."
+        }
         this.logger.error(`Prisma error ${request.method} ${request.url}: ${raw.slice(0, 400)}`, exception.stack)
       } else {
         message = raw

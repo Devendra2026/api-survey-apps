@@ -5,6 +5,7 @@ import { getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.
 import { parcelNumberVariants } from "../common/utils/parcel-search.util.js"
 import { buildTenantWhere, resolveTenantScope } from "../common/utils/tenant-scope.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
+import { createSurveyAuditRow } from "../surveys/survey-audit-write.js"
 import type { SurveyRegistryQueryDto } from "./dto/survey-registry.dto.js"
 
 const EDITABLE: SurveyStatus[] = ["DRAFT", "IN_PROGRESS", "REOPENED"]
@@ -306,14 +307,12 @@ export class SurveyRegistryRepository {
             assignedAt: new Date(),
           },
         })
-        await tx.surveyAudit.create({
-          data: {
-            surveyId: draft.id,
-            action: "SURVEY_ASSIGNED",
-            changedBy: user.id,
-            oldValue: { assignedToId: draft.assignedToId ?? draft.createdById },
-            newValue: { assignedToId: params.toSurveyorId, reason: "registry_reassign_drafts" },
-          },
+        await createSurveyAuditRow(tx, {
+          surveyId: draft.id,
+          action: "SURVEY_ASSIGNED",
+          changedBy: user.id,
+          oldValue: { assignedToId: draft.assignedToId ?? draft.createdById },
+          newValue: { assignedToId: params.toSurveyorId, reason: "registry_reassign_drafts" },
         })
       })
       transferred += 1

@@ -6,6 +6,7 @@ import { allocateTempPropertyId, findActiveSurveyIdentityConflict } from "../com
 import { buildTenantWhere, canAccessTenant, resolveTenantScope } from "../common/utils/tenant-scope.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import type { CreateSurveyDto, SurveyQueryDto, UpdateSurveyDto } from "./dto/survey.dto.js"
+import { createSurveyAuditRow } from "./survey-audit-write.js"
 
 const surveyInclude = {
   floors: { orderBy: { position: "asc" as const } },
@@ -268,13 +269,11 @@ export class SurveysRepository {
         },
         include: surveyInclude,
       })
-      await tx.surveyAudit.create({
-        data: {
-          surveyId: survey.id,
-          action: "CREATED",
-          newValue: { surveyStatus: "DRAFT", propertyId: survey.propertyId },
-          changedBy,
-        },
+      await createSurveyAuditRow(tx, {
+        surveyId: survey.id,
+        action: "CREATED",
+        newValue: { surveyStatus: "DRAFT", propertyId: survey.propertyId },
+        changedBy,
       })
       return survey
     })
@@ -298,14 +297,12 @@ export class SurveysRepository {
         where: { id },
         data: { deletedAt: new Date() },
       })
-      await tx.surveyAudit.create({
-        data: {
-          surveyId: id,
-          action: "DELETED",
-          oldValue: { deletedAt: null },
-          newValue: { deletedAt: survey.deletedAt },
-          changedBy,
-        },
+      await createSurveyAuditRow(tx, {
+        surveyId: id,
+        action: "DELETED",
+        oldValue: { deletedAt: null },
+        newValue: { deletedAt: survey.deletedAt },
+        changedBy,
       })
       return survey
     })
@@ -346,22 +343,20 @@ export class SurveysRepository {
         data: restoreData,
         include: surveyInclude,
       })
-      await tx.surveyAudit.create({
-        data: {
-          surveyId: id,
-          action: "RESTORED",
-          oldValue: {
-            deletedAt: existing.deletedAt,
-            propertyId: existing.propertyId,
-          },
-          newValue: {
-            deletedAt: null,
-            propertyId: survey.propertyId,
-            rekeyed: rekeyedPropertyId != null,
-            previousPropertyId: rekeyedPropertyId != null ? existing.propertyId : undefined,
-          },
-          changedBy: user.id,
+      await createSurveyAuditRow(tx, {
+        surveyId: id,
+        action: "RESTORED",
+        oldValue: {
+          deletedAt: existing.deletedAt,
+          propertyId: existing.propertyId,
         },
+        newValue: {
+          deletedAt: null,
+          propertyId: survey.propertyId,
+          rekeyed: rekeyedPropertyId != null,
+          previousPropertyId: rekeyedPropertyId != null ? existing.propertyId : undefined,
+        },
+        changedBy: user.id,
       })
       return survey
     })
@@ -397,14 +392,12 @@ export class SurveysRepository {
         include: surveyInclude,
       })
 
-      await tx.surveyAudit.create({
-        data: {
-          surveyId: params.id,
-          action: params.action,
-          oldValue: { surveyStatus: params.from },
-          newValue: params.auditNew ?? { surveyStatus: params.to },
-          changedBy: params.changedBy,
-        },
+      await createSurveyAuditRow(tx, {
+        surveyId: params.id,
+        action: params.action,
+        oldValue: { surveyStatus: params.from },
+        newValue: params.auditNew ?? { surveyStatus: params.to },
+        changedBy: params.changedBy,
       })
 
       return { current: survey, survey }
@@ -439,14 +432,12 @@ export class SurveysRepository {
         include: surveyInclude,
       })
 
-      await tx.surveyAudit.create({
-        data: {
-          surveyId: params.id,
-          action: "SURVEY_ASSIGNED",
-          oldValue: { assignedToId: params.previousAssigneeId },
-          newValue: { assignedToId: params.assigneeId },
-          changedBy: params.changedBy,
-        },
+      await createSurveyAuditRow(tx, {
+        surveyId: params.id,
+        action: "SURVEY_ASSIGNED",
+        oldValue: { assignedToId: params.previousAssigneeId },
+        newValue: { assignedToId: params.assigneeId },
+        changedBy: params.changedBy,
       })
 
       return survey

@@ -23,6 +23,7 @@ import {
 import { buildTenantWhere, resolveTenantScope } from "../common/utils/tenant-scope.util.js"
 import { resolveWardIdAliases } from "../common/utils/ward-survey-alias.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
+import { createSurveyAuditRow } from "../surveys/survey-audit-write.js"
 import type { QcFiltersDto } from "./dto/qc-filters.dto.js"
 import type { QcRegistryQueryDto } from "./dto/qc-registry.dto.js"
 import type { QcCoOwnerInputDto, QcFloorInputDto, QcSurveyCorrectionDto } from "./dto/qc-survey-action.dto.js"
@@ -503,14 +504,12 @@ export class QcRepository {
         where: { id },
         data: { deletedAt: new Date() },
       })
-      await tx.surveyAudit.create({
-        data: {
-          surveyId: id,
-          action: "DELETED",
-          oldValue: { deletedAt: null, surveyStatus: existing.surveyStatus },
-          newValue: { deletedAt: survey.deletedAt },
-          changedBy,
-        },
+      await createSurveyAuditRow(tx, {
+        surveyId: id,
+        action: "DELETED",
+        oldValue: { deletedAt: null, surveyStatus: existing.surveyStatus },
+        newValue: { deletedAt: survey.deletedAt },
+        changedBy,
       })
       return survey
     })
@@ -813,31 +812,29 @@ export class QcRepository {
               wardNumber: existing.wardNumber,
             },
           })
-          await tx.surveyAudit.create({
-            data: {
-              surveyId: swapPeer.id,
-              action: "survey.qc_identity_swapped",
-              oldValue: {
-                propertyId: swapPeer.propertyId,
-                parcelNumber: swapPeer.parcelNumber,
-                unitSubNo: swapPeer.unitSubNo,
-                propertyUse: swapPeer.propertyUse,
-                ulbId: swapPeer.ulbId,
-                wardId: swapPeer.wardId,
-                assessmentYear: swapPeer.assessmentYear,
-              },
-              newValue: {
-                propertyId: existing.propertyId,
-                parcelNumber: existing.parcelNumber,
-                unitSubNo: existing.unitSubNo,
-                propertyUse: existing.propertyUse,
-                ulbId: existing.ulbId,
-                wardId: existing.wardId,
-                assessmentYear: existing.assessmentYear,
-                swappedWithSurveyId: id,
-              },
-              changedBy,
+          await createSurveyAuditRow(tx, {
+            surveyId: swapPeer.id,
+            action: "survey.qc_identity_swapped",
+            oldValue: {
+              propertyId: swapPeer.propertyId,
+              parcelNumber: swapPeer.parcelNumber,
+              unitSubNo: swapPeer.unitSubNo,
+              propertyUse: swapPeer.propertyUse,
+              ulbId: swapPeer.ulbId,
+              wardId: swapPeer.wardId,
+              assessmentYear: swapPeer.assessmentYear,
             },
+            newValue: {
+              propertyId: existing.propertyId,
+              parcelNumber: existing.parcelNumber,
+              unitSubNo: existing.unitSubNo,
+              propertyUse: existing.propertyUse,
+              ulbId: existing.ulbId,
+              wardId: existing.wardId,
+              assessmentYear: existing.assessmentYear,
+              swappedWithSurveyId: id,
+            },
+            changedBy,
           })
         }
 
@@ -871,20 +868,18 @@ export class QcRepository {
           await this.syncCoOwners(tx, id, coOwnersPatch)
         }
 
-        await tx.surveyAudit.create({
-          data: {
-            surveyId: id,
-            action: "survey.qc_corrected",
-            oldValue: oldValue,
-            newValue: {
-              propertyId: nextPropertyId,
-              patch: scalarData,
-              floors: patch.floors ?? null,
-              coOwners: coOwnersPatch ?? null,
-              swappedWithSurveyId: swapPeer?.id ?? null,
-            } as Prisma.InputJsonValue,
-            changedBy,
-          },
+        await createSurveyAuditRow(tx, {
+          surveyId: id,
+          action: "survey.qc_corrected",
+          oldValue: oldValue,
+          newValue: {
+            propertyId: nextPropertyId,
+            patch: scalarData,
+            floors: patch.floors ?? null,
+            coOwners: coOwnersPatch ?? null,
+            swappedWithSurveyId: swapPeer?.id ?? null,
+          } as Prisma.InputJsonValue,
+          changedBy,
         })
 
         return tx.survey.findFirstOrThrow({

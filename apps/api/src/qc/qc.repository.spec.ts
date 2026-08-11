@@ -113,6 +113,7 @@ describe("QcRepository.qcCorrectSurvey", () => {
         deleteMany: jest.fn().mockResolvedValue({ count: 0 } as never),
       },
       surveyAudit: { create: jest.fn().mockResolvedValue({} as never) },
+      $executeRawUnsafe: jest.fn().mockResolvedValue(1 as never),
     }
 
     const prisma = {
@@ -152,7 +153,7 @@ describe("QcRepository.qcCorrectSurvey", () => {
         "user-1"
       )
     ).resolves.toBeDefined()
-    expect(tx.surveyAudit.create).toHaveBeenCalled()
+    expect(tx.$executeRawUnsafe).toHaveBeenCalled()
   })
 
   it("allows save when parcelNumber is null without throwing", async () => {
@@ -199,7 +200,7 @@ describe("QcRepository.qcCorrectSurvey", () => {
     expect(tx.coOwner.create).toHaveBeenCalled()
     expect(tx.coOwner.deleteMany).toHaveBeenCalled()
     expect(tx.floor.deleteMany).toHaveBeenCalled()
-    expect(tx.surveyAudit.create).toHaveBeenCalled()
+    expect(tx.$executeRawUnsafe).toHaveBeenCalled()
   })
 
   it("persists expanded scalar whitelist fields", async () => {
@@ -358,10 +359,15 @@ describe("QcRepository.qcCorrectSurvey", () => {
     expect(
       updateCalls.some((c) => c[0]?.where?.id === "survey-peer" && c[0]?.data?.propertyId === existingSurvey.propertyId)
     ).toBe(true)
-    expect(tx.surveyAudit.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ action: "survey.qc_identity_swapped" }),
-      })
+    expect(tx.$executeRawUnsafe).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO "survey_audits"'),
+      expect.any(String),
+      "survey-peer",
+      "survey.qc_identity_swapped",
+      expect.any(String),
+      expect.any(String),
+      "user-1",
+      expect.any(Date)
     )
   })
 
@@ -427,11 +433,10 @@ describe("QcRepository.qcCorrectSurvey", () => {
         }),
       })
     )
-    expect(tx.surveyAudit.create).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ action: "survey.qc_identity_swapped" }),
-      })
+    const swapCalls = tx.$executeRawUnsafe.mock.calls.filter(
+      (c) => typeof c[0] === "string" && c[0].includes("survey_audits") && c[3] === "survey.qc_identity_swapped"
     )
+    expect(swapCalls).toHaveLength(0)
   })
 })
 

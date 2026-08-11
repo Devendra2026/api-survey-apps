@@ -822,6 +822,8 @@ model QcRemark {
 }
 
 /// Field-level / action audit trail for survey changes (immutable; retained).
+/// Note: DB may also have `createdAt` (migration 20260811120000) — intentionally
+/// omitted here so Prisma create/approve does not INSERT that column before migrate.
 model SurveyAudit {
   id               String   @id @default(cuid())
   surveyId         String
@@ -831,8 +833,6 @@ model SurveyAudit {
   changedBy        String
   /// Original event timestamp (Convex `_creationTime` for migrated rows).
   changedAt        DateTime @default(now())
-  /// Row insert / migration timestamp — never use this for Audit History "WHEN".
-  createdAt        DateTime @default(now())
   /// Convex `auditLogs._id` when migrated — idempotent key.
   sourceEventId    String?  @unique
   /// Historical actor label when the Nest user no longer exists / differs.

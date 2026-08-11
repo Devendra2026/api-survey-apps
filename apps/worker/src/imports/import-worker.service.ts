@@ -345,6 +345,7 @@ export class ImportWorkerService {
                     newValue: { propertyId: item.propertyId, jobId: payload.jobId },
                     changedBy: payload.createdById,
                   },
+                  select: { id: true },
                 })
               } else {
                 const createdSurvey = await tx.survey.create({ data: item.data })
@@ -363,6 +364,7 @@ export class ImportWorkerService {
                     },
                     changedBy: payload.createdById,
                   },
+                  select: { id: true },
                 })
               }
 

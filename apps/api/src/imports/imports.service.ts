@@ -65,6 +65,7 @@ import { canAccessTenant, resolveTenantScope } from "../common/utils/tenant-scop
 import { JobsService } from "../jobs/jobs.service.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import { StorageService } from "../storage/storage.service.js"
+import { createSurveyAuditRow } from "../surveys/survey-audit-write.js"
 import {
   findWorkbookDuplicates,
   groupRowsByPropertyId,
@@ -657,30 +658,26 @@ export class ImportsService {
                 data: updateFields,
               })
               surveyId = existing.id
-              await tx.surveyAudit.create({
-                data: {
-                  surveyId,
-                  action: "IMPORT_UPDATED",
-                  newValue: { propertyId: item.propertyId },
-                  changedBy: user.id,
-                },
+              await createSurveyAuditRow(tx, {
+                surveyId,
+                action: "IMPORT_UPDATED",
+                newValue: { propertyId: item.propertyId },
+                changedBy: user.id,
               })
             } else {
               const createdSurvey = await tx.survey.create({ data: item.data })
               surveyId = createdSurvey.id
               created = true
-              await tx.surveyAudit.create({
-                data: {
-                  surveyId,
-                  action: "IMPORTED",
-                  newValue: {
-                    propertyId: item.propertyId,
-                    sheetPropertyId: item.sheetPropertyId,
-                    propertyIdSource: item.propertyIdSource,
-                    occurrence: item.occurrence,
-                  },
-                  changedBy: user.id,
+              await createSurveyAuditRow(tx, {
+                surveyId,
+                action: "IMPORTED",
+                newValue: {
+                  propertyId: item.propertyId,
+                  sheetPropertyId: item.sheetPropertyId,
+                  propertyIdSource: item.propertyIdSource,
+                  occurrence: item.occurrence,
                 },
+                changedBy: user.id,
               })
             }
 

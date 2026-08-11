@@ -35,6 +35,7 @@ describe("SurveysRepository.restore", () => {
         }),
       },
       surveyAudit: { create: jest.fn().mockResolvedValue({} as never) },
+      $executeRawUnsafe: jest.fn().mockResolvedValue(1 as never),
     }
 
     const prisma = {
@@ -59,13 +60,15 @@ describe("SurveysRepository.restore", () => {
       })
     )
     expect(result.propertyId).toBe(deletedSurvey.propertyId)
-    expect(tx.surveyAudit.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          action: "RESTORED",
-          newValue: expect.objectContaining({ rekeyed: false }),
-        }),
-      })
+    expect(tx.$executeRawUnsafe).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO "survey_audits"'),
+      expect.any(String),
+      deletedSurvey.id,
+      "RESTORED",
+      expect.any(String),
+      expect.stringContaining('"rekeyed":false'),
+      user.id,
+      expect.any(Date)
     )
   })
 
@@ -83,13 +86,15 @@ describe("SurveysRepository.restore", () => {
       })
     )
     expect(result.propertyId).toMatch(/^TEMP-RESTORE-/)
-    expect(tx.surveyAudit.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          action: "RESTORED",
-          newValue: expect.objectContaining({ rekeyed: true }),
-        }),
-      })
+    expect(tx.$executeRawUnsafe).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO "survey_audits"'),
+      expect.any(String),
+      deletedSurvey.id,
+      "RESTORED",
+      expect.any(String),
+      expect.stringContaining('"rekeyed":true'),
+      user.id,
+      expect.any(Date)
     )
   })
 

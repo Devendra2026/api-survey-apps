@@ -3,6 +3,18 @@ import type { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
 import { buildOrderBy, getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 
+/** Columns that exist on production before migration 20260811120000. */
+const surveyAuditSafeSelect = {
+  id: true,
+  surveyId: true,
+  action: true,
+  oldValue: true,
+  newValue: true,
+  changedBy: true,
+  changedAt: true,
+  changer: { select: { id: true, fullName: true, email: true } },
+} as const
+
 @Injectable()
 export class SurveyAuditsRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -16,9 +28,7 @@ export class SurveyAuditsRepository {
         skip,
         take,
         orderBy: buildOrderBy(query.sortBy, query.sortOrder, ["changedAt", "action"], "changedAt"),
-        include: {
-          changer: { select: { id: true, fullName: true, email: true } },
-        },
+        select: surveyAuditSafeSelect,
       }),
       this.prisma.db.surveyAudit.count({ where }),
     ])
@@ -29,9 +39,7 @@ export class SurveyAuditsRepository {
     return this.prisma.db.surveyAudit.findMany({
       where: { surveyId },
       orderBy: { changedAt: "desc" },
-      include: {
-        changer: { select: { id: true, fullName: true, email: true } },
-      },
+      select: surveyAuditSafeSelect,
     })
   }
 }

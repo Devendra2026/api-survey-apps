@@ -121,23 +121,29 @@ function duplicateSegmentMessage(floorPosition: string, usageFactor: string, con
   return `${labelEnum(floorPosition)} + ${labelEnum(usageFactor)} + ${labelEnum(constructionType)} already exists on this survey. Edit that row instead.`
 }
 
+const OPEN_LAND_FORM = (): FloorForm => ({
+  floorPosition: "OPEN_LAND",
+  usageType: "",
+  usageFactor: "OPEN_LAND",
+  constructionType: "OPEN_LAND",
+  areaSqFt: "",
+})
+
 export function QcFloorEditor({
   surveyId,
   editMode,
   displayFloors,
   editableFloors,
   builtUpArea,
-  disabled = false,
-  disabledReason,
+  openLandPropertyUse = false,
 }: {
   surveyId: string
   editMode: boolean
   displayFloors: SurveyFloorRow[]
   editableFloors: QcSurveyFloorEditable[]
   builtUpArea: string
-  /** When true (e.g. open-land property use), hide add/edit controls. */
-  disabled?: boolean
-  disabledReason?: string
+  /** When Property Use is OPEN_LAND, only Open Land floor rows are allowed. */
+  openLandPropertyUse?: boolean
 }) {
   const floorsApi = useFloorMutations(surveyId)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -146,7 +152,12 @@ export function QcFloorEditor({
   const [fieldError, setFieldError] = useState<string | null>(null)
 
   const busy = floorsApi.create.isPending || floorsApi.update.isPending || floorsApi.remove.isPending
-  const canEdit = editMode && !disabled
+  const canEdit = editMode
+
+  const floorPositionOptions = useMemo(
+    () => (openLandPropertyUse ? (["OPEN_LAND"] as const) : FLOOR_POSITION_OPTIONS),
+    [openLandPropertyUse]
+  )
 
   const takenSegments = useMemo(
     () => usedSegments(editableFloors, form.floorPosition, editingId),
@@ -167,7 +178,13 @@ export function QcFloorEditor({
   }, [editableFloors])
 
   const startAdd = () => {
-    if (disabled) return
+    if (openLandPropertyUse) {
+      setEditingId(null)
+      setFieldError(null)
+      setAdding(true)
+      setForm(OPEN_LAND_FORM())
+      return
+    }
     const floorPosition = "GROUND_FLOOR"
     const free = nextFreeSegment(editableFloors, floorPosition)
     if (!free) {
@@ -189,6 +206,16 @@ export function QcFloorEditor({
     setAdding(false)
     setFieldError(null)
     setEditingId(floor.id)
+    // Leftover Ground Floor (etc.) on open-land plots: open the form pre-set to Open Land.
+    if (openLandPropertyUse && (floor.floorPosition !== "OPEN_LAND" || floor.usageFactor !== "OPEN_LAND")) {
+      setForm({
+        ...formFromFloor(floor),
+        floorPosition: "OPEN_LAND",
+        usageFactor: "OPEN_LAND",
+        constructionType: "OPEN_LAND",
+      })
+      return
+    }
     setForm(formFromFloor(floor))
   }
 
@@ -260,15 +287,18 @@ export function QcFloorEditor({
 
   const save = async () => {
     setFieldError(null)
-    if (!form.floorPosition) {
+    const floorPosition = openLandPropertyUse ? "OPEN_LAND" : form.floorPosition
+    const usageFactor = openLandPropertyUse ? "OPEN_LAND" : form.usageFactor
+    const constructionType = openLandPropertyUse ? "OPEN_LAND" : form.constructionType
+    if (!floorPosition) {
       toast.error("Floor position is required")
       return
     }
-    if (!form.usageFactor) {
+    if (!usageFactor) {
       toast.error("Usage factor is required")
       return
     }
-    if (!form.constructionType) {
+    if (!constructionType) {
       toast.error("Construction type is required")
       return
     }
@@ -278,20 +308,20 @@ export function QcFloorEditor({
       return
     }
 
-    const existing = findFloorBySegment(editableFloors, form.floorPosition, form.usageFactor, form.constructionType)
+    const existing = findFloorBySegment(editableFloors, floorPosition, usageFactor, constructionType)
     // Edit must not collide with another row; add may merge into the matching segment.
     if (editingId && existing && existing.id !== editingId) {
-      const message = duplicateSegmentMessage(form.floorPosition, form.usageFactor, form.constructionType)
+      const message = duplicateSegmentMessage(floorPosition, usageFactor, constructionType)
       setFieldError(message)
       toast.error(message)
       return
     }
 
     const body = {
-      floorPosition: form.floorPosition,
+      floorPosition,
       usageType: form.usageType || null,
-      usageFactor: form.usageFactor,
-      constructionType: form.constructionType,
+      usageFactor,
+      constructionType,
       areaSqFt,
     }
     try {
@@ -302,11 +332,11 @@ export function QcFloorEditor({
           toast.success("Floor usage updated")
         } else {
           await floorsApi.create.mutateAsync(body)
-          toast.success("Floor created")
+          toast.success(openLandPropertyUse ? "Open land row created" : "Floor created")
         }
       } else if (editingId) {
         await floorsApi.update.mutateAsync({ id: editingId, body })
-        toast.success("Floor updated")
+        toast.success(openLandPropertyUse ? "Open land row updated" : "Floor updated")
       }
       cancel()
     } catch (err) {
@@ -380,9 +410,10 @@ export function QcFloorEditor({
 
   return (
     <div className="space-y-3">
-      {disabled ? (
+      {openLandPropertyUse ? (
         <p className="text-xs text-amber-800 dark:text-amber-200">
-          {disabledReason ?? "Floor editing is disabled for this Property Use. Remove any leftover floors if needed."}
+          Property Use is Open Land — built-up is N/A. Edit leftover floors to Open Land (or delete them). Only Open
+          Land floor rows are allowed.
         </p>
       ) : (
         <p className="text-xs text-muted-foreground">
@@ -457,12 +488,20 @@ export function QcFloorEditor({
       {canEdit && !adding && !editingId ? (
         <Button type="button" size="sm" variant="outline" onClick={startAdd} disabled={busy}>
           <Plus className="size-3.5" />
-          Add floor
+          {openLandPropertyUse ? "Add open land" : "Add floor"}
         </Button>
       ) : null}
       {canEdit && (adding || editingId) ? (
         <div className={cn(glassInsetClass, "space-y-3 p-4")}>
-          <p className="text-sm font-medium">{adding ? "Add floor" : "Edit floor"}</p>
+          <p className="text-sm font-medium">
+            {adding
+              ? openLandPropertyUse
+                ? "Add open land"
+                : "Add floor"
+              : openLandPropertyUse
+                ? "Edit open land"
+                : "Edit floor"}
+          </p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <div className="space-y-1">
               <p className="text-[10px] font-semibold tracking-[0.14em] text-slate-500 uppercase">Floor</p>
@@ -471,7 +510,7 @@ export function QcFloorEditor({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {FLOOR_POSITION_OPTIONS.map((o) => (
+                  {floorPositionOptions.map((o) => (
                     <SelectItem key={o} value={o}>
                       {labelEnum(o)}
                     </SelectItem>

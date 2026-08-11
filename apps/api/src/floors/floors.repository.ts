@@ -75,10 +75,16 @@ export class FloorsRepository {
     })
     if (!survey) throw new NotFoundException("Survey not found")
 
+    // Open-land property use: only OPEN_LAND floor rows are allowed (plot/vacant area).
+    // Built-up floors must be converted to OPEN_LAND or deleted so built-up stays N/A.
     if (isOpenLandPropertyUse(survey.propertyUse)) {
-      throw new BadRequestException(
-        "Cannot add or edit floors when Property Use is OPEN_LAND. Built-up stays N/A for open plots."
-      )
+      const isOpenLandFloor = args.floorPosition === "OPEN_LAND" || args.usageFactor === "OPEN_LAND"
+      if (!isOpenLandFloor) {
+        throw new BadRequestException(
+          "Property Use is OPEN_LAND — only Open Land floor rows are allowed. Change Floor to Open Land or delete leftover built-up floors."
+        )
+      }
+      return
     }
 
     const plot = survey.plotAreaSqFt != null ? toAreaNumber(survey.plotAreaSqFt) : null

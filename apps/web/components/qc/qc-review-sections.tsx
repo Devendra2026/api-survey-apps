@@ -645,8 +645,7 @@ export function QcReviewSections({
           displayFloors={floorsSorted}
           editableFloors={survey.editable.floors}
           builtUpArea={liveBuiltUpArea}
-          disabled={isOpenLand}
-          disabledReason="Property Use is OPEN_LAND — built-up is N/A. Remove leftover floors if any remain."
+          openLandPropertyUse={isOpenLand}
         />
       </GlassSection>
 

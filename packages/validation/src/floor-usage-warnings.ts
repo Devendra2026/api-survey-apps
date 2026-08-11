@@ -3,7 +3,12 @@
  * Never throws — callers attach the returned warnings to API responses / QC UI.
  */
 
-import { isOpenLandPropertyUse, sumBuiltUpArea, unusuallyHighBuiltUpThreshold } from "./floor-plot-area.js"
+import {
+  isExcludedFromPlotAreaCheck,
+  isOpenLandPropertyUse,
+  sumBuiltUpArea,
+  unusuallyHighBuiltUpThreshold,
+} from "./floor-plot-area.js"
 
 export const FLOOR_USAGE_WARNING_CODES = [
   "MIXED_USE_PROPERTY_USE_MISMATCH",
@@ -89,13 +94,18 @@ export function evaluateMixedUseFloorWarnings(input: FloorUsageWarningInput): Fl
   const floors = input.floors ?? []
   const warnings: FloorUsageWarning[] = []
 
-  if (isOpenLandPropertyUse(input.propertyUse) && floors.length > 0) {
-    warnings.push(
-      warn(
-        "OPEN_LAND_HAS_FLOORS",
-        "Property Use is OPEN_LAND but floor rows still exist. Clear floors so built-up stays N/A."
+  // Open-land property use may keep OPEN_LAND floor rows (plot area). Warn only when
+  // leftover built-up floors remain (e.g. Ground Floor that should be Open Land).
+  if (isOpenLandPropertyUse(input.propertyUse)) {
+    const leftoverBuiltUp = floors.filter((f) => !isExcludedFromPlotAreaCheck(f.floorPosition, f.usageFactor))
+    if (leftoverBuiltUp.length > 0) {
+      warnings.push(
+        warn(
+          "OPEN_LAND_HAS_FLOORS",
+          "Property Use is OPEN_LAND but built-up floor rows still exist. Change them to Open Land or clear them so built-up stays N/A."
+        )
       )
-    )
+    }
   }
 
   if (floors.length === 0) {

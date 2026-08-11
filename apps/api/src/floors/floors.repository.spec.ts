@@ -270,7 +270,7 @@ describe("FloorsRepository mixed-use floors", () => {
     expect(result.id).toBe("f6")
   })
 
-  it("rejects floor CRUD when property use is OPEN_LAND", async () => {
+  it("rejects built-up floors when property use is OPEN_LAND", async () => {
     findFirst.mockResolvedValue(null)
     surveyFindUnique.mockResolvedValue({ plotAreaSqFt: 750, propertyUse: "OPEN_LAND" })
     transaction.mockImplementation(async (fn: unknown) => {
@@ -293,6 +293,27 @@ describe("FloorsRepository mixed-use floors", () => {
         areaSqFt: 100,
       })
     ).rejects.toThrow(/OPEN_LAND/)
+  })
+
+  it("allows OPEN_LAND floor rows when property use is OPEN_LAND", async () => {
+    mockSuccessfulCreateTx({
+      id: "f-ol",
+      surveyId: "s1",
+      floorPosition: FloorPosition.OPEN_LAND,
+      usageFactor: UsageFactor.OPEN_LAND,
+      constructionType: ConstructionType.OPEN_LAND,
+      areaSqFt: 1000,
+    })
+    surveyFindUnique.mockResolvedValue({ plotAreaSqFt: 1000, propertyUse: "OPEN_LAND" })
+
+    const result = await repo.create({
+      surveyId: "s1",
+      floorPosition: FloorPosition.OPEN_LAND,
+      usageFactor: UsageFactor.OPEN_LAND,
+      constructionType: ConstructionType.OPEN_LAND,
+      areaSqFt: 1000,
+    })
+    expect(result.id).toBe("f-ol")
   })
 
   it("ignores OPEN_LAND area when checking per-floor footprint", async () => {

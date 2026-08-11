@@ -72,12 +72,20 @@ describe("evaluateMixedUseFloorWarnings", () => {
     expect(warnings.some((w) => w.code === "BUILT_UP_MISMATCH")).toBe(false)
   })
 
-  it("warns when open-land property use still has floor rows", () => {
+  it("warns when open-land property use still has built-up floor rows", () => {
     const warnings = evaluateMixedUseFloorWarnings({
       propertyUse: "OPEN_LAND",
       floors: [{ floorPosition: "GROUND_FLOOR", usageFactor: "RESIDENTIAL", areaSqFt: 100 }],
     })
     expect(warnings.some((w) => w.code === "OPEN_LAND_HAS_FLOORS")).toBe(true)
+  })
+
+  it("does not warn when open-land property use only has OPEN_LAND floor rows", () => {
+    const warnings = evaluateMixedUseFloorWarnings({
+      propertyUse: "OPEN_LAND",
+      floors: [{ floorPosition: "OPEN_LAND", usageFactor: "OPEN_LAND", areaSqFt: 1000 }],
+    })
+    expect(warnings.some((w) => w.code === "OPEN_LAND_HAS_FLOORS")).toBe(false)
   })
 
   it("warns when floor area on one position exceeds plinth", () => {

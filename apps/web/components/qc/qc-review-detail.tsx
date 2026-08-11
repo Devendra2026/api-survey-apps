@@ -184,12 +184,11 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
   }
 
   if (detailQuery.isError || !survey || !draft) {
-    return (
-      <EmptyState
-        title="Survey not found"
-        description="This survey may be outside your tenant scope or the identifier is invalid."
-      />
-    )
+    const errorMessage = detailQuery.isError
+      ? getApiErrorMessage(detailQuery.error)
+      : "This survey may be outside your tenant scope or the identifier is invalid."
+    const isForbidden = /tenant scope|forbidden|not allowed|unauthorized/i.test(errorMessage)
+    return <EmptyState title={isForbidden ? "Access denied" : "Survey not found"} description={errorMessage} />
   }
 
   const pending =

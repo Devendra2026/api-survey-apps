@@ -1,9 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common"
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common"
 import type { Prisma, SurveyStatus } from "@workspace/database"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { buildOrderBy, getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
 import { allocateTempPropertyId, findActiveSurveyIdentityConflict } from "../common/utils/survey-identity.util.js"
-import { buildTenantWhere, resolveTenantScope } from "../common/utils/tenant-scope.util.js"
+import { buildTenantWhere, canAccessTenant, resolveTenantScope } from "../common/utils/tenant-scope.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import type { CreateSurveyDto, SurveyQueryDto, UpdateSurveyDto } from "./dto/survey.dto.js"
 
@@ -26,11 +26,9 @@ const surveyViewInclude = {
     take: 50,
     include: { author: { select: { id: true, fullName: true } } },
   },
-  audits: {
-    orderBy: { changedAt: "desc" as const },
-    take: 50,
-    include: { changer: { select: { id: true, fullName: true, email: true } } },
-  },
+  // Intentionally omit `audits` — QC/Survey detail loads history via /audit-history.
+  // Including audits forces Prisma to SELECT all SurveyAudit columns and breaks detail
+  // when the API client is ahead of the DB migration.
 } as const
 
 type SurveyCursor = {
@@ -223,25 +221,29 @@ export class SurveysRepository {
 
   async findById(id: string, user: AuthenticatedUser) {
     const scope = resolveTenantScope(user.tenantRoles)
-    const tenantWhere = buildTenantWhere(scope)
-    const baseWhere = {
-      deletedAt: null,
-      ...(tenantWhere ?? {}),
+
+    // Resolve identity without tenant filter so we can distinguish missing vs out-of-scope.
+    const survey = await this.prisma.db.survey.findFirst({
+      where: {
+        deletedAt: null,
+        OR: [{ id }, { propertyId: id }, { legacySurveyId: id }],
+      },
+      include: surveyViewInclude,
+    })
+    if (!survey) throw new NotFoundException("Survey not found")
+
+    if (
+      !canAccessTenant(scope, {
+        stateId: survey.stateId,
+        districtId: survey.districtId,
+        ulbId: survey.ulbId,
+        wardId: survey.wardId,
+      })
+    ) {
+      throw new ForbiddenException("Survey is outside your tenant scope")
     }
 
-    // Prefer primary key so mutable propertyId never shadows the stable survey UUID.
-    const byId = await this.prisma.db.survey.findFirst({
-      where: { ...baseWhere, id },
-      include: surveyViewInclude,
-    })
-    if (byId) return byId
-
-    const byPropertyId = await this.prisma.db.survey.findFirst({
-      where: { ...baseWhere, propertyId: id },
-      include: surveyViewInclude,
-    })
-    if (!byPropertyId) throw new NotFoundException("Survey not found")
-    return byPropertyId
+    return survey
   }
 
   async findByIdRaw(id: string) {
@@ -410,10 +412,17 @@ export class SurveysRepository {
   }
 
   listAudits(surveyId: string) {
+    // Explicit select avoids requiring newer SurveyAudit columns before migration deploy.
     return this.prisma.db.surveyAudit.findMany({
       where: { surveyId },
       orderBy: { changedAt: "desc" },
-      include: {
+      select: {
+        id: true,
+        action: true,
+        changedAt: true,
+        oldValue: true,
+        newValue: true,
+        changedBy: true,
         changer: { select: { id: true, fullName: true, email: true } },
       },
     })

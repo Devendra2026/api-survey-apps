@@ -20,6 +20,18 @@ export type LegacyAuditEventRow = {
   metadata: unknown
 }
 
+export type SurveyLifecycleTimestamps = {
+  /** Nest row insert time — last resort only for Created. */
+  rowCreatedAt: Date
+  capturedAt?: Date | null
+  clientUpdatedAt?: Date | null
+  submittedAt?: Date | null
+  approvedAt?: Date | null
+  rejectedAt?: Date | null
+  creatorName?: string | null
+  surveyorName?: string | null
+}
+
 function formatWhen(value: Date): string {
   return value.toLocaleString("en-GB", {
     day: "2-digit",
@@ -82,22 +94,15 @@ export function formatAuditActionLabel(action: string): string {
     .join(" ")
 }
 
-function formatDetails(meta: unknown, changesBefore: unknown, changesAfter: unknown): string | null {
-  const comment = readMetaString(meta, ["comment", "reason", "message", "details"])
-  if (comment) return comment
-  if (changesBefore == null && changesAfter == null) return null
-  try {
-    return JSON.stringify({ before: changesBefore ?? null, after: changesAfter ?? null })
-  } catch {
-    return null
-  }
+function formatDetails(meta: unknown): string | null {
+  return readMetaString(meta, ["comment", "reason", "message", "details", "body"])
 }
 
 export function mapLegacyAuditEventsToHistory(propertyId: string, events: LegacyAuditEventRow[]): AuditHistoryDto[] {
   const rows = events.map((event) => {
     const actor = readMetaString(event.metadata, ["actorName", "actor_name", "userName", "fullName"]) || "—"
     const role = readMetaString(event.metadata, ["actorRole", "role", "userRole"]) || "—"
-    const details = formatDetails(event.metadata, null, null)
+    const details = formatDetails(event.metadata)
     return {
       propertyId,
       when: formatWhen(event.occurredAt),
@@ -106,7 +111,6 @@ export function mapLegacyAuditEventsToHistory(propertyId: string, events: Legacy
       role,
       details: details ?? "—",
       sortAt: event.occurredAt.getTime(),
-      sourceEventId: event.eventId,
     }
   })
   rows.sort((a, b) => b.sortAt - a.sortAt)
@@ -141,38 +145,92 @@ export function mapPersistedAuditsToHistory(propertyId: string, audits: Persiste
   }))
 }
 
+function buildLifecycleFallback(propertyId: string, lifecycle: SurveyLifecycleTimestamps): AuditHistoryDto[] {
+  const creator = lifecycle.creatorName?.trim() || "—"
+  const surveyor = lifecycle.surveyorName?.trim() || creator
+  const createdAt = lifecycle.capturedAt ?? lifecycle.clientUpdatedAt ?? lifecycle.rowCreatedAt
+
+  type Row = AuditHistoryDto & { sortAt: number }
+  const rows: Row[] = [
+    {
+      propertyId,
+      when: formatWhen(createdAt),
+      action: "Created",
+      actor: creator,
+      role: "Surveyor",
+      details: "—",
+      sortAt: createdAt.getTime(),
+    },
+  ]
+
+  if (lifecycle.submittedAt) {
+    rows.push({
+      propertyId,
+      when: formatWhen(lifecycle.submittedAt),
+      action: "Submitted",
+      actor: surveyor,
+      role: "Surveyor",
+      details: "—",
+      sortAt: lifecycle.submittedAt.getTime(),
+    })
+  }
+  if (lifecycle.approvedAt) {
+    rows.push({
+      propertyId,
+      when: formatWhen(lifecycle.approvedAt),
+      action: "QC Approved",
+      actor: "—",
+      role: "QC",
+      details: "—",
+      sortAt: lifecycle.approvedAt.getTime(),
+    })
+  }
+  if (lifecycle.rejectedAt) {
+    rows.push({
+      propertyId,
+      when: formatWhen(lifecycle.rejectedAt),
+      action: "QC Rejected",
+      actor: "—",
+      role: "QC",
+      details: "—",
+      sortAt: lifecycle.rejectedAt.getTime(),
+    })
+  }
+
+  rows.sort((a, b) => b.sortAt - a.sortAt)
+  return rows.map(({ propertyId: pid, when, action, actor, role, details }) => ({
+    propertyId: pid,
+    when,
+    action,
+    actor,
+    role,
+    details,
+  }))
+}
+
 /**
- * Prefer immutable Convex-migrated audit_events. Never invent rows from survey timestamps.
- * Fall back to persisted survey_audits only when no legacy events exist for the survey.
- * For Convex-migrated surveys, ignore CREATED/SUBMITTED rows that lack sourceEventId
- * (those are Nest import seeds with migration timestamps).
+ * Source priority:
+ * 1) Convex-migrated audit_events (occurredAt + actorName)
+ * 2) Persisted survey_audits (all rows — do not drop to empty)
+ * 3) Survey lifecycle timestamps preserved from Convex (submittedAt/approvedAt/capturedAt)
  */
 export function buildSurveyAuditHistoryFromSources(args: {
   propertyId: string
   legacyEvents: LegacyAuditEventRow[]
   audits: PersistedSurveyAudit[]
-  /** When true, drop import-seed CREATED/SUBMITTED/IMPORTED rows without sourceEventId. */
-  isLegacyMigratedSurvey?: boolean
+  lifecycle?: SurveyLifecycleTimestamps
 }): AuditHistoryDto[] {
   if (args.legacyEvents.length > 0) {
     return mapLegacyAuditEventsToHistory(args.propertyId, args.legacyEvents)
   }
 
-  const withSource = args.audits.filter((a) => Boolean(a.sourceEventId))
-  const usable =
-    withSource.length > 0
-      ? withSource
-      : args.isLegacyMigratedSurvey
-        ? args.audits.filter((a) => !isSyntheticImportSeed(a))
-        : args.audits
-  return mapPersistedAuditsToHistory(args.propertyId, usable)
-}
+  if (args.audits.length > 0) {
+    return mapPersistedAuditsToHistory(args.propertyId, args.audits)
+  }
 
-function isSyntheticImportSeed(audit: PersistedSurveyAudit): boolean {
-  if (audit.sourceEventId) return false
-  const action = audit.action
-    .replace(/^SURVEY_/i, "")
-    .replace(/^survey\./i, "")
-    .toUpperCase()
-  return action === "CREATED" || action === "SUBMITTED" || action === "IMPORTED"
+  if (args.lifecycle) {
+    return buildLifecycleFallback(args.propertyId, args.lifecycle)
+  }
+
+  return []
 }

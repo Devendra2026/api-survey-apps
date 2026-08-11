@@ -130,9 +130,10 @@ export class SurveysService {
       metadata: unknown
     }> = []
     try {
-      if (legacySurveyId) {
+      const resourceIds = [legacySurveyId, survey.id].filter((id): id is string => Boolean(id))
+      if (resourceIds.length > 0) {
         legacyEvents = await this.prisma.db.auditEvent.findMany({
-          where: { resourceId: legacySurveyId },
+          where: { resourceId: { in: resourceIds } },
           orderBy: { occurredAt: "desc" },
           take: 500,
           select: {
@@ -146,14 +147,14 @@ export class SurveysService {
           },
         })
       }
-    } catch {
+    } catch (err) {
+      this.logger.warn(`audit_events lookup failed for survey=${survey.id}: ${String(err)}`)
       legacyEvents = []
     }
 
     const history = buildSurveyAuditHistoryFromSources({
       propertyId: survey.propertyId,
       legacyEvents,
-      isLegacyMigratedSurvey: Boolean(legacySurveyId),
       audits: audits.map((a) => ({
         action: a.action,
         changedAt: a.changedAt,
@@ -164,54 +165,17 @@ export class SurveysService {
         details: "details" in a ? ((a as { details?: string | null }).details ?? null) : null,
         sourceEventId: "sourceEventId" in a ? ((a as { sourceEventId?: string | null }).sourceEventId ?? null) : null,
       })),
+      lifecycle: {
+        rowCreatedAt: survey.createdAt,
+        capturedAt: "capturedAt" in survey ? survey.capturedAt : null,
+        clientUpdatedAt: "clientUpdatedAt" in survey ? survey.clientUpdatedAt : null,
+        submittedAt: survey.submittedAt,
+        approvedAt: survey.approvedAt,
+        rejectedAt: survey.rejectedAt,
+        creatorName: survey.createdBy?.fullName ?? null,
+        surveyorName: survey.assignedTo?.fullName ?? survey.createdBy?.fullName ?? null,
+      },
     })
-
-    // #region agent log
-    {
-      const payload = {
-        sessionId: "10c5b7",
-        runId: "post-fix",
-        hypothesisId: "A,C,D,E",
-        location: "surveys.service.ts:getAuditHistory",
-        message: "Audit history sources compared",
-        data: {
-          requestId: idOrPropertyId,
-          surveyId: survey.id,
-          propertyId: survey.propertyId,
-          legacySurveyId,
-          surveyCreatedAt: survey.createdAt?.toISOString?.() ?? null,
-          surveySubmittedAt: survey.submittedAt?.toISOString?.() ?? null,
-          surveyApprovedAt: survey.approvedAt?.toISOString?.() ?? null,
-          surveyAuditsCount: audits.length,
-          legacyEventsCount: legacyEvents.length,
-          legacyEventActions: legacyEvents.slice(0, 20).map((e) => ({
-            action: e.action,
-            occurredAt: e.occurredAt.toISOString(),
-            createdAt: e.createdAt.toISOString(),
-            actorName:
-              e.metadata && typeof e.metadata === "object" && e.metadata !== null && "actorName" in e.metadata
-                ? (e.metadata as { actorName?: unknown }).actorName
-                : null,
-          })),
-          historyRows: history,
-          source: legacyEvents.length > 0 ? "audit_events" : "survey_audits",
-        },
-        timestamp: Date.now(),
-      }
-      fetch("http://127.0.0.1:7548/ingest/d4e91970-7ad5-429b-8326-a482939a5101", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "10c5b7" },
-        body: JSON.stringify(payload),
-      }).catch(() => {})
-      try {
-        const { appendFileSync } = await import("node:fs")
-        appendFileSync("C:/sdv-books/projects/sdv-edutech-app/debug-10c5b7.log", JSON.stringify(payload) + "\n")
-        appendFileSync("C:/sdv-books/projects/sdv-edutech-app/.cursor/debug-10c5b7.log", JSON.stringify(payload) + "\n")
-      } catch {
-        /* ignore */
-      }
-    }
-    // #endregion
 
     return history
   }

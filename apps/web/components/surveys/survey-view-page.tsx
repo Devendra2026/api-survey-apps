@@ -4,8 +4,8 @@ import { EmptyState } from "@/components/shared/page-elements"
 import { SurveyViewContent } from "@/components/surveys/survey-view-content"
 import { SurveyViewSkeleton } from "@/components/surveys/survey-view-skeleton"
 import { useSurveyAuditHistory, useSurveyDetails } from "@/hooks/use-api"
+import { getApiErrorMessage } from "@/lib/api/client"
 import { useAuthStore } from "@/stores/app-store"
-import { useEffect } from "react"
 
 /**
  * Pro Max read-only Survey View page composition.
@@ -18,52 +18,6 @@ export function SurveyViewPage({ propertyId }: { propertyId: string }) {
 
   const detailsQuery = useSurveyDetails(propertyId, Boolean(canView))
   const auditQuery = useSurveyAuditHistory(propertyId, Boolean(canView) && Boolean(propertyId))
-
-  // #region agent log
-  useEffect(() => {
-    if (!auditQuery.isFetched && !auditQuery.isError) return
-    fetch("http://127.0.0.1:7548/ingest/d4e91970-7ad5-429b-8326-a482939a5101", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "10c5b7" },
-      body: JSON.stringify({
-        sessionId: "10c5b7",
-        runId: "pre-fix",
-        hypothesisId: "A,E",
-        location: "survey-view-page.tsx:auditQuery",
-        message: "Frontend audit history payload",
-        data: {
-          propertyId,
-          status: auditQuery.status,
-          isError: auditQuery.isError,
-          errorMessage: auditQuery.error instanceof Error ? auditQuery.error.message : String(auditQuery.error ?? ""),
-          rowCount: auditQuery.data?.length ?? 0,
-          rows: (auditQuery.data ?? []).map((r) => ({
-            when: r.when,
-            action: r.action,
-            actor: r.actor,
-            propertyId: r.propertyId,
-          })),
-          surveyCreatedHint: detailsQuery.data
-            ? {
-                id: detailsQuery.data.id,
-                propertyId: detailsQuery.data.propertyId,
-                status: detailsQuery.data.status,
-              }
-            : null,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {})
-  }, [
-    propertyId,
-    auditQuery.isFetched,
-    auditQuery.isError,
-    auditQuery.status,
-    auditQuery.data,
-    auditQuery.error,
-    detailsQuery.data,
-  ])
-  // #endregion
 
   if (!canView) {
     return (
@@ -84,5 +38,12 @@ export function SurveyViewPage({ propertyId }: { propertyId: string }) {
     )
   }
 
-  return <SurveyViewContent survey={detailsQuery.data} audits={auditQuery.data ?? []} />
+  return (
+    <SurveyViewContent
+      survey={detailsQuery.data}
+      audits={auditQuery.data ?? []}
+      auditStatus={auditQuery.isLoading ? "loading" : auditQuery.isError ? "error" : "success"}
+      auditErrorMessage={auditQuery.isError ? getApiErrorMessage(auditQuery.error) : null}
+    />
+  )
 }

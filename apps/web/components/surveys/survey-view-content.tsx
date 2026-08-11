@@ -143,7 +143,17 @@ function SurveyPhotoCard({
   )
 }
 
-export function SurveyViewContent({ survey, audits }: { survey: SurveyDetails; audits: SurveyAuditHistoryItem[] }) {
+export function SurveyViewContent({
+  survey,
+  audits,
+  auditStatus = "success",
+  auditErrorMessage,
+}: {
+  survey: SurveyDetails
+  audits: SurveyAuditHistoryItem[]
+  auditStatus?: "loading" | "error" | "success"
+  auditErrorMessage?: string | null
+}) {
   const ownerColumns = useMemo<ColumnDef<SurveyOwnerRow>[]>(
     () => [
       { accessorKey: "propertyId", header: "Property ID" },
@@ -416,7 +426,27 @@ export function SurveyViewContent({ survey, audits }: { survey: SurveyDetails; a
       </GlassSection>
 
       <GlassSection title="Audit History" subtitle="Immutable workflow timeline from the original event log.">
-        <GlassTable columns={auditColumns} data={audits} empty="No audit history yet." />
+        {auditStatus === "loading" ? (
+          <div
+            className={cn(
+              glassInsetClass,
+              "border-dashed px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400"
+            )}
+          >
+            Loading audit history…
+          </div>
+        ) : auditStatus === "error" ? (
+          <div
+            className={cn(
+              glassInsetClass,
+              "border-dashed border-destructive/40 bg-destructive/5 px-4 py-8 text-center text-sm text-destructive"
+            )}
+          >
+            {auditErrorMessage?.trim() || "Could not load audit history. Try refreshing the page."}
+          </div>
+        ) : (
+          <GlassTable columns={auditColumns} data={audits} empty="No audit history yet." />
+        )}
       </GlassSection>
     </div>
   )

@@ -1,8 +1,21 @@
+import { describe, expect, it } from "@jest/globals"
 import {
   buildSurveyAuditHistoryFromSources,
   formatAuditActionLabel,
   mapLegacyAuditEventsToHistory,
 } from "./survey-audit-history.js"
+
+/** Mirror production `formatWhen` so assertions stay stable across CI timezones. */
+function expectedWhen(isoUtc: string): string {
+  return new Date(isoUtc).toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  })
+}
 
 describe("survey audit history mapping", () => {
   it("maps Convex actions and preserves occurredAt ordering/actors", () => {
@@ -35,12 +48,12 @@ describe("survey audit history mapping", () => {
 
     expect(rows.map((r) => r.action)).toEqual(["QC Approved", "Submitted", "Created"])
     expect(rows[0]?.actor).toBe("QC Reviewer")
-    expect(rows[2]?.when).toContain("30 May 2026")
-    expect(rows[1]?.when).toContain("02 Jun 2026")
-    expect(rows[0]?.when).toContain("01 Jul 2026")
+    expect(rows[0]?.when).toBe(expectedWhen("2026-07-01T12:00:00.000Z"))
+    expect(rows[1]?.when).toBe(expectedWhen("2026-06-02T08:00:00.000Z"))
+    expect(rows[2]?.when).toBe(expectedWhen("2026-05-30T10:00:00.000Z"))
   })
 
-  it("prefers legacy audit_events over survey_audits and never invents Nest createdAt rows", () => {
+  it("prefers legacy audit_events over survey_audits", () => {
     const rows = buildSurveyAuditHistoryFromSources({
       propertyId: "PROP-1",
       legacyEvents: [
@@ -63,49 +76,48 @@ describe("survey audit history mapping", () => {
     })
 
     expect(rows).toHaveLength(1)
-    expect(rows[0]?.action).toBe("Created")
     expect(rows[0]?.actor).toBe("Legacy Surveyor")
-    expect(rows[0]?.when).toContain("30 May 2026")
-    expect(rows[0]?.when).not.toContain("29 Jul 2026")
+    expect(rows[0]?.when).toBe(expectedWhen("2026-05-30T10:00:00.000Z"))
+    expect(rows[0]?.when).not.toBe(expectedWhen("2026-07-29T10:00:00.000Z"))
   })
 
-  it("falls back to persisted audits only when legacy events are absent", () => {
+  it("falls back to persisted audits when legacy events are absent", () => {
     const rows = buildSurveyAuditHistoryFromSources({
       propertyId: "PROP-1",
       legacyEvents: [],
-      isLegacyMigratedSurvey: false,
       audits: [
         {
           action: "SUBMITTED",
           changedAt: new Date("2026-06-02T08:00:00.000Z"),
           changer: { fullName: "Surveyor One" },
-          actorDisplayName: null,
+        },
+        {
+          action: "CREATED",
+          changedAt: new Date("2026-05-30T10:00:00.000Z"),
+          changer: { fullName: "Surveyor One" },
         },
       ],
     })
-    expect(rows).toHaveLength(1)
-    expect(rows[0]?.action).toBe("Submitted")
+    expect(rows.map((r) => r.action)).toEqual(["Submitted", "Created"])
   })
 
-  it("drops synthetic import seeds for legacy surveys when audit_events are missing", () => {
+  it("falls back to Convex-preserved lifecycle timestamps when audits are empty", () => {
     const rows = buildSurveyAuditHistoryFromSources({
       propertyId: "PROP-1",
       legacyEvents: [],
-      isLegacyMigratedSurvey: true,
-      audits: [
-        {
-          action: "CREATED",
-          changedAt: new Date("2026-07-29T10:00:00.000Z"),
-          changer: { fullName: "Migration Admin" },
-        },
-        {
-          action: "survey.qc_corrected",
-          changedAt: new Date("2026-08-01T10:00:00.000Z"),
-          changer: { fullName: "QC User" },
-        },
-      ],
+      audits: [],
+      lifecycle: {
+        rowCreatedAt: new Date("2026-07-29T10:00:00.000Z"),
+        capturedAt: new Date("2026-05-30T10:00:00.000Z"),
+        submittedAt: new Date("2026-06-02T08:00:00.000Z"),
+        approvedAt: new Date("2026-07-01T12:00:00.000Z"),
+        creatorName: "Surveyor One",
+        surveyorName: "Surveyor One",
+      },
     })
-    expect(rows.map((r) => r.action)).toEqual(["QC Corrected"])
+    expect(rows.map((r) => r.action)).toEqual(["QC Approved", "Submitted", "Created"])
+    expect(rows[2]?.when).toBe(expectedWhen("2026-05-30T10:00:00.000Z"))
+    expect(rows[2]?.when).not.toBe(expectedWhen("2026-07-29T10:00:00.000Z"))
   })
 
   it("formats known Convex verbs", () => {

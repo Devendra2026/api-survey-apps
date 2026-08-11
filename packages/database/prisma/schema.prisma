@@ -823,13 +823,22 @@ model QcRemark {
 
 /// Field-level / action audit trail for survey changes (immutable; retained).
 model SurveyAudit {
-  id        String   @id @default(cuid())
-  surveyId  String
-  action    String
-  oldValue  Json?
-  newValue  Json?
-  changedBy String
-  changedAt DateTime @default(now())
+  id               String   @id @default(cuid())
+  surveyId         String
+  action           String
+  oldValue         Json?
+  newValue         Json?
+  changedBy        String
+  /// Original event timestamp (Convex `_creationTime` for migrated rows).
+  changedAt        DateTime @default(now())
+  /// Row insert / migration timestamp — never use this for Audit History "WHEN".
+  createdAt        DateTime @default(now())
+  /// Convex `auditLogs._id` when migrated — idempotent key.
+  sourceEventId    String?  @unique
+  /// Historical actor label when the Nest user no longer exists / differs.
+  actorDisplayName String?
+  actorRole        String?
+  details          String?
 
   survey  Survey @relation(fields: [surveyId], references: [id], onDelete: Restrict)
   changer User   @relation("SurveyAuditChangedBy", fields: [changedBy], references: [id], onDelete: Restrict)
@@ -1053,6 +1062,7 @@ model AuditEvent {
   @@index([action, occurredAt])
   @@index([occurredAt])
   @@index([actorId, occurredAt])
+  @@index([resourceId, occurredAt])
   @@map("audit_events")
 }
 

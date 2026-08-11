@@ -234,10 +234,11 @@ export function QcReviewSections({
 
   const auditColumns = useMemo<ColumnDef<SurveyAuditHistoryItem>[]>(
     () => [
-      { accessorKey: "propertyId", header: "Property ID" },
       { accessorKey: "when", header: "When" },
       { accessorKey: "action", header: "Action" },
       { accessorKey: "actor", header: "Actor" },
+      { accessorKey: "role", header: "Role" },
+      { accessorKey: "details", header: "Details" },
     ],
     []
   )

@@ -169,10 +169,11 @@ export function SurveyViewContent({ survey, audits }: { survey: SurveyDetails; a
 
   const auditColumns = useMemo<ColumnDef<SurveyAuditHistoryItem>[]>(
     () => [
-      { accessorKey: "propertyId", header: "Property ID" },
       { accessorKey: "when", header: "When" },
       { accessorKey: "action", header: "Action" },
       { accessorKey: "actor", header: "Actor" },
+      { accessorKey: "role", header: "Role" },
+      { accessorKey: "details", header: "Details" },
     ],
     []
   )
@@ -385,9 +386,9 @@ export function SurveyViewContent({ survey, audits }: { survey: SurveyDetails; a
         )}
       </GlassSection>
 
-      <GlassSection title="QC Remarks & Audit History" subtitle="Quality remarks and immutable field activity log.">
+      <GlassSection title="QC Remarks" subtitle="Quality remarks from supervisors.">
         {survey.qcRemarks || survey.qcRemarkItems.length ? (
-          <div className="mb-4 space-y-2">
+          <div className="space-y-2">
             {survey.qcRemarks ? (
               <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-slate-800 backdrop-blur-md dark:text-slate-100">
                 {survey.qcRemarks}
@@ -406,12 +407,15 @@ export function SurveyViewContent({ survey, audits }: { survey: SurveyDetails; a
           <div
             className={cn(
               glassInsetClass,
-              "mb-4 border-dashed px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400"
+              "border-dashed px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400"
             )}
           >
             No QC remarks yet.
           </div>
         )}
+      </GlassSection>
+
+      <GlassSection title="Audit History" subtitle="Immutable workflow timeline from the original event log.">
         <GlassTable columns={auditColumns} data={audits} empty="No audit history yet." />
       </GlassSection>
     </div>

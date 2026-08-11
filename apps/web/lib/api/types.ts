@@ -633,6 +633,8 @@ export interface SurveyAuditHistoryItem {
   when: string
   action: string
   actor: string
+  role?: string
+  details?: string
 }
 
 export interface QcSurveyFloorEditable {

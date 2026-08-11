@@ -93,4 +93,6 @@ export class AuditHistoryDto {
   when!: string
   action!: string
   actor!: string
+  role!: string
+  details!: string
 }

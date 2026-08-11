@@ -119,26 +119,34 @@ export function getDemoAuditHistory(): AuditHistoryDto[] {
     {
       propertyId: DEMO_SURVEY_PROPERTY_ID,
       when: "14 Jul 2026, 11:05 AM",
-      action: "Approved",
+      action: "QC Approved",
       actor: "QC Supervisor Demo",
+      role: "QC Reviewer",
+      details: "—",
     },
     {
       propertyId: DEMO_SURVEY_PROPERTY_ID,
       when: "14 Jul 2026, 10:40 AM",
       action: "Submitted",
       actor: "Demo Surveyor A",
+      role: "Surveyor",
+      details: "—",
     },
     {
       propertyId: DEMO_SURVEY_PROPERTY_ID,
       when: "14 Jul 2026, 09:18 AM",
       action: "Updated",
       actor: "Demo Surveyor A",
+      role: "Surveyor",
+      details: "—",
     },
     {
       propertyId: DEMO_SURVEY_PROPERTY_ID,
       when: "13 Jul 2026, 04:52 PM",
       action: "Created",
       actor: "Demo Surveyor A",
+      role: "Surveyor",
+      details: "—",
     },
   ]
 }

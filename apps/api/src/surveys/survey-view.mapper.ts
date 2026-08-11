@@ -1,5 +1,5 @@
 import { resolvePrimaryOwnerName } from "../common/utils/primary-owner.util.js"
-import type { AuditHistoryDto, OwnerDto, SurveyDetailsDto, SurveyPhotoDto } from "./dto/survey-view.dto.js"
+import type { OwnerDto, SurveyDetailsDto, SurveyPhotoDto } from "./dto/survey-view.dto.js"
 
 type DecimalLike = { toString(): string } | number | string | null | undefined
 
@@ -255,104 +255,10 @@ export function mapSurveyToDetailsDto(survey: SurveyForView): SurveyDetailsDto {
   }
 }
 
-function normalizeAuditAction(action: string): string {
-  return action
-    .replace(/^SURVEY_/i, "")
-    .replace(/^survey\./i, "")
-    .toUpperCase()
-}
-
-export type SurveyLifecycleForAudit = {
-  propertyId: string
-  createdAt: Date
-  submittedAt: Date | null
-  approvedAt: Date | null
-  rejectedAt: Date | null
-  surveyStatus: string
-  qcStatus: string | null
-  createdBy?: { fullName: string } | null
-  assignedTo?: { fullName: string } | null
-}
-
-export type PersistedSurveyAudit = {
-  action: string
-  changedAt: Date
-  changer?: { fullName: string } | null
-}
-
-export function mapAuditsToHistoryDto(propertyId: string, audits: PersistedSurveyAudit[]): AuditHistoryDto[] {
-  return audits.map((audit) => ({
-    propertyId,
-    when: formatWhen(audit.changedAt),
-    action: enumLabel(audit.action.replace(/^SURVEY_/, "")),
-    actor: audit.changer?.fullName ?? "—",
-  }))
-}
-
-/**
- * Persisted survey_audits plus lifecycle fallbacks for QC Review.
- * Convex→Nest ETL often leaves survey_audits empty; without fallbacks the page
- * shows "No audit history yet" even when created/submitted/approved times exist.
- */
-export function buildSurveyAuditHistory(
-  survey: SurveyLifecycleForAudit,
-  audits: PersistedSurveyAudit[]
-): AuditHistoryDto[] {
-  const present = new Set(audits.map((a) => normalizeAuditAction(a.action)))
-  const creator = survey.createdBy?.fullName?.trim() || "—"
-  const surveyor = survey.assignedTo?.fullName?.trim() || creator
-
-  type Row = AuditHistoryDto & { sortAt: number }
-  const rows: Row[] = audits.map((audit) => ({
-    propertyId: survey.propertyId,
-    when: formatWhen(audit.changedAt),
-    action: enumLabel(audit.action.replace(/^SURVEY_/, "")),
-    actor: audit.changer?.fullName ?? "—",
-    sortAt: audit.changedAt.getTime(),
-  }))
-
-  if (!present.has("CREATED") && !present.has("IMPORTED")) {
-    rows.push({
-      propertyId: survey.propertyId,
-      when: formatWhen(survey.createdAt),
-      action: "Created",
-      actor: creator,
-      sortAt: survey.createdAt.getTime(),
-    })
-  }
-
-  if (survey.submittedAt && !present.has("SUBMITTED")) {
-    rows.push({
-      propertyId: survey.propertyId,
-      when: formatWhen(survey.submittedAt),
-      action: "Submitted",
-      actor: surveyor,
-      sortAt: survey.submittedAt.getTime(),
-    })
-  }
-
-  const isApproved = survey.surveyStatus === "APPROVED" || survey.qcStatus === "APPROVED" || Boolean(survey.approvedAt)
-  if (isApproved && survey.approvedAt && !present.has("APPROVED")) {
-    rows.push({
-      propertyId: survey.propertyId,
-      when: formatWhen(survey.approvedAt),
-      action: "Approved",
-      actor: "—",
-      sortAt: survey.approvedAt.getTime(),
-    })
-  }
-
-  const isRejected = survey.surveyStatus === "REJECTED" || survey.qcStatus === "REJECTED" || Boolean(survey.rejectedAt)
-  if (isRejected && survey.rejectedAt && !present.has("REJECTED")) {
-    rows.push({
-      propertyId: survey.propertyId,
-      when: formatWhen(survey.rejectedAt),
-      action: "Rejected",
-      actor: "—",
-      sortAt: survey.rejectedAt.getTime(),
-    })
-  }
-
-  rows.sort((a, b) => b.sortAt - a.sortAt)
-  return rows.map(({ propertyId, when, action, actor }) => ({ propertyId, when, action, actor }))
-}
+export {
+  buildSurveyAuditHistoryFromSources,
+  formatAuditActionLabel,
+  mapLegacyAuditEventsToHistory,
+  mapPersistedAuditsToHistory,
+} from "./survey-audit-history.js"
+export type { LegacyAuditEventRow, PersistedSurveyAudit } from "./survey-audit-history.js"

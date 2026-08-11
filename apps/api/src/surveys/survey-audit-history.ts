@@ -32,6 +32,14 @@ export type SurveyLifecycleTimestamps = {
   surveyorName?: string | null
 }
 
+/** Lookup keys extracted from audit_events metadata for Nest User join. */
+export type AuditActorLookupKeys = {
+  clerkIds: string[]
+  emails: string[]
+}
+
+export type ResolveAuditActorName = (event: LegacyAuditEventRow) => string | null
+
 function formatWhen(value: Date): string {
   return value.toLocaleString("en-GB", {
     day: "2-digit",
@@ -94,14 +102,87 @@ export function formatAuditActionLabel(action: string): string {
     .join(" ")
 }
 
+/** Infer Role column when Convex/Nest metadata has no actorRole. */
+export function inferAuditRoleFromAction(action: string): string {
+  const normalized = action.trim()
+  const upper = normalized.toUpperCase()
+  if (
+    normalized === "survey.created" ||
+    normalized === "survey.submitted" ||
+    upper === "CREATED" ||
+    upper === "SUBMITTED"
+  ) {
+    return "Surveyor"
+  }
+  if (
+    normalized === "qc.approve" ||
+    normalized === "qc.reject" ||
+    upper === "APPROVED" ||
+    upper === "REJECTED" ||
+    normalized.startsWith("qc.")
+  ) {
+    return "QC"
+  }
+  return "—"
+}
+
 function formatDetails(meta: unknown): string | null {
   return readMetaString(meta, ["comment", "reason", "message", "details", "body"])
 }
 
-export function mapLegacyAuditEventsToHistory(propertyId: string, events: LegacyAuditEventRow[]): AuditHistoryDto[] {
+export function readLegacyActorNameFromMetadata(metadata: unknown): string | null {
+  return readMetaString(metadata, ["actorName", "actor_name", "userName", "fullName"])
+}
+
+export function readLegacyActorClerkId(metadata: unknown): string | null {
+  return readMetaString(metadata, ["actorClerkId", "actor_clerk_id", "clerkId", "clerk_id"])
+}
+
+export function readLegacyActorEmail(metadata: unknown): string | null {
+  return readMetaString(metadata, ["actorEmail", "actor_email", "email"])
+}
+
+/** Collect clerk/email keys for batch Nest User lookup. */
+export function collectAuditActorLookupKeys(events: LegacyAuditEventRow[]): AuditActorLookupKeys {
+  const clerkIds = new Set<string>()
+  const emails = new Set<string>()
+  for (const event of events) {
+    if (readLegacyActorNameFromMetadata(event.metadata)) continue
+    const clerkId = readLegacyActorClerkId(event.metadata)
+    const email = readLegacyActorEmail(event.metadata)
+    if (clerkId) clerkIds.add(clerkId)
+    if (email) emails.add(email.toLowerCase())
+  }
+  return { clerkIds: [...clerkIds], emails: [...emails] }
+}
+
+/**
+ * Resolve display name: metadata.actorName → Nest User (via resolve) → "—".
+ * Never invents survey.createdBy.
+ */
+export function resolveLegacyEventActorName(
+  event: LegacyAuditEventRow,
+  resolveFromUsers?: ResolveAuditActorName
+): string {
+  const fromMeta = readLegacyActorNameFromMetadata(event.metadata)
+  if (fromMeta) return fromMeta
+  const fromUsers = resolveFromUsers?.(event)?.trim()
+  if (fromUsers) return fromUsers
+  return "—"
+}
+
+export function resolveLegacyEventRole(event: LegacyAuditEventRow): string {
+  return readMetaString(event.metadata, ["actorRole", "role", "userRole"]) || inferAuditRoleFromAction(event.action)
+}
+
+export function mapLegacyAuditEventsToHistory(
+  propertyId: string,
+  events: LegacyAuditEventRow[],
+  resolveFromUsers?: ResolveAuditActorName
+): AuditHistoryDto[] {
   const rows = events.map((event) => {
-    const actor = readMetaString(event.metadata, ["actorName", "actor_name", "userName", "fullName"]) || "—"
-    const role = readMetaString(event.metadata, ["actorRole", "role", "userRole"]) || "—"
+    const actor = resolveLegacyEventActorName(event, resolveFromUsers)
+    const role = resolveLegacyEventRole(event)
     const details = formatDetails(event.metadata)
     return {
       propertyId,
@@ -130,7 +211,7 @@ export function mapPersistedAuditsToHistory(propertyId: string, audits: Persiste
     when: formatWhen(audit.changedAt),
     action: formatAuditActionLabel(audit.action),
     actor: audit.actorDisplayName?.trim() || audit.changer?.fullName?.trim() || "—",
-    role: audit.actorRole?.trim() || "—",
+    role: audit.actorRole?.trim() || inferAuditRoleFromAction(audit.action),
     details: audit.details?.trim() || "—",
     sortAt: audit.changedAt.getTime(),
   }))
@@ -145,9 +226,9 @@ export function mapPersistedAuditsToHistory(propertyId: string, audits: Persiste
   }))
 }
 
-function buildLifecycleFallback(propertyId: string, lifecycle: SurveyLifecycleTimestamps): AuditHistoryDto[] {
+export function buildLifecycleFallback(propertyId: string, lifecycle: SurveyLifecycleTimestamps): AuditHistoryDto[] {
   const creator = lifecycle.creatorName?.trim() || "—"
-  const surveyor = lifecycle.surveyorName?.trim() || creator
+  const surveyor = lifecycle.surveyorName?.trim() || (creator !== "—" ? creator : "—")
   const createdAt = lifecycle.capturedAt ?? lifecycle.clientUpdatedAt ?? lifecycle.rowCreatedAt
 
   type Row = AuditHistoryDto & { sortAt: number }
@@ -210,22 +291,33 @@ function buildLifecycleFallback(propertyId: string, lifecycle: SurveyLifecycleTi
 
 /**
  * Source priority:
- * 1) Convex-migrated audit_events (occurredAt + actorName)
- * 2) Persisted survey_audits (all rows — do not drop to empty)
+ * 1) Convex-migrated audit_events (occurredAt + actorName / Nest Users hydrate)
+ * 2) Nest survey_audits excluding import seeds (IMPORTED / IMPORT_UPDATED)
  * 3) Survey lifecycle timestamps preserved from Convex (submittedAt/approvedAt/capturedAt)
+ *
+ * Import seeds use the importer as changedBy — never treat them as the historical actor.
  */
+const IMPORT_SEED_ACTIONS = new Set(["IMPORTED", "IMPORT_UPDATED"])
+
+function isImportSeedAction(action: string): boolean {
+  return IMPORT_SEED_ACTIONS.has(action.trim().toUpperCase())
+}
+
 export function buildSurveyAuditHistoryFromSources(args: {
   propertyId: string
   legacyEvents: LegacyAuditEventRow[]
   audits: PersistedSurveyAudit[]
   lifecycle?: SurveyLifecycleTimestamps
+  resolveActorName?: ResolveAuditActorName
 }): AuditHistoryDto[] {
   if (args.legacyEvents.length > 0) {
-    return mapLegacyAuditEventsToHistory(args.propertyId, args.legacyEvents)
+    return mapLegacyAuditEventsToHistory(args.propertyId, args.legacyEvents, args.resolveActorName)
   }
 
-  if (args.audits.length > 0) {
-    return mapPersistedAuditsToHistory(args.propertyId, args.audits)
+  const nestAudits = args.audits.filter((a) => !isImportSeedAction(a.action))
+
+  if (nestAudits.length > 0) {
+    return mapPersistedAuditsToHistory(args.propertyId, nestAudits)
   }
 
   if (args.lifecycle) {

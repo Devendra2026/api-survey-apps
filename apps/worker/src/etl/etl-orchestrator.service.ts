@@ -184,6 +184,19 @@ export class EtlOrchestratorService {
 
       const survey = transformed.survey
 
+      if (!survey.surveyorResolved) {
+        this.logger.warn(
+          JSON.stringify({
+            msg: "etl_surveyor_unresolved",
+            legacySurveyId,
+            surveyorClerkId: bundle.surveyorClerkId ?? null,
+            surveyorEmail: bundle.surveyorEmail ?? null,
+            fallbackCreatedById: survey.createdById,
+            hint: "Sync Clerk users into Nest Users module, then re-run survey ETL",
+          })
+        )
+      }
+
       // Refresh path for existing PENDING Nest rows: update fields only, no image re-download.
       if (refreshPending && nestSurvey) {
         const { surveyId } = await this.loadSurveyTransaction(survey, [], { statusOnlyRefresh: true })
@@ -679,6 +692,14 @@ export class EtlOrchestratorService {
             completionPct: survey.completionPct,
             clientUpdatedAt: survey.clientUpdatedAt,
             submittedAt: survey.submittedAt,
+            // Re-bind surveyor when Clerk user is now in Nest Users (fixes ETL system-user fallback).
+            ...(survey.surveyorResolved
+              ? {
+                  createdById: survey.createdById,
+                  assignedToId: survey.assignedToId ?? survey.createdById,
+                  assignedAt: new Date(),
+                }
+              : {}),
           },
         })
 
@@ -737,6 +758,8 @@ export class EtlOrchestratorService {
           ulbId: survey.ulbId,
           wardId: survey.wardId,
           createdById: survey.createdById,
+          assignedToId: survey.assignedToId ?? survey.createdById,
+          assignedAt: new Date(),
           respondentName: survey.respondentName,
           relationshipWithOwner: survey.relationshipWithOwner,
           mobileNumber: survey.mobileNumber,

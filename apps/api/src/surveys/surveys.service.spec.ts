@@ -86,7 +86,15 @@ describe("SurveysService workflow", () => {
 
   const jobs = { enqueueExport: jest.fn() }
   const storage = { isConfigured: jest.fn().mockReturnValue(false), getPresignedDownloadUrl: jest.fn() }
-  const service = new SurveysService(repo as never, prisma as never, jobs as never, storage as never)
+  const service = new SurveysService(
+    repo as never,
+    prisma as never,
+    jobs as never,
+    storage as never,
+    {
+      get: () => undefined,
+    } as never
+  )
 
   beforeEach(() => {
     jest.clearAllMocks()

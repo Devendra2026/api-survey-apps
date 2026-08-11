@@ -102,11 +102,13 @@ export function transformSurveyBundle(
     }
   }
 
-  const createdById =
-    ctx.resolveUserId({
-      clerkId: bundle.surveyorClerkId,
-      email: bundle.surveyorEmail,
-    }) ?? ctx.systemUserId
+  const resolvedSurveyorId = ctx.resolveUserId({
+    clerkId: bundle.surveyorClerkId,
+    email: bundle.surveyorEmail,
+  })
+  const surveyorResolved = Boolean(resolvedSurveyorId)
+  const createdById = resolvedSurveyorId ?? ctx.systemUserId
+  const assignedToId = resolvedSurveyorId ?? null
 
   const propertyId = (
     bundle.propertyId?.trim() ||
@@ -249,6 +251,8 @@ export function transformSurveyBundle(
     wardId: geo.wardId,
     districtCode: districtCodeForKeys,
     createdById,
+    assignedToId,
+    surveyorResolved,
     coOwners,
     floors,
     photos,

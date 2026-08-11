@@ -8,6 +8,7 @@ import {
 } from "@nestjs/common"
 import { ExportFormat, JobStatus, OwnershipType, PhotoType, SurveyStatus } from "@workspace/database"
 import { formatPropertyId } from "@workspace/validation"
+import { ConfigService } from "@nestjs/config"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import {
   assertActiveSurveyIdentityAvailable,
@@ -29,7 +30,12 @@ import type {
   UpdateSurveyDto,
   WardStatsQueryDto,
 } from "./dto/survey.dto.js"
-import { buildSurveyAuditHistoryFromSources } from "./survey-audit-history.js"
+import {
+  buildSurveyAuditHistoryFromSources,
+  collectAuditActorLookupKeys,
+  readLegacyActorClerkId,
+  readLegacyActorEmail,
+} from "./survey-audit-history.js"
 import { refreshSurveyPhotoUrls } from "./survey-photo-urls.js"
 import { mapSurveyToDetailsDto } from "./survey-view.mapper.js"
 import { SurveysRepository } from "./surveys.repository.js"
@@ -46,7 +52,8 @@ export class SurveysService {
     private readonly surveysRepository: SurveysRepository,
     private readonly prisma: PrismaService,
     private readonly jobsService: JobsService,
-    private readonly storageService: StorageService
+    private readonly storageService: StorageService,
+    private readonly config: ConfigService
   ) {}
 
   findAll(query: SurveyQueryDto, user: AuthenticatedUser) {
@@ -152,19 +159,30 @@ export class SurveysService {
       legacyEvents = []
     }
 
-    const history = buildSurveyAuditHistoryFromSources({
+    const mappedAudits = audits.map((a) => ({
+      action: a.action,
+      changedAt: a.changedAt,
+      changer: a.changer,
+      actorDisplayName:
+        "actorDisplayName" in a ? ((a as { actorDisplayName?: string | null }).actorDisplayName ?? null) : null,
+      actorRole: "actorRole" in a ? ((a as { actorRole?: string | null }).actorRole ?? null) : null,
+      details: "details" in a ? ((a as { details?: string | null }).details ?? null) : null,
+      sourceEventId: "sourceEventId" in a ? ((a as { sourceEventId?: string | null }).sourceEventId ?? null) : null,
+    }))
+
+    const resolveActorName = await this.buildAuditActorNameResolver(legacyEvents)
+    const systemUserId = await this.resolveEtlSystemUserId()
+    const createdByIsSystem = Boolean(systemUserId && survey.createdById === systemUserId)
+    const assignedToIsSystem = Boolean(systemUserId && survey.assignedToId === systemUserId)
+
+    const creatorName = createdByIsSystem ? null : (survey.createdBy?.fullName ?? null)
+    const surveyorName = assignedToIsSystem ? creatorName : (survey.assignedTo?.fullName ?? creatorName)
+
+    return buildSurveyAuditHistoryFromSources({
       propertyId: survey.propertyId,
       legacyEvents,
-      audits: audits.map((a) => ({
-        action: a.action,
-        changedAt: a.changedAt,
-        changer: a.changer,
-        actorDisplayName:
-          "actorDisplayName" in a ? ((a as { actorDisplayName?: string | null }).actorDisplayName ?? null) : null,
-        actorRole: "actorRole" in a ? ((a as { actorRole?: string | null }).actorRole ?? null) : null,
-        details: "details" in a ? ((a as { details?: string | null }).details ?? null) : null,
-        sourceEventId: "sourceEventId" in a ? ((a as { sourceEventId?: string | null }).sourceEventId ?? null) : null,
-      })),
+      audits: mappedAudits,
+      resolveActorName,
       lifecycle: {
         rowCreatedAt: survey.createdAt,
         capturedAt: "capturedAt" in survey ? survey.capturedAt : null,
@@ -172,12 +190,53 @@ export class SurveysService {
         submittedAt: survey.submittedAt,
         approvedAt: survey.approvedAt,
         rejectedAt: survey.rejectedAt,
-        creatorName: survey.createdBy?.fullName ?? null,
-        surveyorName: survey.assignedTo?.fullName ?? survey.createdBy?.fullName ?? null,
+        creatorName,
+        surveyorName,
       },
     })
+  }
 
-    return history
+  /**
+   * Batch-resolve Nest Users (Clerk sync) for audit_events missing metadata.actorName.
+   * Prefer clerkUserId, then email.
+   */
+  private async buildAuditActorNameResolver(
+    legacyEvents: Array<{ metadata: unknown }>
+  ): Promise<((event: { metadata: unknown }) => string | null) | undefined> {
+    const keys = collectAuditActorLookupKeys(legacyEvents as never)
+    if (keys.clerkIds.length === 0 && keys.emails.length === 0) return undefined
+
+    const users = await this.prisma.db.user.findMany({
+      where: {
+        OR: [
+          ...(keys.clerkIds.length > 0 ? [{ clerkUserId: { in: keys.clerkIds } }] : []),
+          ...(keys.emails.length > 0 ? [{ email: { in: keys.emails, mode: "insensitive" as const } }] : []),
+        ],
+      },
+      select: { fullName: true, clerkUserId: true, email: true },
+    })
+
+    const byClerk = new Map(users.filter((u) => u.clerkUserId).map((u) => [u.clerkUserId, u.fullName]))
+    const byEmail = new Map(users.filter((u) => u.email).map((u) => [u.email.toLowerCase(), u.fullName]))
+
+    return (event) => {
+      const clerkId = readLegacyActorClerkId(event.metadata)
+      if (clerkId && byClerk.has(clerkId)) return byClerk.get(clerkId) ?? null
+      const email = readLegacyActorEmail(event.metadata)
+      if (email && byEmail.has(email.toLowerCase())) return byEmail.get(email.toLowerCase()) ?? null
+      return null
+    }
+  }
+
+  /** Same fallback as ETL worker: ETL_SYSTEM_USER_ID or earliest Nest user. */
+  private async resolveEtlSystemUserId(): Promise<string | null> {
+    const configured = this.config.get<string>("ETL_SYSTEM_USER_ID")?.trim()
+    if (configured) return configured
+    const earliest = await this.prisma.db.user.findFirst({
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+    })
+    return earliest?.id ?? null
   }
 
   async create(dto: CreateSurveyDto, user: AuthenticatedUser) {

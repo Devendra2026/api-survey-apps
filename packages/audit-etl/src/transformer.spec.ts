@@ -50,6 +50,27 @@ describe("transformAuditRecord", () => {
     expect(event.payloadChecksum).toMatch(/^[a-f0-9]{64}$/)
   })
 
+  it("merges top-level actor enrichment into metadata and preserves identity keys", () => {
+    const event = transformAuditRecord({
+      _id: "j57actor",
+      _creationTime: Date.UTC(2026, 4, 23, 5, 5, 0),
+      actorId: "convex_user_1",
+      action: "survey.created",
+      entity: "survey",
+      entityId: "sv_legacy",
+      actorClerkId: "user_clerk_abc",
+      actorName: "Original Surveyor",
+      actorEmail: "surveyor@example.com",
+      metadata: { localId: "x" },
+    })
+
+    const meta = event.metadata as Record<string, unknown>
+    expect(meta.actorClerkId).toBe("user_clerk_abc")
+    expect(meta.actorName).toBe("Original Surveyor")
+    expect(meta.actorEmail).toBe("surveyor@example.com")
+    expect(meta.localId).toBe("x")
+  })
+
   it("is idempotent for checksum on same payload", () => {
     const raw = {
       _id: "id1",

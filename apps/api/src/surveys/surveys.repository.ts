@@ -405,20 +405,44 @@ export class SurveysRepository {
   }
 
   listAudits(surveyId: string) {
-    // Explicit select avoids requiring newer SurveyAudit columns before migration deploy.
-    return this.prisma.db.surveyAudit.findMany({
-      where: { surveyId },
-      orderBy: { changedAt: "desc" },
-      select: {
-        id: true,
-        action: true,
-        changedAt: true,
-        oldValue: true,
-        newValue: true,
-        changedBy: true,
-        changer: { select: { id: true, fullName: true, email: true } },
-      },
-    })
+    // Prefer columns that carry Convex actor snapshots when migration is applied.
+    // Fall back to pre-migration columns so QC still works if schema is behind.
+    const withLegacyFields = {
+      id: true,
+      action: true,
+      changedAt: true,
+      oldValue: true,
+      newValue: true,
+      changedBy: true,
+      actorDisplayName: true,
+      actorRole: true,
+      details: true,
+      sourceEventId: true,
+      changer: { select: { id: true, fullName: true, email: true } },
+    } as const
+    const preMigration = {
+      id: true,
+      action: true,
+      changedAt: true,
+      oldValue: true,
+      newValue: true,
+      changedBy: true,
+      changer: { select: { id: true, fullName: true, email: true } },
+    } as const
+
+    return this.prisma.db.surveyAudit
+      .findMany({
+        where: { surveyId },
+        orderBy: { changedAt: "desc" },
+        select: withLegacyFields,
+      })
+      .catch(() =>
+        this.prisma.db.surveyAudit.findMany({
+          where: { surveyId },
+          orderBy: { changedAt: "desc" },
+          select: preMigration,
+        })
+      )
   }
 
   async assignSurvey(params: { id: string; assigneeId: string; changedBy: string; previousAssigneeId: string }) {

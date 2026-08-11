@@ -9,6 +9,10 @@ export const legacyAuditRecordSchema = z.object({
   entity: z.string().min(1),
   entityId: z.string().nullable().optional(),
   metadata: z.unknown().nullable().optional(),
+  /** Enriched by Convex listAuditLogs for Nest User.clerkUserId join. */
+  actorClerkId: z.string().nullable().optional(),
+  actorName: z.string().nullable().optional(),
+  actorEmail: z.string().nullable().optional(),
 })
 
 export type LegacyAuditRecord = z.infer<typeof legacyAuditRecordSchema>

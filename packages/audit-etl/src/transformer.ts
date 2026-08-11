@@ -90,6 +90,10 @@ function sortKeys(value: unknown): unknown {
 /**
  * Validate a legacy record, normalize timestamps to UTC ISO-8601, parse changes,
  * redact PII, and map to the flattened target schema.
+ *
+ * Preserves actorName / actorEmail / actorClerkId in metadata (needed for Nest
+ * Audit History → Clerk Users join). Top-level enrichment fields from Convex
+ * extract are merged into metadata when missing.
  */
 export function transformAuditRecord(raw: unknown): TargetAuditEvent {
   const legacy: LegacyAuditRecord = legacyAuditRecordSchema.parse(raw)
@@ -100,20 +104,37 @@ export function transformAuditRecord(raw: unknown): TargetAuditEvent {
   const occurredAtIso = occurredAt.toISOString()
 
   const metaRaw = legacy.metadata ?? null
-  const metaObj = isPlainObject(metaRaw) ? (metaRaw as Record<string, unknown>) : {}
+  const metaObj = isPlainObject(metaRaw) ? { ...(metaRaw as Record<string, unknown>) } : {}
+
+  // Merge Convex extract enrichment into metadata (do not overwrite existing snapshots).
+  if (legacy.actorClerkId?.trim() && !readStringField(metaObj, ["actorClerkId", "actor_clerk_id"])) {
+    metaObj.actorClerkId = legacy.actorClerkId.trim()
+  }
+  if (legacy.actorName?.trim() && !readStringField(metaObj, ["actorName", "actor_name"])) {
+    metaObj.actorName = legacy.actorName.trim()
+  }
+  if (legacy.actorEmail?.trim() && !readStringField(metaObj, ["actorEmail", "actor_email"])) {
+    metaObj.actorEmail = legacy.actorEmail.trim()
+  }
+
   const { before, after } = extractChanges(metaObj)
 
-  const redactedMeta = metaRaw === null || metaRaw === undefined ? null : redactPii(metaRaw)
+  const hasMeta = Object.keys(metaObj).length > 0
+  const redactedMeta = hasMeta ? redactPii(metaObj) : metaRaw === null || metaRaw === undefined ? null : redactPii(metaRaw)
   const redactedBefore = before === null ? null : redactPii(before)
   const redactedAfter = after === null ? null : redactPii(after)
 
-  const tenantId = isPlainObject(metaObj)
-    ? readStringField(metaObj, ["tenantId", "tenant_id", "orgId", "organizationId"])
-    : null
-  const ip = isPlainObject(metaObj) ? readStringField(metaObj, ["ip", "ipAddress", "clientIp"]) : null
-  const userAgent = isPlainObject(metaObj)
-    ? readStringField(metaObj, ["userAgent", "user_agent", "ua"])
-    : null
+  // Ensure actor identity keys survive redaction (they are not sensitive secrets).
+  const metadataOut = ensureActorIdentityKeys(
+    redactedMeta,
+    metaObj.actorName,
+    metaObj.actorEmail,
+    metaObj.actorClerkId
+  )
+
+  const tenantId = readStringField(metaObj, ["tenantId", "tenant_id", "orgId", "organizationId"])
+  const ip = readStringField(metaObj, ["ip", "ipAddress", "clientIp"])
+  const userAgent = readStringField(metaObj, ["userAgent", "user_agent", "ua"])
 
   const event: TargetAuditEvent = {
     eventId: legacy._id,
@@ -128,7 +149,7 @@ export function transformAuditRecord(raw: unknown): TargetAuditEvent {
     changesAfter: redactedAfter,
     ip,
     userAgent,
-    metadata: redactedMeta,
+    metadata: metadataOut,
     payloadChecksum: "",
   }
 
@@ -148,6 +169,37 @@ export function transformAuditRecord(raw: unknown): TargetAuditEvent {
   })
 
   return targetAuditEventSchema.parse(event)
+}
+
+function ensureActorIdentityKeys(
+  redacted: unknown,
+  actorName: unknown,
+  actorEmail: unknown,
+  actorClerkId: unknown
+): unknown {
+  if (redacted === null || redacted === undefined) {
+    const out: Record<string, unknown> = {}
+    if (typeof actorName === "string" && actorName.trim()) out.actorName = actorName.trim()
+    if (typeof actorEmail === "string" && actorEmail.trim()) out.actorEmail = actorEmail.trim()
+    if (typeof actorClerkId === "string" && actorClerkId.trim()) out.actorClerkId = actorClerkId.trim()
+    return Object.keys(out).length > 0 ? out : null
+  }
+  if (!isPlainObject(redacted)) return redacted
+  const out = { ...redacted }
+  if (typeof actorName === "string" && actorName.trim() && !readStringField(out, ["actorName", "actor_name"])) {
+    out.actorName = actorName.trim()
+  }
+  if (typeof actorEmail === "string" && actorEmail.trim() && !readStringField(out, ["actorEmail", "actor_email"])) {
+    out.actorEmail = actorEmail.trim()
+  }
+  if (
+    typeof actorClerkId === "string" &&
+    actorClerkId.trim() &&
+    !readStringField(out, ["actorClerkId", "actor_clerk_id"])
+  ) {
+    out.actorClerkId = actorClerkId.trim()
+  }
+  return out
 }
 
 /** Safe transform: returns either the event or a DLQ-shaped failure. */

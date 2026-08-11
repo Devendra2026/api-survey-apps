@@ -239,6 +239,10 @@ export interface MappedSurvey {
   /** Nest district code used in object keys */
   districtCode: string
   createdById: string
+  /** Surveyor assignee when Clerk user resolved; omitted when falling back to system user. */
+  assignedToId?: string | null
+  /** False when createdById fell back to systemUserId despite surveyor clerk/email being present. */
+  surveyorResolved: boolean
   coOwners: MappedCoOwner[]
   floors: MappedFloor[]
   photos: MappedPhotoPlan[]

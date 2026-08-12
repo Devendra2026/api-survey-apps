@@ -1,6 +1,6 @@
 -- Step 2: remap FIFTH_FLOOR_PLUS → FIFTH_FLOOR, drop old enum value, backfill built-up.
 
-UPDATE "Floor"
+UPDATE "floors"
 SET "floorPosition" = 'FIFTH_FLOOR'
 WHERE "floorPosition" = 'FIFTH_FLOOR_PLUS';
 
@@ -16,7 +16,7 @@ CREATE TYPE "FloorPosition_new" AS ENUM (
   'OPEN_LAND'
 );
 
-ALTER TABLE "Floor"
+ALTER TABLE "floors"
   ALTER COLUMN "floorPosition" TYPE "FloorPosition_new"
   USING ("floorPosition"::text::"FloorPosition_new");
 
@@ -25,7 +25,7 @@ ALTER TYPE "FloorPosition_new" RENAME TO "FloorPosition";
 
 -- Backfill built-up from countable floor rows (exclude OPEN_LAND position/usage).
 -- Open-land property use → 0.
-UPDATE "Survey" s
+UPDATE "surveys" s
 SET
   "totalBuiltAreaSqFt" = CASE
     WHEN s."propertyUse" = 'OPEN_LAND' THEN 0
@@ -44,13 +44,13 @@ FROM (
         ELSE COALESCE(f."areaSqFt", 0)
       END
     ) AS built_sq_ft
-  FROM "Floor" f
+  FROM "floors" f
   GROUP BY f."surveyId"
 ) agg
 WHERE s.id = agg.survey_id;
 
 -- Surveys with no floors: keep existing unless open land (force 0).
-UPDATE "Survey"
+UPDATE "surveys"
 SET
   "totalBuiltAreaSqFt" = 0,
   "totalBuiltAreaSqMeter" = 0

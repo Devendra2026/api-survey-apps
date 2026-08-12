@@ -188,7 +188,9 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
       ? getApiErrorMessage(detailQuery.error)
       : "This survey may be outside your tenant scope or the identifier is invalid."
     const isForbidden = /tenant scope|forbidden|not allowed|unauthorized/i.test(errorMessage)
-    return <EmptyState title={isForbidden ? "Access denied" : "Survey not found"} description={errorMessage} />
+    const isDbFailure = /database operation failed|schema is behind|migrate deploy/i.test(errorMessage)
+    const title = isForbidden ? "Access denied" : isDbFailure ? "Unable to load survey" : "Survey not found"
+    return <EmptyState title={title} description={errorMessage} />
   }
 
   const pending =

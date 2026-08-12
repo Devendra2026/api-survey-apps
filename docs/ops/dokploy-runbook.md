@@ -21,6 +21,7 @@ Use root [`docker-compose.dokploy.yml`](../../docker-compose.dokploy.yml) as a *
 - Per-service Dockerfiles: `apps/{web,api,worker}/Dockerfile` (`turbo prune --docker`)
 - Services: `postgres`, `redis`, `minio`, `minio-init`, `migrate`, `api`, `worker`, `web`
 - Startup: `minio-init` waits for MinIO **healthy** (no `connection refused` spam); `migrate` is a one-shot (`node:24-bookworm-slim` + OpenSSL, healthcheck disabled) that builds `DATABASE_URL` from `POSTGRES_*`, then logs `✓` steps for env → DNS/TCP/login wait → `prisma migrate deploy` only (`No pending migrations to apply.` is success). Set `DEBUG_STARTUP=true` for artifact diagnostics. Catalog seed is a **one-time manual** step — see [dokploy-env.md](./dokploy-env.md) § One-time catalog seed.
+- If migrate logs **P3009** for `20260804140100_floor_position_remap_backfill`, current images auto-mark that failed migration rolled-back once and retry deploy (fixed SQL uses `floors`/`surveys`). Redeploy `migrate` after pulling this fix; QC “database operation failed” clears once remap + later migrations apply.
 - Domains (Traefik labels): `admin.sdvedutech.in` → web:**3000**; `backend.sdvedutech.in` → api:**4000**
 
 If Dokploy errors with `open Dockerfile: no such file or directory`, the app is the wrong type — see [dokploy-compose-setup.md](./dokploy-compose-setup.md) § “If you see this error”.

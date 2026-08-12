@@ -341,16 +341,53 @@ Detail: ${out}"
 
 wait_for_postgres 60
 
+# Known production failure (2026-08-04): migration used wrong table names
+# ("Floor"/"Survey") and left _prisma_migrations in failed state → P3009 blocks
+# all later deploys. SQL is fixed + idempotent; auto roll back once then retry.
+KNOWN_FAILED_FLOOR_REMAP="20260804140100_floor_position_remap_backfill"
+
+migrate_deploy_capture() {
+  # Disable ERR trap so a failed deploy can be inspected / retried once.
+  trap - ERR
+  set +e
+  run_prisma "$PRISMA_BIN" migrate deploy 2>&1 | tee "$1"
+  local code=${PIPESTATUS[0]}
+  set -e
+  trap 'on_err "$BASH_COMMAND"' ERR
+  return "$code"
+}
+
 log "✓ Migration starting (prisma migrate deploy)"
-if ! run_prisma "$PRISMA_BIN" migrate deploy; then
-  code=$?
+deploy_log="$(mktemp)"
+deploy_code=0
+migrate_deploy_capture "$deploy_log" || deploy_code=$?
+
+if [ "$deploy_code" -ne 0 ] \
+  && grep -q "P3009" "$deploy_log" \
+  && grep -q "$KNOWN_FAILED_FLOOR_REMAP" "$deploy_log"; then
+  log "✓ Detected failed migration ${KNOWN_FAILED_FLOOR_REMAP} (P3009)"
+  log "  Marking rolled-back so fixed SQL can apply (one automatic retry)"
+  run_prisma "$PRISMA_BIN" migrate resolve --rolled-back "$KNOWN_FAILED_FLOOR_REMAP"
+  log "✓ Migration retrying (prisma migrate deploy)"
+  deploy_code=0
+  migrate_deploy_capture "$deploy_log" || deploy_code=$?
+fi
+
+if [ "$deploy_code" -ne 0 ]; then
   printf '\n%s %s✗ Migration failed%s\n' "$(ts)" "${C_ERR}" "${C_RST}" >&2
   printf '  host=%s db=%s schema=%s user=%s\n' "$DB_HOST" "$DB_NAME" "$DB_SCHEMA" "$DB_USER" >&2
   printf '  cwd=%s\n' "$(pwd)" >&2
   printf '  schema=%s\n' "$(pwd)/prisma/schema.prisma" >&2
   printf '  migrations=%s\n' "$(pwd)/prisma/migrations" >&2
-  exit "$code"
+  if grep -q "P3009" "$deploy_log" 2>/dev/null; then
+    printf '  hint: prisma migrate resolve --rolled-back <failed_migration_name>\n' >&2
+    printf '        then re-run prisma migrate deploy (after fixing SQL if needed)\n' >&2
+  fi
+  rm -f "$deploy_log"
+  exit "$deploy_code"
 fi
+
+rm -f "$deploy_log"
 ok "Migration completed"
 
 ok "Finished successfully"

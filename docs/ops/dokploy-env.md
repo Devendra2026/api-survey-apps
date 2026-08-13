@@ -53,6 +53,14 @@ This app uses **standard single-domain Clerk** on `admin.sdvedutech.in` (hosted
 `/sign-in` / `/sign-up`). Do **not** set satellite vars
 (`NEXT_PUBLIC_CLERK_IS_SATELLITE`, `NEXT_PUBLIC_CLERK_DOMAIN`).
 
+Etah portal (`portal.nppetah.in`) is a **second Clerk application**. Nest must
+verify both secrets. If `PORTAL_CLERK_SECRET_KEY` is missing or equal to
+`CLERK_SECRET_KEY`, portal login succeeds and then `GET /users/me` returns
+`Invalid or expired token`. After changing these vars, **redeploy the api
+container** (new image / recreate). Env-only restart of an old admin-only
+build does not load portal verify. API logs must include
+`Clerk JWT instances loaded: admin, portal`.
+
 ## Paste-ready minimal block
 
 ```bash
@@ -71,8 +79,9 @@ ETAH_PORTAL_URL=https://portal.nppetah.in
 CLERK_PUBLISHABLE_KEY=pk_live_REPLACE_ME
 CLERK_SECRET_KEY=sk_live_REPLACE_ME
 CLERK_AUTHORIZED_PARTIES=https://admin.sdvedutech.in,https://portal.nppetah.in
-PORTAL_CLERK_SECRET_KEY=sk_REPLACE_ME_PORTAL_CLERK
-PORTAL_CLERK_AUTHORIZED_PARTIES=https://portal.nppetah.in
+# Must be the Etah portal sk_live_ (clerk.nppetah.in). MUST differ from CLERK_SECRET_KEY.
+PORTAL_CLERK_SECRET_KEY=sk_live_REPLACE_ME_ETAH_PORTAL
+PORTAL_CLERK_AUTHORIZED_PARTIES=https://portal.nppetah.in,https://clerk.nppetah.in
 BOOTSTRAP_ADMIN_CLERK_USER_IDS=user_REPLACE_ME
 
 CORS_ORIGIN=https://admin.sdvedutech.in,https://portal.nppetah.in
@@ -134,6 +143,8 @@ production data.
 | `NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL` | `/dashboard` (**build arg**)                                                                                                                                                                        |
 | `ETAH_PORTAL_URL`                                 | `https://portal.nppetah.in` (web runtime; Etah department roles redirect here)                                                                                                                      |
 | `CLERK_AUTHORIZED_PARTIES`                        | `https://admin.sdvedutech.in,https://portal.nppetah.in`                                                                                                                                             |
+| `PORTAL_CLERK_SECRET_KEY`                         | Etah portal `sk_live_` (`clerk.nppetah.in`). **Must differ** from `CLERK_SECRET_KEY` or the portal instance is skipped                                                                              |
+| `PORTAL_CLERK_AUTHORIZED_PARTIES`                 | `https://portal.nppetah.in,https://clerk.nppetah.in`                                                                                                                                                |
 | `BOOTSTRAP_ADMIN_CLERK_USER_IDS`                  | Clerk `user_…` ids, comma-separated; set before first sign-in                                                                                                                                       |
 | `DEMAND_NOTICE_PRINT_SECRET`                      | Strong random secret                                                                                                                                                                                |
 | `BACKUP_ROOT`                                     | Host backup path, normally `/backups`                                                                                                                                                               |

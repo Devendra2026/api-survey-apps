@@ -20,12 +20,14 @@
    - Worker listens on `4001` and remains internal
    - Clerk allowed origins / redirect URLs include `https://admin.sdvedutech.in`
 
-3. **Clerk Dashboard (this app is the primary; `portal.nppetah.in` is the satellite)**
+3. **Clerk Dashboard (this app is the primary; Etah portal is a second Clerk application)**
    - Application / Home URL: `https://admin.sdvedutech.in` (**not** `www.sdvedutech.in`)
    - Paths: Sign-in `/sign-in`, Sign-up `/sign-up`
    - Allowed origins / redirect allowlist: `https://admin.sdvedutech.in`, `https://portal.nppetah.in` (+ `http://localhost:3000` for local)
-   - Satellite domain: `portal.nppetah.in` (same Clerk instance / live keys as admin)
    - Do **not** set `NEXT_PUBLIC_CLERK_IS_SATELLITE` on this admin app
+   - Keep **admin** `CLERK_SECRET_KEY` as the SDV `sk_live_`. Set **api** `PORTAL_CLERK_SECRET_KEY` to the Etah portal `sk_live_` (`clerk.nppetah.in`). The two secrets **must differ** or portal JWTs return `Invalid or expired token`.
+   - `PORTAL_CLERK_AUTHORIZED_PARTIES=https://portal.nppetah.in,https://clerk.nppetah.in`
+   - After changing Clerk secrets on **api**, **redeploy the api container** (new image). Logs must show `Clerk JWT instances loaded: admin, portal`.
    - If Account Portal custom domain `accounts.sdvedutech.in` is enabled, set its application URL to admin — or disable it for this app. Missing `NEXT_PUBLIC_CLERK_SIGN_IN_URL` previously sent `auth.protect()` to Account Portal, which then bounced to www.
    - After changing Dokploy `NEXT_PUBLIC_CLERK_*` path vars, **rebuild** the web image (not restart-only).
 

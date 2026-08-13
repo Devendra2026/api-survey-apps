@@ -1,4 +1,5 @@
 import { createClerkClient, verifyToken } from "@clerk/backend"
+import { Logger } from "@nestjs/common"
 import type { ConfigService } from "@nestjs/config"
 
 export type ClerkInstance = {
@@ -6,6 +7,8 @@ export type ClerkInstance = {
   secretKey: string
   authorizedParties: string[]
 }
+
+const logger = new Logger("ClerkInstances")
 
 function splitList(value: string | undefined): string[] {
   return (value ?? "")
@@ -33,7 +36,15 @@ export function clerkInstances(config: ConfigService): ClerkInstance[] {
       secretKey: portalSecret,
       authorizedParties: splitList(config.get<string>("PORTAL_CLERK_AUTHORIZED_PARTIES")),
     })
+  } else if (portalSecret && portalSecret === adminSecret) {
+    logger.error(
+      "PORTAL_CLERK_SECRET_KEY equals CLERK_SECRET_KEY. The Etah portal Clerk instance is skipped. Portal JWTs will return 401 Invalid or expired token. Use the portal sk_live_ (clerk.nppetah.in), not the admin secret."
+    )
+  } else if (adminSecret && !portalSecret) {
+    logger.warn("PORTAL_CLERK_SECRET_KEY is not set. Etah portal (portal.nppetah.in) JWTs cannot be verified.")
   }
+
+  logger.log(`Clerk JWT instances loaded: ${instances.map((instance) => instance.name).join(", ") || "none"}`)
 
   return instances
 }

@@ -22,6 +22,7 @@ export class ClerkAuthGuard implements CanActivate {
     private readonly roleProvisioning: RoleProvisioningService
   ) {
     this.instances = clerkInstances(this.configService)
+    this.logger.log(`Clerk JWT instances: ${this.instances.map((instance) => instance.name).join(", ") || "none"}`)
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {

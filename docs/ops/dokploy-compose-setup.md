@@ -74,6 +74,8 @@ ETAH_PORTAL_URL=https://portal.nppetah.in
 CLERK_PUBLISHABLE_KEY=pk_live_REPLACE_ME
 CLERK_SECRET_KEY=sk_live_REPLACE_ME
 CLERK_AUTHORIZED_PARTIES=https://admin.sdvedutech.in,https://portal.nppetah.in
+PORTAL_CLERK_SECRET_KEY=sk_live_REPLACE_ME_ETAH_PORTAL
+PORTAL_CLERK_AUTHORIZED_PARTIES=https://portal.nppetah.in,https://clerk.nppetah.in
 
 CORS_ORIGIN=https://admin.sdvedutech.in,https://portal.nppetah.in
 APP_URL=https://admin.sdvedutech.in
@@ -90,6 +92,7 @@ NODE_ENV=production
 - Interpolation vs runtime checklist: [dokploy-env.md](./dokploy-env.md).
 - Optional: `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`, ETL vars — [dokploy-env.md](./dokploy-env.md).
 - After first migrate on an empty DB, run one-time catalog seed — [dokploy-env.md](./dokploy-env.md) § One-time catalog seed.
+- `PORTAL_CLERK_*` belongs on the **api** service only. `PORTAL_CLERK_SECRET_KEY` must differ from `CLERK_SECRET_KEY`. After setting it, **redeploy api**. Logs must show `Clerk JWT instances loaded: admin, portal`. Then smoke: portal sign-out → clear cookies → sign-in → dashboard or access-pending (not `Invalid or expired token`). Admin sign-in must still work.
 
 ## 3. Domains
 

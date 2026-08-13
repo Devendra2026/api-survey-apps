@@ -18,10 +18,11 @@ export class UsersRepository {
 
   async findAll(
     query: ListUsersQueryDto,
-    scope?: import("../common/interfaces/authenticated-user.interface.js").TenantScope
+    scope?: import("../common/interfaces/authenticated-user.interface.js").TenantScope,
+    options?: { includePendingForAssign?: boolean }
   ) {
     const { skip, take, page, limit } = getSkipTake(query)
-    const where = this.buildListWhere(query, scope)
+    const where = this.buildListWhere(query, scope, options)
 
     const [items, total] = await Promise.all([
       this.prisma.db.user.findMany({
@@ -127,7 +128,8 @@ export class UsersRepository {
 
   private buildListWhere(
     query: ListUsersQueryDto,
-    scope?: import("../common/interfaces/authenticated-user.interface.js").TenantScope
+    scope?: import("../common/interfaces/authenticated-user.interface.js").TenantScope,
+    options?: { includePendingForAssign?: boolean }
   ): Prisma.UserWhereInput {
     const where: Prisma.UserWhereInput = {}
 
@@ -158,15 +160,19 @@ export class UsersRepository {
     }
 
     if (scope && !scope.isGlobal) {
-      const roleOr: Prisma.UserTenantRoleWhereInput[] = []
-      if (scope.wardIds.length) roleOr.push({ wardId: { in: scope.wardIds } })
-      if (scope.ulbIds.length) roleOr.push({ ulbId: { in: scope.ulbIds } })
-      if (scope.districtIds.length) roleOr.push({ districtId: { in: scope.districtIds } })
-      if (scope.stateIds.length) roleOr.push({ stateId: { in: scope.stateIds } })
-      roleFilters.push({
-        isActive: true,
-        ...(roleOr.length ? { OR: roleOr } : { id: "__no_access__" }),
-      })
+      if (query.roleName === "PENDING_APPROVAL" && options?.includePendingForAssign) {
+        // Department admins listing unaffiliated Clerk signups to grant ULB access.
+      } else {
+        const roleOr: Prisma.UserTenantRoleWhereInput[] = []
+        if (scope.wardIds.length) roleOr.push({ wardId: { in: scope.wardIds } })
+        if (scope.ulbIds.length) roleOr.push({ ulbId: { in: scope.ulbIds } })
+        if (scope.districtIds.length) roleOr.push({ districtId: { in: scope.districtIds } })
+        if (scope.stateIds.length) roleOr.push({ stateId: { in: scope.stateIds } })
+        roleFilters.push({
+          isActive: true,
+          ...(roleOr.length ? { OR: roleOr } : { id: "__no_access__" }),
+        })
+      }
     }
 
     if (roleFilters.length === 1) {

@@ -1,4 +1,3 @@
-import { createClerkClient, verifyToken } from "@clerk/backend"
 import { CanActivate, ExecutionContext, Injectable, Logger, UnauthorizedException } from "@nestjs/common"
 import { ConfigService } from "@nestjs/config"
 import { Reflector } from "@nestjs/core"
@@ -8,13 +7,12 @@ import { IS_PUBLIC_KEY } from "../decorators/public.decorator.js"
 import type { AuthenticatedUser } from "../interfaces/authenticated-user.interface.js"
 import { RoleProvisioningService } from "../services/role-provisioning.service.js"
 import { TenantScopeService } from "../services/tenant-scope.service.js"
-
-type ClerkClient = ReturnType<typeof createClerkClient>
+import { clerkClientFor, clerkInstances, verifySessionToken, type ClerkInstance } from "./clerk-instance.js"
 
 @Injectable()
 export class ClerkAuthGuard implements CanActivate {
   private readonly logger = new Logger(ClerkAuthGuard.name)
-  private readonly clerk: ClerkClient | null
+  private readonly instances: ClerkInstance[]
 
   constructor(
     private readonly reflector: Reflector,
@@ -23,8 +21,7 @@ export class ClerkAuthGuard implements CanActivate {
     private readonly tenantScopeService: TenantScopeService,
     private readonly roleProvisioning: RoleProvisioningService
   ) {
-    const secretKey = this.configService.get<string>("CLERK_SECRET_KEY")
-    this.clerk = secretKey ? createClerkClient({ secretKey }) : null
+    this.instances = clerkInstances(this.configService)
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -45,7 +42,6 @@ export class ClerkAuthGuard implements CanActivate {
     }
 
     const token = authHeader.slice(7)
-    const secretKey = this.configService.get<string>("CLERK_SECRET_KEY")
     const nodeEnv = this.configService.get<string>("NODE_ENV") ?? "development"
     const allowDevAuth = this.configService.get<string>("ALLOW_DEV_AUTH") === "true"
     const devMode = nodeEnv !== "production" && allowDevAuth
@@ -69,59 +65,55 @@ export class ClerkAuthGuard implements CanActivate {
       }
     }
 
-    if (!secretKey) {
+    if (this.instances.length === 0) {
       throw new UnauthorizedException("CLERK_SECRET_KEY is not configured")
     }
 
-    let clerkUserId: string
+    let clerkUserId = ""
     let email = ""
     let fullName = "User"
     let phone: string | null = null
     let profileFetched = false
+    let matched: ClerkInstance | null = null
 
-    try {
-      const authorizedParties = this.configService
-        .get<string>("CLERK_AUTHORIZED_PARTIES")
-        ?.split(",")
-        .map((p) => p.trim())
-        .filter(Boolean)
+    const configuredSkew = this.configService.get<number>("CLERK_CLOCK_SKEW_MS")
+    const clockSkewInMs =
+      typeof configuredSkew === "number" && Number.isFinite(configuredSkew) ? configuredSkew : 30_000
 
-      // Default Clerk skew is 5s; Windows clocks often drift ~5–15s which rejects
-      // tokens with iat slightly in the future. Allow override via env.
-      const configuredSkew = this.configService.get<number>("CLERK_CLOCK_SKEW_MS")
-      const clockSkewInMs =
-        typeof configuredSkew === "number" && Number.isFinite(configuredSkew) ? configuredSkew : 30_000
+    let lastVerifyError: unknown
+    for (const instance of this.instances) {
+      try {
+        const payload = await verifySessionToken(token, instance, clockSkewInMs)
+        if (!payload.sub) throw new UnauthorizedException("Invalid token subject")
+        clerkUserId = payload.sub
+        matched = instance
+        break
+      } catch (err) {
+        if (err instanceof UnauthorizedException) throw err
+        lastVerifyError = err
+      }
+    }
 
-      const payload = await verifyToken(token, {
-        secretKey,
-        clockSkewInMs,
-        ...(authorizedParties?.length ? { authorizedParties } : {}),
-      })
-      if (!payload.sub) throw new UnauthorizedException("Invalid token subject")
-      clerkUserId = payload.sub
-    } catch (err) {
-      if (err instanceof UnauthorizedException) throw err
-      this.logger.warn(`JWT verification failed: ${String(err)}`)
+    if (!matched) {
+      this.logger.warn(`JWT verification failed: ${String(lastVerifyError)}`)
       throw new UnauthorizedException("Invalid or expired token")
     }
 
-    if (this.clerk) {
-      try {
-        const clerkUser = await this.clerk.users.getUser(clerkUserId)
-        email =
-          clerkUser.emailAddresses.find((e) => e.id === clerkUser.primaryEmailAddressId)?.emailAddress ??
-          clerkUser.emailAddresses[0]?.emailAddress ??
-          ""
-        fullName =
-          [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim() ||
-          clerkUser.username ||
-          email ||
-          "User"
-        phone = clerkUser.primaryPhoneNumber?.phoneNumber ?? null
-        profileFetched = Boolean(email)
-      } catch (err) {
-        this.logger.warn(`Failed to fetch Clerk user ${clerkUserId}: ${String(err)}`)
-      }
+    try {
+      const clerkUser = await clerkClientFor(matched.secretKey).users.getUser(clerkUserId)
+      email =
+        clerkUser.emailAddresses.find((e) => e.id === clerkUser.primaryEmailAddressId)?.emailAddress ??
+        clerkUser.emailAddresses[0]?.emailAddress ??
+        ""
+      fullName =
+        [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim() ||
+        clerkUser.username ||
+        email ||
+        "User"
+      phone = clerkUser.primaryPhoneNumber?.phoneNumber ?? null
+      profileFetched = Boolean(email)
+    } catch (err) {
+      this.logger.warn(`Failed to fetch Clerk user ${clerkUserId} (${matched.name}): ${String(err)}`)
     }
 
     request.user = await this.resolveLocalUser({
@@ -148,7 +140,7 @@ export class ClerkAuthGuard implements CanActivate {
 
     const normalizedEmail = input.profileFetched && input.email ? normalizeEmail(input.email) : (existing?.email ?? "")
 
-    // Email-first import: rebind pending:{email} row to the real Clerk sub on first sign-in.
+    // Email-first: pending:{email} rebind, or same officer on the Etah portal Clerk instance.
     if (!existing && normalizedEmail) {
       const byEmail = await this.prisma.db.user.findUnique({ where: { email: normalizedEmail } })
       if (byEmail && isPendingClerkUserId(byEmail.clerkUserId)) {
@@ -167,6 +159,9 @@ export class ClerkAuthGuard implements CanActivate {
           },
         })
         this.logger.log(`Rebound pending user ${byEmail.id} to clerkUserId=${input.clerkUserId}`)
+      } else if (byEmail) {
+        existing = byEmail
+        this.logger.log(`Linked portal Clerk login to existing user ${byEmail.id} by email`)
       }
     }
 

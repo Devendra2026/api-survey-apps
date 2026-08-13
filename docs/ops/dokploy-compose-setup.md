@@ -68,13 +68,14 @@ NEXT_PUBLIC_API_URL=https://backend.sdvedutech.in
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_live_REPLACE_ME
 NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
 NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
-NEXT_PUBLIC_CLERK_SIGN_IN_FORCE_REDIRECT_URL=/dashboard
-NEXT_PUBLIC_CLERK_SIGN_UP_FORCE_REDIRECT_URL=/dashboard
+NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL=/dashboard
+NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL=/dashboard
+ETAH_PORTAL_URL=https://portal.nppetah.in
 CLERK_PUBLISHABLE_KEY=pk_live_REPLACE_ME
 CLERK_SECRET_KEY=sk_live_REPLACE_ME
-CLERK_AUTHORIZED_PARTIES=https://admin.sdvedutech.in
+CLERK_AUTHORIZED_PARTIES=https://admin.sdvedutech.in,https://portal.nppetah.in
 
-CORS_ORIGIN=https://admin.sdvedutech.in
+CORS_ORIGIN=https://admin.sdvedutech.in,https://portal.nppetah.in
 APP_URL=https://admin.sdvedutech.in
 DEMAND_NOTICE_PRINT_SECRET=REPLACE_ME_LONG_RANDOM
 

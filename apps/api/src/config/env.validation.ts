@@ -95,6 +95,17 @@ export class EnvironmentVariables {
   @IsString()
   CLERK_AUTHORIZED_PARTIES?: string
 
+  /** Second Clerk instance for portal.nppetah.in (own keys, not satellite). */
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @IsString()
+  PORTAL_CLERK_SECRET_KEY?: string
+
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @IsString()
+  PORTAL_CLERK_AUTHORIZED_PARTIES?: string
+
   /** Comma-separated Clerk user IDs granted ADMIN (global scope) on first login if they have no roles. */
   @IsOptional()
   @IsString()

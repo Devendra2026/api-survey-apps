@@ -1,11 +1,13 @@
 import { ProtectedDashboardLayout } from "@/components/layout/protected-layout"
 import { hasDashboardAccess } from "@/lib/auth/dashboard-access"
+import { etahPortalOrigin, shouldRedirectToEtahPortal, type EtahRedirectRole } from "@/lib/auth/etah-portal-redirect"
 import { unwrapApiProfile } from "@/lib/auth/unwrap-api-profile"
 import { auth } from "@clerk/nextjs/server"
 import { forbidden, redirect } from "next/navigation"
 
 type CurrentUserProfile = {
   permissions?: string[]
+  tenantRoles?: EtahRedirectRole[]
 }
 
 async function fetchCurrentUser(token: string) {
@@ -52,6 +54,9 @@ export default async function DashboardGroupLayout({ children }: { children: Rea
   // API 403 (e.g. disabled account messaging path) or empty permissions → Forbidden.
   if (currentUser.status === 403 || !hasDashboardAccess(currentUser.profile?.permissions)) {
     forbidden()
+  }
+  if (shouldRedirectToEtahPortal(currentUser.profile?.tenantRoles)) {
+    redirect(`${etahPortalOrigin()}/dashboard`)
   }
 
   return <ProtectedDashboardLayout>{children}</ProtectedDashboardLayout>

@@ -20,10 +20,12 @@
    - Worker listens on `4001` and remains internal
    - Clerk allowed origins / redirect URLs include `https://admin.sdvedutech.in`
 
-3. **Clerk Dashboard (standard auth on admin — not satellite)**
+3. **Clerk Dashboard (this app is the primary; `portal.nppetah.in` is the satellite)**
    - Application / Home URL: `https://admin.sdvedutech.in` (**not** `www.sdvedutech.in`)
    - Paths: Sign-in `/sign-in`, Sign-up `/sign-up`
-   - Allowed origins / redirect allowlist: `https://admin.sdvedutech.in` (+ `http://localhost:3000` for local)
+   - Allowed origins / redirect allowlist: `https://admin.sdvedutech.in`, `https://portal.nppetah.in` (+ `http://localhost:3000` for local)
+   - Satellite domain: `portal.nppetah.in` (same Clerk instance / live keys as admin)
+   - Do **not** set `NEXT_PUBLIC_CLERK_IS_SATELLITE` on this admin app
    - If Account Portal custom domain `accounts.sdvedutech.in` is enabled, set its application URL to admin — or disable it for this app. Missing `NEXT_PUBLIC_CLERK_SIGN_IN_URL` previously sent `auth.protect()` to Account Portal, which then bounced to www.
    - After changing Dokploy `NEXT_PUBLIC_CLERK_*` path vars, **rebuild** the web image (not restart-only).
 
@@ -70,14 +72,14 @@ curl -fsSI https://admin.sdvedutech.in/dashboard
 
 ### Auth verification checklist
 
-| Check                                | Local                                               | Production                                               |
-| ------------------------------------ | --------------------------------------------------- | -------------------------------------------------------- |
-| Guest `/`                            | redirects to `/sign-in`                             | same on `admin`                                          |
-| Guest `/dashboard`                   | redirects to `/sign-in` (not Account Portal)        | `Location` stays on `admin…/sign-in`                     |
-| After sign-in                        | lands on `/dashboard`                               | same                                                     |
-| Session cookie                       | host `localhost`                                    | host `admin.sdvedutech.in` (no cross-subdomain required) |
-| `x-clerk-auth-status` when signed in | not `signed-out` on protected routes                | same                                                     |
-| Dashboard 403 after auth             | set `BOOTSTRAP_ADMIN_CLERK_USER_IDS` + catalog seed | same                                                     |
+| Check                                | Local                                                                                              | Production                                               |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Guest `/`                            | redirects to `/sign-in`                                                                            | same on `admin`                                          |
+| Guest `/dashboard`                   | redirects to `/sign-in` (not Account Portal)                                                       | `Location` stays on `admin…/sign-in`                     |
+| After sign-in                        | lands on `/dashboard`, or `portal.nppetah.in` when satellite `redirect_url` / Etah department role | same                                                     |
+| Session cookie                       | host `localhost`                                                                                   | host `admin.sdvedutech.in` (no cross-subdomain required) |
+| `x-clerk-auth-status` when signed in | not `signed-out` on protected routes                                                               | same                                                     |
+| Dashboard 403 after auth             | set `BOOTSTRAP_ADMIN_CLERK_USER_IDS` + catalog seed                                                | same                                                     |
 
 Multi-domain / satellite sessions across `www` + `admin` are **out of scope** for this app.
 

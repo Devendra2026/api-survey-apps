@@ -8,6 +8,7 @@ import {
   NotFoundException,
 } from "@nestjs/common"
 import { ConfigService } from "@nestjs/config"
+import { PERMISSIONS } from "../common/constants/permissions.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import {
   canAccessTenant,
@@ -53,7 +54,9 @@ export class UsersService {
 
   findAll(query: ListUsersQueryDto, actor: AuthenticatedUser) {
     const scope = resolveTenantScope(actor.tenantRoles)
-    return this.usersRepository.findAll(query, scope)
+    return this.usersRepository.findAll(query, scope, {
+      includePendingForAssign: actor.permissions.includes(PERMISSIONS.ROLE_ASSIGN),
+    })
   }
 
   getStats(actor: AuthenticatedUser) {
@@ -407,6 +410,9 @@ export class UsersService {
   ) {
     const scope = resolveTenantScope(actor.tenantRoles)
     if (scope.isGlobal) return true
+    if (actor.permissions.includes(PERMISSIONS.ROLE_ASSIGN) && this.isUnaffiliatedOrPending(target)) {
+      return true
+    }
     return target.tenantRoles.some(
       (r) =>
         r.isActive &&
@@ -417,6 +423,20 @@ export class UsersService {
           wardId: r.wardId,
         })
     )
+  }
+
+  private isUnaffiliatedOrPending(target: {
+    tenantRoles: Array<{
+      isActive: boolean
+      stateId: string | null
+      districtId: string | null
+      ulbId: string | null
+      wardId: string | null
+    }>
+  }) {
+    const active = target.tenantRoles.filter((role) => role.isActive)
+    if (active.length === 0) return true
+    return active.every((role) => !role.stateId && !role.districtId && !role.ulbId && !role.wardId)
   }
 
   private async assertGeoHierarchy(geo: {

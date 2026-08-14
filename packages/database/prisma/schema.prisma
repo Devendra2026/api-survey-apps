@@ -307,6 +307,7 @@ model Ulb {
   wards           Ward[]
   surveys         Survey[]
   userTenantRoles UserTenantRole[]
+  apiKeys         UlbApiKey[]
 
   @@unique([districtId, name])
   @@index([districtId])
@@ -492,10 +493,29 @@ model User {
   exportJobsCreated   ExportJob[]      @relation("ExportJobCreatedBy")
   qcRemarksAuthored   QcRemark[]       @relation("QcRemarkAuthor")
   savedViews          SavedView[]      @relation("SavedViewOwner")
+  ulbApiKeysCreated   UlbApiKey[]
 
   @@index([isActive])
   @@index([fullName])
   @@map("users")
+}
+
+/// Hashed M2M key for an external client portal. One active row per ULB.
+model UlbApiKey {
+  id          String    @id @default(cuid())
+  ulbId       String
+  keyHash     String    @unique
+  keyPrefix   String
+  isActive    Boolean   @default(true)
+  createdById String?
+  createdAt   DateTime  @default(now())
+  revokedAt   DateTime?
+
+  ulb       Ulb   @relation(fields: [ulbId], references: [id], onDelete: Restrict)
+  createdBy User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([ulbId, isActive])
+  @@map("ulb_api_keys")
 }
 
 /// Named role (e.g. SURVEYOR, ADMIN). Permissions attached via RolePermission.

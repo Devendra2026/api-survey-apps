@@ -34,7 +34,6 @@ export default function RootLayout({
       signInFallbackRedirectUrl="/dashboard"
       signUpFallbackRedirectUrl="/dashboard"
       afterSignOutUrl="/sign-in"
-      allowedRedirectOrigins={["https://portal.nppetah.in"]}
     >
       <html
         lang="en"

@@ -27,4 +27,12 @@ export class UlbsService {
   delete(id: string, user: AuthenticatedUser) {
     return this.ulbsRepository.delete(id, user)
   }
+
+  getCurrentApiKey(id: string, user: AuthenticatedUser) {
+    return this.ulbsRepository.getCurrentApiKey(id, user)
+  }
+
+  rotateApiKey(id: string, user: AuthenticatedUser) {
+    return this.ulbsRepository.rotateApiKey(id, user)
+  }
 }

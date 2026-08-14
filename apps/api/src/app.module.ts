@@ -12,8 +12,10 @@ import { PermissionsGuard } from "./common/guards/permissions.guard.js"
 import { TenantGuard } from "./common/guards/tenant.guard.js"
 import { LoggingInterceptor } from "./common/interceptors/logging.interceptor.js"
 import { ResponseTransformInterceptor } from "./common/interceptors/response-transform.interceptor.js"
+import { ConfigAuditModule } from "./config-audit/config-audit.module.js"
 import { monorepoEnvFiles } from "./config/env-files.js"
 import { validateEnv } from "./config/env.validation.js"
+import { ConfigurationModule } from "./configuration/configuration.module.js"
 import { DashboardModule } from "./dashboard/dashboard.module.js"
 import { DemandNoticesModule } from "./demand-notices/demand-notices.module.js"
 import { DistrictsModule } from "./districts/districts.module.js"
@@ -25,8 +27,10 @@ import { JobsModule } from "./jobs/jobs.module.js"
 import { NotificationsModule } from "./notifications/notifications.module.js"
 import { PermissionsModule } from "./permissions/permissions.module.js"
 import { PhotosModule } from "./photos/photos.module.js"
+import { PortalModule } from "./portal/portal.module.js"
 import { PrismaModule } from "./prisma/prisma.module.js"
 import { QcModule } from "./qc/qc.module.js"
+import { ReferenceCatalogsModule } from "./reference-catalogs/reference-catalogs.module.js"
 import { ReportsModule } from "./reports/reports.module.js"
 import { RolesModule } from "./roles/roles.module.js"
 import { SavedViewsModule } from "./saved-views/saved-views.module.js"
@@ -39,9 +43,6 @@ import { TaxConfigsModule } from "./tax-configs/tax-configs.module.js"
 import { UlbsModule } from "./ulbs/ulbs.module.js"
 import { UsersModule } from "./users/users.module.js"
 import { WardsModule } from "./wards/wards.module.js"
-import { ConfigAuditModule } from "./config-audit/config-audit.module.js"
-import { ConfigurationModule } from "./configuration/configuration.module.js"
-import { ReferenceCatalogsModule } from "./reference-catalogs/reference-catalogs.module.js"
 
 @Module({
   imports: [
@@ -82,6 +83,7 @@ import { ReferenceCatalogsModule } from "./reference-catalogs/reference-catalogs
     SavedViewsModule,
     FloorsModule,
     PhotosModule,
+    PortalModule,
     CoOwnersModule,
     SurveyAuditsModule,
     DashboardModule,

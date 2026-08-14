@@ -6,6 +6,7 @@ import { useGeographyTree, useGeographyUlbWards } from "@/features/configuration
 import type { GeographyTreeNode } from "@/features/configuration/lib/types"
 import { useAlignWardsWithConvex, useEtlStatus, useStartEtlIncremental } from "@/features/etl/hooks/use-etl-status"
 import { isEtlJobActive } from "@/features/etl/lib/types"
+import { UlbPortalApiKeyCard } from "@/features/master-data/components/ulb-portal-api-key-card"
 import { computeGeoStats } from "@/features/master-data/lib/geo-stats"
 import { useStates } from "@/hooks/use-api"
 import { apiDelete, apiPatch, apiPost, getApiErrorMessage } from "@/lib/api/client"
@@ -347,6 +348,10 @@ export function TenantsWardsPanel() {
         onAddWard={(ulb) => openCreate("ward", ulb)}
         onWardClick={openEdit}
       />
+
+      {canManage && selected?.type === "ulb" ? (
+        <UlbPortalApiKeyCard ulbId={selected.id} ulbName={selected.name} />
+      ) : null}
 
       <StateDrawer
         open={drawer === "state"}

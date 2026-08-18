@@ -15,12 +15,14 @@ type RawPhoto = {
   importStatus?: string | null
 }
 
+const SIBLING_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "heic"] as const
+
 function isHttpUrl(value: string | null | undefined): boolean {
   if (!value) return false
   return /^https?:\/\//i.test(value.trim())
 }
 
-function looksLikeStorageKey(value: string | null | undefined): boolean {
+export function looksLikeStorageKey(value: string | null | undefined): boolean {
   if (!value) return false
   const trimmed = value.trim()
   if (/^https?:\/\//i.test(trimmed)) return false
@@ -30,6 +32,62 @@ function looksLikeStorageKey(value: string | null | undefined): boolean {
     trimmed.startsWith("etah-images/") ||
     (!trimmed.includes("://") && trimmed.includes("/"))
   )
+}
+
+export function resolveStoredObjectKey(photo: {
+  objectKey?: string | null
+  url?: string | null
+  sourceUrl?: string | null
+}): string | null {
+  if (photo.objectKey?.trim() && looksLikeStorageKey(photo.objectKey)) {
+    return photo.objectKey.trim()
+  }
+  if (looksLikeStorageKey(photo.url)) return photo.url!.trim()
+  if (looksLikeStorageKey(photo.sourceUrl)) return photo.sourceUrl!.trim()
+  if (photo.objectKey?.trim() && !isHttpUrl(photo.objectKey)) {
+    return photo.objectKey.trim()
+  }
+  return null
+}
+
+/** Same directory + slot, alternate image extensions. Original key is first. */
+export function siblingObjectKeys(key: string): string[] {
+  const trimmed = key.trim()
+  const slash = trimmed.lastIndexOf("/")
+  const fileName = slash >= 0 ? trimmed.slice(slash + 1) : trimmed
+  const directory = slash >= 0 ? trimmed.slice(0, slash + 1) : ""
+  const dot = fileName.lastIndexOf(".")
+  if (dot <= 0) return [trimmed]
+
+  const stem = fileName.slice(0, dot)
+  const ext = fileName.slice(dot + 1).toLowerCase()
+  const out: string[] = [trimmed]
+  const seen = new Set<string>([trimmed])
+  for (const candidate of SIBLING_EXTENSIONS) {
+    if (candidate === ext) continue
+    const next = `${directory}${stem}.${candidate}`
+    if (seen.has(next)) continue
+    seen.add(next)
+    out.push(next)
+  }
+  return out
+}
+
+export function isMissingObjectError(err: unknown): boolean {
+  if (err instanceof Error && /not found|NoSuchKey/i.test(err.message)) return true
+  if (!err || typeof err !== "object") return false
+  const e = err as {
+    name?: string
+    Code?: string
+    code?: string
+    $metadata?: { httpStatusCode?: number }
+    message?: string
+  }
+  if (e.name === "NoSuchKey" || e.Code === "NoSuchKey" || e.code === "NoSuchKey" || e.name === "NotFound") {
+    return true
+  }
+  if (e.$metadata?.httpStatusCode === 404) return true
+  return typeof e.message === "string" && /not found|NoSuchKey/i.test(e.message)
 }
 
 export function isConvexHostedUrl(value: string | null | undefined): boolean {
@@ -70,6 +128,9 @@ function anyHttpsUrl(raw: RawPhoto | undefined, photo: SurveyPhotoDto): string |
  * Prefer a signed URL from objectKey (durable MinIO/S3). Convex getUrl snapshots expire
  * and must not win when an objectKey exists. HTTPS sourceUrl is used only for true CDNs
  * or pending imports with no stored object.
+ *
+ * Storage keys stored in `url` (older ETL / Excel rows with null objectKey) are treated
+ * as objectKey so QC can stream via GET /photos/:id/file.
  */
 export async function refreshSurveyPhotoUrls<T extends PhotoDetail>(
   storageService: StorageService,
@@ -89,7 +150,11 @@ export async function refreshSurveyPhotoUrls<T extends PhotoDetail>(
     detail.photos.map(async (photo) => {
       const raw = rawById.get(photo.id)
       const importStatus = raw?.importStatus ?? photo.importStatus ?? null
-      const objectKey = raw?.objectKey ?? photo.objectKey ?? null
+      const objectKey = resolveStoredObjectKey({
+        objectKey: raw?.objectKey ?? photo.objectKey,
+        url: raw?.url ?? photo.url,
+        sourceUrl: raw?.sourceUrl,
+      })
 
       if (objectKey && storageReady) {
         try {

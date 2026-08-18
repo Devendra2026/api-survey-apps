@@ -4,6 +4,7 @@ import type { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import type { CreatePhotoDto, UpdatePhotoDto } from "../floors/dto/related.dto.js"
 import { StorageService } from "../storage/storage.service.js"
+import { isMissingObjectError, resolveStoredObjectKey, siblingObjectKeys } from "../surveys/survey-photo-urls.js"
 import { SurveysService } from "../surveys/surveys.service.js"
 import { PhotosRepository } from "./photos.repository.js"
 
@@ -34,8 +35,9 @@ export class PhotosService {
   async getDownloadUrl(id: string, user: AuthenticatedUser, expiresInSeconds = 900) {
     const photo = await this.photosRepository.findById(id)
     await this.surveysService.assertReadableSurvey(photo.surveyId, user)
-    if (photo.objectKey) {
-      const url = await this.storageService.getPresignedDownloadUrl(photo.objectKey, expiresInSeconds)
+    const objectKey = resolveStoredObjectKey(photo)
+    if (objectKey) {
+      const url = await this.storageService.getPresignedDownloadUrl(objectKey, expiresInSeconds)
       return { photoId: photo.id, url, expiresInSeconds }
     }
 
@@ -50,16 +52,42 @@ export class PhotosService {
   async getFileStream(id: string, user: AuthenticatedUser) {
     const photo = await this.photosRepository.findById(id)
     await this.surveysService.assertReadableSurvey(photo.surveyId, user)
-    if (!photo.objectKey) {
+    const objectKey = resolveStoredObjectKey(photo)
+    if (!objectKey) {
       throw new NotFoundException("Photo file is not stored in object storage")
     }
 
-    const file = await this.storageService.getObjectStream(photo.objectKey)
-    return {
-      stream: file.body,
-      contentType: file.contentType ?? photo.mimeType ?? "application/octet-stream",
-      contentLength: file.contentLength,
+    const keys = siblingObjectKeys(objectKey)
+    let lastError: unknown
+    for (const key of keys) {
+      try {
+        const file = await this.storageService.getObjectStream(key)
+        if (key !== photo.objectKey) {
+          void this.persistResolvedObjectKey(photo.id, key)
+        }
+        return {
+          stream: file.body,
+          contentType: file.contentType ?? photo.mimeType ?? "application/octet-stream",
+          contentLength: file.contentLength,
+        }
+      } catch (err) {
+        if (!isMissingObjectError(err)) {
+          throw err
+        }
+        lastError = err
+      }
     }
+
+    this.logger.warn(
+      `Photo object missing photo=${photo.id} survey=${photo.surveyId} tried=${keys.join(",")}: ${String(lastError)}`
+    )
+    throw new NotFoundException("Photo file is not stored in object storage")
+  }
+
+  private persistResolvedObjectKey(photoId: string, objectKey: string): void {
+    void this.photosRepository.update(photoId, { objectKey }).catch((err: unknown) => {
+      this.logger.warn(`Failed to persist resolved objectKey photo=${photoId}: ${String(err)}`)
+    })
   }
 
   async create(dto: CreatePhotoDto, user: AuthenticatedUser) {

@@ -288,18 +288,10 @@ export function QcFloorEditor({
   const save = async () => {
     setFieldError(null)
     const floorPosition = openLandPropertyUse ? "OPEN_LAND" : form.floorPosition
-    const usageFactor = openLandPropertyUse ? "OPEN_LAND" : form.usageFactor
-    const constructionType = openLandPropertyUse ? "OPEN_LAND" : form.constructionType
+    const usageFactor = openLandPropertyUse ? "OPEN_LAND" : form.usageFactor || "RESIDENTIAL"
+    const constructionType = openLandPropertyUse ? "OPEN_LAND" : form.constructionType || "PAKKA_BUILDING_WITH_RCC_ROOF"
     if (!floorPosition) {
       toast.error("Floor position is required")
-      return
-    }
-    if (!usageFactor) {
-      toast.error("Usage factor is required")
-      return
-    }
-    if (!constructionType) {
-      toast.error("Construction type is required")
       return
     }
     const areaSqFt = form.areaSqFt === "" ? null : Number(form.areaSqFt)

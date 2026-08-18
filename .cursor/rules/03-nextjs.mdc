@@ -1,0 +1,64 @@
+---
+description: Next.js 16 App Router — RSC/client boundaries, Clerk, API client
+globs:
+  - "apps/web/**/*.ts"
+  - "apps/web/**/*.tsx"
+alwaysApply: false
+---
+
+# apps/web — Next.js 16
+
+Next.js **16.2**, React **19**, Tailwind **4** via `@workspace/ui`. Read `node_modules/next/dist/docs/` and root `AGENTS.md` before unfamiliar APIs.
+
+## Structure
+
+```
+app/layout.tsx     ClerkProvider (root)
+app/(dashboard)/   auth.protect() in layout
+app/sign-in|sign-up/   Clerk catch-all
+app/healthz/       Docker/K8s health (GET JSON)
+components/        domain UI (qc/, surveys/, admin/, layout/)
+features/          colocated components, hooks, lib
+lib/api/           axios client + types
+stores/app-store.ts   useAuthStore (permissions from /users/me)
+providers/         Clerk token bridge, React Query
+proxy.ts           Next 16 edge auth (NOT middleware.ts)
+```
+
+## Next 16 specifics
+
+- Route `params` / `searchParams` are `Promise<…>` — `await` in RSC, `use()` in client.
+- Auth edge file is **`proxy.ts`**, not `middleware.ts`.
+- `experimental.authInterrupts: true` — use `forbidden()` for 403 UX.
+- Dev script uses `next dev --webpack` (Turbopack avoided in monorepo dev).
+
+## Auth layers
+
+| Layer  | File                          | Role                                                 |
+| ------ | ----------------------------- | ---------------------------------------------------- |
+| Edge   | `proxy.ts`                    | `clerkMiddleware()` — session context only           |
+| Shell  | `(dashboard)/layout.tsx`      | `auth.protect()` + `GET /users/me` + permission gate |
+| Client | `providers/app-providers.tsx` | `setApiTokenGetter` from `useAuth().getToken`        |
+
+Product authorization uses **Nest permissions** (`permissions` on profile), not Clerk roles. Server fetch must unwrap envelope via `lib/auth/unwrap-api-profile.ts`.
+
+## API client
+
+- Use `lib/api/client.ts` (`apiGet`, `apiPost`, …) or `hooks/use-api.ts`.
+- Envelope: `{ success, message, data, errors }` — throw when `!success`.
+- `NEXT_PUBLIC_API_URL` (default `http://localhost:4000`).
+- React Query: `staleTime: 30_000`, `retry: 1`, `refetchOnWindowFocus: false`.
+- Gate queries: `enabled: isLoaded && isSignedIn && hasPermission(...)`.
+
+## UI
+
+- Import from `@workspace/ui/components/*`, `cn` from `@workspace/ui/lib/utils`.
+- Do not add local shadcn primitives — extend `@workspace/ui`.
+- Validators from `@workspace/validation` where shared.
+
+## Never
+
+- Import `@workspace/database`, Prisma, or Nest code.
+- Call `@aws-sdk/*` or talk to S3/MinIO directly — uploads/downloads go through Nest presigned URLs (`lib/api/client.ts`).
+- Put `CLERK_SECRET_KEY` or `DATABASE_URL` in client components or `NEXT_PUBLIC_*`.
+- Create `middleware.ts`.

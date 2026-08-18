@@ -1,0 +1,55 @@
+---
+description: BullMQ worker — processors, queues, idempotency, Playwright PDF
+globs:
+  - "apps/worker/**/*.ts"
+  - "packages/jobs/**/*.ts"
+alwaysApply: false
+---
+
+# apps/worker — BullMQ
+
+NestJS 11 consumer. Listens on port **4001** (`WORKER_PORT`). Enqueue happens in `apps/api` only.
+
+## Queue contract
+
+All names in `packages/jobs/src/index.ts` — **never hardcode** queue or job strings.
+
+Queues: `imports`, `exports`, `storage-cleanup`, `image-migration`, `etl-survey-import`, `etl-image-download`, `etl-image-upload`, `etl-validation`, `etl-retry`, `etl-report`, `audit-etl`.
+
+## Processor pattern
+
+```ts
+@Processor(JOB_QUEUE_NAMES.imports, { concurrency: 2 })
+export class ImportsProcessor extends WorkerHost {
+  async process(job: Job<ImportJobPayload>): Promise<void> { ... }
+}
+```
+
+`WorkerModule` is flat — all processors registered in one module.
+
+Processors may `@InjectQueue` to enqueue follow-up jobs (imports → image migration, ETL survey import → report). That is **worker-only** — API feature modules must use `JobsService`.
+
+## Defaults
+
+- 3 attempts, exponential backoff 1s.
+- `removeOnComplete: { count: 1000 }`, `removeOnFail: { count: 5000 }`.
+
+## Idempotency
+
+- Jobs should tolerate retries without corrupting data.
+- ETL/import: upserts keyed by `legacySurveyId` / partial unique indexes.
+- Use `jobId` when enqueuing for dedup (see `JobsService`).
+
+## Boundaries
+
+- Use worker's `ObjectStorageService` — not `apps/api/src/storage/*`.
+- Use worker's `PrismaService` — not API's.
+- **Playwright** (Chromium) for demand-notice PDF — already in worker Docker image; do not add to API.
+
+## Transactions
+
+- Keep DB transactions short. No S3/HTTP calls inside `$transaction`.
+
+## Shutdown
+
+- `enableShutdownHooks()` in `main.ts`. Do not start new work after SIGTERM.

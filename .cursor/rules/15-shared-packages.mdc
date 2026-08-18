@@ -1,0 +1,57 @@
+---
+description: Shared package conventions — validation, UI, ETL, Excel, jobs
+globs:
+  - "packages/**/*"
+alwaysApply: false
+---
+
+# Shared Packages
+
+Packages must not import NestJS or React. Prisma is allowed in `@workspace/database` and in `@workspace/audit-etl` loaders. Never import from `apps/*`.
+
+## `@workspace/database`
+
+- Prisma schema, migrations, seed, RBAC catalog, `createPrismaClient`.
+- Export enums/types for API and worker.
+- `pnpm db:generate` before build/lint/typecheck (Turbo handles this).
+
+## `@workspace/validation`
+
+- Zod schemas and pure validators (e.g. `formatPropertyId`, floor usage warnings).
+- Used by web forms and server-side checks. Keep side-effect free.
+
+## `@workspace/ui`
+
+- shadcn/Radix components, `globals.css`, Tailwind 4.
+- Exported paths: `@workspace/ui/components/*`, `@workspace/ui/lib/*`.
+- Do not duplicate primitives in `apps/web`.
+
+## `@workspace/jobs`
+
+- **Single source of truth** for queue names, job names, payload interfaces.
+- API enqueues; worker consumes. Change here first, then both apps.
+
+## `@workspace/etl-core`
+
+- Pure Convex→Postgres transform logic. No Prisma/HTTP in core transforms.
+- Unit-tested with Jest.
+
+## `@workspace/excel-reports`
+
+- ExcelJS builders for export jobs. Used by API enqueue paths and worker processors.
+
+## `@workspace/audit-etl`
+
+- Convex audit log ETL. Extract/transform are pure; **load** uses `PrismaClient` (`PostgresAuditLoader`, `CursorManager`).
+- Worker `AuditEtlProcessor` orchestrates HTTP + DB I/O.
+
+## Build
+
+- Packages compile with `tsc` → `dist/`.
+- Apps depend on `workspace:*` versions; Turbo `^build` ensures packages build first.
+
+## Do not
+
+- Create a new package for a one-off helper used in one app.
+- Put Nest decorators or React hooks in packages.
+- Add business logic that only one app uses — colocate in that app.

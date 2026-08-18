@@ -1,0 +1,51 @@
+---
+description: Jest testing — API, packages, CI; what to mock
+globs:
+  - "**/*.spec.ts"
+  - "**/*.test.ts"
+  - "**/jest.config.*"
+  - "apps/api/test/**/*"
+alwaysApply: false
+---
+
+# Testing
+
+## Stack
+
+- **Jest 30** + **ts-jest** (ESM). API: `apps/api/scripts/run-jest.mjs`.
+- Packages: `jest.config.mjs` with `useESM: true`.
+- Web: minimal — `node --test` for isolated lib specs (e.g. tax preview); no full Playwright/Cypress suite.
+
+## Locations
+
+- Unit: `*.spec.ts` colocated with source (`apps/api/src`, `packages/*`).
+- E2E: `apps/api/test/*.e2e-spec.ts` + `jest-e2e.json`.
+- Worker: **no test script** in `package.json` — add tests only when requested.
+
+## What to test
+
+- Service business logic (survey workflow, QC, tax preview rules).
+- Repository filters, tenant scoping, pagination helpers.
+- Pure transforms: `@workspace/etl-core`, `@workspace/validation`.
+- Critical guards/filters behavior (permissions, envelope, P2002 → 409).
+
+## What not to test
+
+- Pass-through controllers, module wiring, third-party internals.
+- Snapshot-only tests with no behavioral assertion.
+
+## CI (`.github/workflows/ci.yml`)
+
+- Postgres 17 + Redis 8 service containers.
+- `pnpm db:generate` → build packages → lint → typecheck → `pnpm db:deploy` → **`pnpm --filter api test:ci` only** → build apps → Docker smoke builds.
+- Package Jest suites (`validation`, `etl-core`, `audit-etl`) are **not** run in CI today — run locally with `pnpm --filter @workspace/<pkg> test` when changing those packages.
+- Root `pnpm test` runs `turbo test` (API + packages with a `test` script; worker has none).
+
+## Mocks in tests
+
+- Mock Clerk, S3/MinIO, external Convex ETL HTTP — do not require live credentials in unit tests.
+- Use real Postgres only in CI integration/e2e when already configured.
+
+## After changes
+
+Run `pnpm typecheck`, `pnpm lint`, and relevant `pnpm --filter <pkg> test` before finishing.

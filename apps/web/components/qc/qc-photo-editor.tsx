@@ -8,13 +8,87 @@ import { Button } from "@workspace/ui/components/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
 import { cn } from "@workspace/ui/lib/utils"
 import { ImageIcon, Link2, Trash2, Upload } from "lucide-react"
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
 const PHOTO_TYPE_OPTIONS = ["FRONT", "SIDE", "INSIDE", "DOCUMENT"] as const
 
 function isHttpUrl(url: string | undefined): boolean {
   return Boolean(url?.trim() && /^https?:\/\//i.test(url.trim()))
+}
+
+function usePhotoDisplayUrl(photo: SurveyPhotoItem, fetchFreshUrl: (photoId: string) => Promise<string | null>) {
+  const initialUrl = isHttpUrl(photo.url) ? photo.url.trim() : ""
+  const [displayUrl, setDisplayUrl] = useState(initialUrl)
+  const [failed, setFailed] = useState(false)
+  const refreshAttempted = useRef(false)
+
+  useEffect(() => {
+    const next = isHttpUrl(photo.url) ? photo.url.trim() : ""
+    setDisplayUrl(next)
+    setFailed(false)
+    refreshAttempted.current = false
+  }, [photo.id, photo.url])
+
+  const onImageError = async () => {
+    if (refreshAttempted.current || photo.importStatus === "PENDING") {
+      setFailed(true)
+      return
+    }
+    refreshAttempted.current = true
+    try {
+      const fresh = await fetchFreshUrl(photo.id)
+      if (fresh && isHttpUrl(fresh)) {
+        setDisplayUrl(fresh.trim())
+        setFailed(false)
+        return
+      }
+    } catch {
+      // Fall through to unavailable state.
+    }
+    setFailed(true)
+  }
+
+  return { displayUrl, failed, onImageError }
+}
+
+function PhotoImage({
+  photo,
+  alt,
+  className,
+  fetchFreshUrl,
+}: {
+  photo: SurveyPhotoItem
+  alt: string
+  className?: string
+  fetchFreshUrl: (photoId: string) => Promise<string | null>
+}) {
+  const usableInitial = isHttpUrl(photo.url) ? photo.url.trim() : ""
+  const migrating = !usableInitial && photo.importStatus === "PENDING"
+  const { displayUrl, failed, onImageError } = usePhotoDisplayUrl(photo, fetchFreshUrl)
+
+  if (migrating) {
+    return (
+      <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-white/40 bg-white/20 text-slate-500 dark:border-white/10 dark:bg-white/5 dark:text-slate-400">
+        <ImageIcon className="size-6 opacity-60" />
+        <span className="text-xs">Photo migrating…</span>
+      </div>
+    )
+  }
+
+  if (failed || !displayUrl) {
+    return (
+      <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-white/40 bg-white/20 text-slate-500 dark:border-white/10 dark:bg-white/5 dark:text-slate-400">
+        <ImageIcon className="size-6 opacity-60" />
+        <span className="text-xs">Image unavailable</span>
+      </div>
+    )
+  }
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={displayUrl} alt={alt} onError={() => void onImageError()} className={className} />
+  )
 }
 
 function PhotoEditTile({
@@ -28,17 +102,18 @@ function PhotoEditTile({
 }) {
   const fileRef = useRef<HTMLInputElement>(null)
   const photos = usePhotoMutations(surveyId)
-  const [failed, setFailed] = useState(false)
-  const usableUrl = isHttpUrl(photo.url) ? photo.url.trim() : ""
-  const migrating = !usableUrl && photo.importStatus === "PENDING"
   const busy = photos.replace.isPending || photos.remove.isPending || photos.getDownloadUrl.isPending
+
+  const fetchFreshUrl = async (photoId: string) => {
+    const result = await photos.getDownloadUrl.mutateAsync(photoId)
+    return result.url
+  }
 
   const onReplace = async (file: File | undefined) => {
     if (!file) return
     try {
       await photos.replace.mutateAsync({ id: photo.id, file, photoType: photo.photoType })
       toast.success(`${photo.label} replaced`)
-      setFailed(false)
     } catch (err) {
       toast.error(getApiErrorMessage(err))
     }
@@ -65,25 +140,12 @@ function PhotoEditTile({
 
   return (
     <div className={cn(glassInsetClass, "overflow-hidden p-2")}>
-      {migrating ? (
-        <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-white/40 bg-white/20 text-slate-500 dark:border-white/10 dark:bg-white/5 dark:text-slate-400">
-          <ImageIcon className="size-6 opacity-60" />
-          <span className="text-xs">Photo migrating…</span>
-        </div>
-      ) : failed || !usableUrl ? (
-        <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-white/40 bg-white/20 text-slate-500 dark:border-white/10 dark:bg-white/5 dark:text-slate-400">
-          <ImageIcon className="size-6 opacity-60" />
-          <span className="text-xs">Image unavailable</span>
-        </div>
-      ) : (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={usableUrl}
-          alt={photo.label}
-          onError={() => setFailed(true)}
-          className="aspect-video w-full rounded-lg object-cover"
-        />
-      )}
+      <PhotoImage
+        photo={photo}
+        alt={photo.label}
+        fetchFreshUrl={fetchFreshUrl}
+        className="aspect-video w-full rounded-lg object-cover"
+      />
       <p className="mt-2 text-sm font-medium">{photo.label}</p>
       <p className="text-xs text-muted-foreground">{photo.surveyorName || surveyorFallback}</p>
       <div className="mt-2 flex flex-wrap gap-2">
@@ -186,7 +248,7 @@ export function QcPhotoEditor({
             editMode ? (
               <PhotoEditTile key={photo.id} photo={photo} surveyId={surveyId} surveyorFallback={surveyorFallback} />
             ) : (
-              <ReadOnlyPhotoTile key={photo.id} photo={photo} surveyorFallback={surveyorFallback} />
+              <ReadOnlyPhotoTile key={photo.id} photo={photo} surveyId={surveyId} surveyorFallback={surveyorFallback} />
             )
           )
         ) : (
@@ -205,32 +267,30 @@ export function QcPhotoEditor({
   )
 }
 
-function ReadOnlyPhotoTile({ photo, surveyorFallback }: { photo: SurveyPhotoItem; surveyorFallback: string }) {
-  const [failed, setFailed] = useState(false)
-  const usableUrl = isHttpUrl(photo.url) ? photo.url.trim() : ""
-  const migrating = !usableUrl && photo.importStatus === "PENDING"
+function ReadOnlyPhotoTile({
+  photo,
+  surveyId,
+  surveyorFallback,
+}: {
+  photo: SurveyPhotoItem
+  surveyId: string
+  surveyorFallback: string
+}) {
+  const photos = usePhotoMutations(surveyId)
+
+  const fetchFreshUrl = async (photoId: string) => {
+    const result = await photos.getDownloadUrl.mutateAsync(photoId)
+    return result.url
+  }
 
   return (
     <div className={cn(glassInsetClass, "group overflow-hidden p-2 transition-transform hover:scale-[1.01]")}>
-      {migrating ? (
-        <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-white/40 bg-white/20 text-slate-500 dark:border-white/10 dark:bg-white/5 dark:text-slate-400">
-          <ImageIcon className="size-6 opacity-60" />
-          <span className="text-xs">Photo migrating…</span>
-        </div>
-      ) : failed || !usableUrl ? (
-        <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-white/40 bg-white/20 text-slate-500 dark:border-white/10 dark:bg-white/5 dark:text-slate-400">
-          <ImageIcon className="size-6 opacity-60" />
-          <span className="text-xs">Image unavailable</span>
-        </div>
-      ) : (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={usableUrl}
-          alt={photo.label}
-          onError={() => setFailed(true)}
-          className="aspect-video w-full rounded-lg object-cover transition-transform duration-300 group-hover:scale-105"
-        />
-      )}
+      <PhotoImage
+        photo={photo}
+        alt={photo.label}
+        fetchFreshUrl={fetchFreshUrl}
+        className="aspect-video w-full rounded-lg object-cover transition-transform duration-300 group-hover:scale-105"
+      />
       <p className="mt-2 text-sm font-medium">{photo.label}</p>
       <p className="text-xs text-muted-foreground">{photo.surveyorName || surveyorFallback}</p>
     </div>

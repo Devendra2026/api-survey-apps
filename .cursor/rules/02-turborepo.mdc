@@ -1,0 +1,54 @@
+---
+description: Turborepo workspace conventions, task pipelines, caching, package boundaries
+globs:
+  - "turbo.json"
+  - "pnpm-workspace.yaml"
+  - "package.json"
+  - "packages/*/package.json"
+  - "apps/*/package.json"
+alwaysApply: false
+---
+
+# Turborepo & Workspaces
+
+## Runtime
+
+- Node `>=24` (root `engines`).
+- `packageManager`: `pnpm@11.22.0` (use `corepack enable`).
+- All apps/packages: `"type": "module"`.
+
+## Workspace naming
+
+- Packages: `@workspace/<name>`.
+- Apps: `web`, `api`, `worker` (plain names in `package.json`).
+
+## Task pipeline (`turbo.json`)
+
+- `build` → depends on `^build`, `^db:generate`, `db:generate`. Outputs: `.next/**`, `dist/**`.
+- `lint`, `typecheck` → depend on `^db:generate`, `^build`.
+- `test` → depends on `^build`, `db:generate`; `cache: false`.
+- `dev` → persistent, uncached.
+
+## Commands
+
+```bash
+pnpm dev          # api + web + worker
+pnpm build        # all apps/packages
+pnpm lint && pnpm typecheck
+pnpm db:generate  # Prisma client
+pnpm db:migrate   # migrate dev
+pnpm db:deploy    # migrate deploy (CI/prod)
+```
+
+## Env & Turbo cache
+
+- Env files at **repo root** (`.env`, `.env.development`, `.env.local`, `.env.production`).
+- Add new `NEXT_PUBLIC_*` and build-affecting vars to `turbo.json` `build.env` / `globalEnv`.
+- `globalDependencies` includes lockfile and env files — keep in sync.
+
+## Rules
+
+- Root `package.json` has no app runtime deps — only tooling (turbo, prettier, husky, eslint) plus workspace refs used by root scripts/lint-staged.
+- Internal deps: `"@workspace/foo": "workspace:*"`.
+- Never import `apps/*` from `packages/*`.
+- New package: add to `pnpm-workspace.yaml` glob, `"type": "module"`, `build`/`typecheck` scripts.

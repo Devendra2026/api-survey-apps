@@ -1,0 +1,55 @@
+---
+description: Env files, validation, secrets, adding new variables
+globs:
+  - ".env*"
+  - "deploy/env/**/*"
+  - "apps/api/src/config/**/*"
+  - "apps/worker/src/config/**/*"
+  - "turbo.json"
+alwaysApply: false
+---
+
+# Environment Configuration
+
+## File hierarchy (repo root)
+
+Typical files (gitignored locally):
+
+```
+.env.local              personal overrides (highest priority)
+.env.development        when NODE_ENV=development
+.env.production         when NODE_ENV=production
+.env                    base fallback
+```
+
+**Load order** (`monorepoEnvFiles()` → API/worker `ConfigModule.envFilePath`): `.env.local`, then `.env.${NODE_ENV}`, then `.env` (only paths that exist). Web loads root env in `next.config.ts` via `@next/env`.
+
+Templates: `deploy/env/*.env.example`. README may reference a root `.env.example` — use `deploy/env/` as the source of truth if absent.
+
+## Validation (fail fast)
+
+- API: `apps/api/src/config/env.validation.ts` — `validateEnv()`.
+- Worker: `apps/worker/src/config/env.validation.ts` — `validateWorkerEnv()`.
+- Cross-field rules: e.g. `STORAGE_PROVIDER=minio` requires MinIO vars; `REDIS_URL` required for API/worker.
+
+**Never invent env vars** without adding to the appropriate `env.validation.ts`.
+
+## Adding a new variable
+
+1. Add to `EnvironmentVariables` / `WorkerEnvironmentVariables` with validators.
+2. If it affects Turbo build cache, add to `turbo.json` `env` / `globalEnv`.
+3. Add safe default to `.env.example` / `.env.development`.
+4. Add to `.github/workflows/ci.yml` if CI needs it.
+5. Document in `deploy/env/*.env.example` if production-relevant.
+
+## Secret categories (never commit)
+
+`CLERK_SECRET_KEY`, `PORTAL_CLERK_SECRET_KEY`, real `DATABASE_URL`, `REDIS_PASSWORD`, MinIO/AWS secrets, `ETL_CONVEX_SECRET`, `DEMAND_NOTICE_PRINT_SECRET`.
+
+## Public / client-safe
+
+`NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_CLERK_*`, `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`.
+
+## Runtime URL resolution
+
+Docker entrypoints use `scripts/docker/resolve-database-url.mjs` to build `DATABASE_URL` from `POSTGRES_*` when host is `postgres`.

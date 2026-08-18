@@ -1,0 +1,49 @@
+---
+description: Cursor agent workflow for this monorepo
+alwaysApply: true
+---
+
+# Cursor Agent Behavior
+
+## Before changes
+
+1. Read existing code in target files.
+2. Check which `.mdc` rules apply (glob + `alwaysApply`).
+3. Reuse `@workspace/*` and existing module patterns before adding abstractions.
+
+## While changing
+
+- Minimal, focused diffs. Do not reorganize modules unless asked.
+- Nest relative imports: `.js` extension. Web: `@/` alias.
+- Reuse existing DTOs, repositories, services, guards.
+
+## After changes
+
+- Run `pnpm typecheck` and `pnpm lint`.
+- Run relevant tests (`pnpm --filter api test`, package tests).
+- Report commands that could not run.
+
+## Never
+
+- Disable strict TS/ESLint or bypass auth guards (Clerk, `UlbApiKeyGuard`, print HMAC tokens) to compile.
+- Create `middleware.ts` in web (use `proxy.ts`).
+- Import `apps/*` from `packages/*`.
+- Use `new PrismaClient()` — use `PrismaService` / `@workspace/database`.
+- Put Prisma or secrets in `apps/web`.
+- Call `@aws-sdk/*` from feature services — use `StorageService` / worker storage.
+- Invent BullMQ names — use `@workspace/jobs`.
+- Add npm dependencies without justification.
+- Commit `.env` or secrets.
+- Modify Docker/deployment without being asked.
+
+## Ask before
+
+- New packages or module restructuring.
+- Auth guard chain or permission model changes.
+- Prisma schema / migrations.
+- Docker, CI, or production config changes.
+- New global Nest providers/interceptors.
+
+## Next.js 16
+
+Read `node_modules/next/dist/docs/` for unfamiliar APIs. Params are async. `proxy.ts` replaces `middleware.ts`.

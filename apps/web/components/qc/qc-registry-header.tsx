@@ -2,6 +2,7 @@
 
 import { useDistricts, useStates, useUlbs, useWards } from "@/hooks/use-api"
 import { formatWardOptionLabel } from "@/lib/format-ward-label"
+import { allotmentScopeFromProfile, emptyQcScope, type QcScopeState } from "@/lib/qc/allotment-scope"
 import { useAuthStore } from "@/stores/app-store"
 import { Button } from "@workspace/ui/components/button"
 import { Card, CardContent } from "@workspace/ui/components/card"
@@ -21,55 +22,9 @@ import { useEffect, useMemo, useRef, useState } from "react"
 const DEFAULT_DISTRICT_NAME = "Etah"
 const DEFAULT_ULB_HINT = "etah"
 
-export interface QcRegistryScopeState {
-  stateId: string
-  districtId: string
-  ulbId: string
-  wardId: string
-}
+export type QcRegistryScopeState = QcScopeState
 
-export const emptyQcScope = (): QcRegistryScopeState => ({
-  stateId: "",
-  districtId: "",
-  ulbId: "",
-  wardId: "",
-})
-
-/** Prefer a single active ward or single All-Wards ULB allotment over Etah soft-defaults. */
-function allotmentScopeFromProfile(
-  tenantRoles:
-    | Array<{
-        isActive: boolean
-        stateId?: string | null
-        districtId?: string | null
-        ulbId?: string | null
-        wardId?: string | null
-      }>
-    | undefined
-): QcRegistryScopeState | null {
-  const active = tenantRoles?.filter((r) => r.isActive) ?? []
-  const withWard = active.filter((r) => Boolean(r.wardId))
-  if (withWard.length === 1) {
-    const r = withWard[0]!
-    return {
-      stateId: r.stateId ?? "",
-      districtId: r.districtId ?? "",
-      ulbId: r.ulbId ?? "",
-      wardId: r.wardId ?? "",
-    }
-  }
-  const ulbOnly = active.filter((r) => Boolean(r.ulbId) && !r.wardId)
-  if (withWard.length === 0 && ulbOnly.length === 1) {
-    const r = ulbOnly[0]!
-    return {
-      stateId: r.stateId ?? "",
-      districtId: r.districtId ?? "",
-      ulbId: r.ulbId ?? "",
-      wardId: "",
-    }
-  }
-  return null
-}
+export { emptyQcScope }
 
 export function QcRegistryHeader({
   scopeLabel,

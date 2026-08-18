@@ -3,6 +3,7 @@
 import { useDistricts, useStates, useUlbs, useWards } from "@/hooks/use-api"
 import type { QcCommandCenterFilters } from "@/lib/api/types"
 import { formatWardOptionLabel } from "@/lib/format-ward-label"
+import type { QcScopeState } from "@/lib/qc/allotment-scope"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { Calendar } from "@workspace/ui/components/calendar"
@@ -14,9 +15,6 @@ import { cn } from "@workspace/ui/lib/utils"
 import { format, parse } from "date-fns"
 import { CalendarDays, RotateCcw } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
-
-const DEFAULT_DISTRICT_NAME = "Etah"
-const DEFAULT_ULB_HINT = "etah"
 
 function formatDisplayDate(value?: string) {
   if (!value) return "Select"
@@ -42,11 +40,13 @@ export function QcFilterPanel({
   onChange,
   stateId,
   onStateChange,
+  allotmentDefaults,
 }: {
   filters: QcCommandCenterFilters
   onChange: (next: QcCommandCenterFilters) => void
   stateId: string
   onStateChange: (stateId: string) => void
+  allotmentDefaults?: QcScopeState | null
 }) {
   const { data: states } = useStates({ limit: 100 })
   const { data: districts } = useDistricts(stateId || undefined)
@@ -58,50 +58,70 @@ export function QcFilterPanel({
   const wardItems = useMemo(() => wards?.items ?? [], [wards?.items])
   const stateItems = useMemo(() => states?.items ?? [], [states?.items])
 
-  const defaultsApplied = useRef({ state: false, district: false, ulb: false })
+  const defaultsApplied = useRef({ allotment: false, state: false, district: false, ulb: false })
   const [monthOpen, setMonthOpen] = useState(false)
   const [fromOpen, setFromOpen] = useState(false)
   const [toOpen, setToOpen] = useState(false)
 
+  // Seed from admin-assigned QC allotment before any geo list fallbacks.
   useEffect(() => {
-    if (defaultsApplied.current.state || stateId || !stateItems.length) return
+    if (defaultsApplied.current.allotment || !allotmentDefaults) return
+    if (filters.districtId || filters.ulbId || filters.wardId) {
+      defaultsApplied.current.allotment = true
+      defaultsApplied.current.state = true
+      defaultsApplied.current.district = true
+      defaultsApplied.current.ulb = true
+      return
+    }
+    defaultsApplied.current.allotment = true
+    defaultsApplied.current.state = true
+    defaultsApplied.current.district = true
+    defaultsApplied.current.ulb = true
+    if (allotmentDefaults.stateId && !stateId) {
+      onStateChange(allotmentDefaults.stateId)
+    }
+    onChange({
+      ...filters,
+      districtId: allotmentDefaults.districtId || undefined,
+      ulbId: allotmentDefaults.ulbId || undefined,
+      wardId: allotmentDefaults.wardId || undefined,
+    })
+  }, [allotmentDefaults, filters, stateId, onChange, onStateChange])
+
+  useEffect(() => {
+    if (allotmentDefaults || defaultsApplied.current.state || stateId || !stateItems.length) return
     const first = stateItems[0]
     if (first) {
       defaultsApplied.current.state = true
       onStateChange(first.id)
     }
-  }, [stateId, stateItems, onStateChange])
+  }, [allotmentDefaults, stateId, stateItems, onStateChange])
 
-  // Preferred names are a convenience only — always fall back to the first option so a
-  // ULB is selected and the ward grid has something to render.
   useEffect(() => {
-    if (defaultsApplied.current.district || filters.districtId || !districtItems.length) return
-    const match =
-      districtItems.find((d) => d.name.toLowerCase().includes(DEFAULT_DISTRICT_NAME.toLowerCase())) ?? districtItems[0]
-    if (match) {
+    if (allotmentDefaults || defaultsApplied.current.district || filters.districtId || !districtItems.length) return
+    const first = districtItems[0]
+    if (first) {
       defaultsApplied.current.district = true
-      onChange({ ...filters, districtId: match.id, ulbId: undefined, wardId: undefined })
+      onChange({ ...filters, districtId: first.id, ulbId: undefined, wardId: undefined })
     }
-  }, [districtItems, filters, onChange])
+  }, [allotmentDefaults, districtItems, filters, onChange])
 
   useEffect(() => {
-    if (defaultsApplied.current.ulb || !filters.districtId || filters.ulbId || !ulbItems.length) return
-    const match =
-      ulbItems.find((u) => u.name.toLowerCase().includes(DEFAULT_ULB_HINT)) ??
-      ulbItems.find((u) => u.name.toLowerCase().includes("municipal")) ??
-      ulbItems[0]
-    if (match) {
+    if (allotmentDefaults || defaultsApplied.current.ulb || !filters.districtId || filters.ulbId || !ulbItems.length)
+      return
+    const first = ulbItems[0]
+    if (first) {
       defaultsApplied.current.ulb = true
-      onChange({ ...filters, ulbId: match.id, wardId: undefined })
+      onChange({ ...filters, ulbId: first.id, wardId: undefined })
     }
-  }, [ulbItems, filters, onChange])
+  }, [allotmentDefaults, ulbItems, filters, onChange])
 
   const patch = (partial: Partial<QcCommandCenterFilters>) => onChange({ ...filters, ...partial })
 
   const activeCount = countActiveFilters(filters)
 
   const reset = () => {
-    defaultsApplied.current = { state: true, district: false, ulb: false }
+    defaultsApplied.current = { allotment: Boolean(allotmentDefaults), state: true, district: false, ulb: false }
     onChange({
       districtId: undefined,
       ulbId: undefined,
@@ -166,7 +186,7 @@ export function QcFilterPanel({
               disabled={!stateId}
             >
               <SelectTrigger className="h-9 w-full border-slate-200 dark:border-slate-800">
-                <SelectValue placeholder={DEFAULT_DISTRICT_NAME} />
+                <SelectValue placeholder="Select district" />
               </SelectTrigger>
               <SelectContent>
                 {districtItems.map((d) => (
@@ -186,7 +206,7 @@ export function QcFilterPanel({
               disabled={!filters.districtId}
             >
               <SelectTrigger className="h-9 w-full border-slate-200 dark:border-slate-800">
-                <SelectValue placeholder="Municipal Council Etah" />
+                <SelectValue placeholder="Select ULB" />
               </SelectTrigger>
               <SelectContent>
                 {ulbItems.map((u) => (

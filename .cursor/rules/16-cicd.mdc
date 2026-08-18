@@ -1,0 +1,41 @@
+---
+description: GitHub Actions CI and ECR release pipeline
+globs:
+  - ".github/workflows/**/*"
+alwaysApply: false
+---
+
+# CI/CD
+
+## CI (`.github/workflows/ci.yml`)
+
+Triggers: push/PR to `main`/`master`.
+
+Pipeline:
+
+1. Postgres 17 + Redis 8 services
+2. `pnpm install --frozen-lockfile`
+3. `pnpm db:generate` → `pnpm turbo build --filter=./packages/*`
+4. `pnpm lint` → `pnpm typecheck`
+5. `pnpm db:deploy`
+6. `pnpm --filter api test:ci` (package Jest suites are not in CI — run locally when needed)
+7. `pnpm build`
+8. Docker build smoke test for api, web, worker Dockerfiles
+9. `docker compose -f docker-compose.dokploy.yml config` validation
+
+Node **24** in CI. Test env uses placeholder Clerk/storage credentials.
+
+## Release (`.github/workflows/release.yml`)
+
+Triggers: tag `v*` or manual `workflow_dispatch`.
+
+- OIDC → AWS ECR push for api, web, worker images.
+- Optional Dokploy webhook POST with image tag.
+- Optional post-deploy health check against `HEALTHCHECK_API_URL` / `HEALTHCHECK_WEB_URL`.
+
+## Rules
+
+- Keep CI green: typecheck + lint + api tests + compose config.
+- Do not disable CI steps to pass locally broken code.
+- Image tags and ECR prefix from vars (`ECR_REPOSITORY_PREFIX`, `AWS_REGION`).
+- Ask before changing workflows unless explicitly requested.

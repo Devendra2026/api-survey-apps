@@ -1,0 +1,43 @@
+---
+description: TypeScript conventions — strict mode, ESM imports, shared types
+globs:
+  - "apps/**/*.ts"
+  - "apps/**/*.tsx"
+  - "packages/**/*.ts"
+alwaysApply: false
+---
+
+# TypeScript
+
+## Compiler strictness
+
+- **All apps/packages:** `strict: true`.
+- **API + web:** `noUncheckedIndexedAccess: true` (API tsconfig; web extends `@workspace/typescript-config/base.json`).
+- **API only:** `noImplicitReturns`, `noFallthroughCasesInSwitch`.
+- **Worker:** `strict` only — no `noUncheckedIndexedAccess` in `apps/worker/tsconfig.json`.
+- Never set `strict: false`. No `@ts-ignore` without a comment and reason.
+
+## Types
+
+- Avoid `any`. API ESLint allows it — still prefer `unknown` + narrowing.
+- Share types via `@workspace/*` packages; do not duplicate DTO shapes in web and api.
+- Use `Prisma.*` types and generated enums from `@workspace/database`.
+- Nest apps: `"module": "nodenext"`. Web: `"moduleResolution": "Bundler"` via `@workspace/typescript-config/nextjs.json`.
+
+## Imports
+
+- **Nest (`api`, `worker`):** relative imports **must** use `.js` extensions (`"type": "module"`).
+- **Next (`web`):** `@/` alias. No `.js` extensions.
+- **Packages:** `NodeNext`, exports via `package.json` `"exports"` field.
+
+## Naming
+
+- Files: `kebab-case.ts` / `kebab-case.tsx`.
+- Classes/interfaces/types: `PascalCase`. Functions/variables: `camelCase`.
+- Permission strings: `resource:action` (e.g. `survey:view`).
+
+## Avoid
+
+- Circular imports between modules.
+- New barrel `index.ts` files in `apps/*` (packages may export via `index.ts`).
+- `new PrismaClient()` anywhere — use `PrismaService` or `createPrismaClient` from `@workspace/database`.

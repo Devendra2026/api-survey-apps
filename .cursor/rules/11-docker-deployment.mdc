@@ -1,0 +1,52 @@
+---
+description: Docker multi-stage builds, Compose, Dokploy, Swarm
+globs:
+  - "**/Dockerfile"
+  - "docker-compose*.yml"
+  - "deploy/**/*"
+  - "**/docker-entrypoint*.sh"
+  - "scripts/docker/**/*"
+alwaysApply: false
+---
+
+# Docker & Deployment
+
+## Images (per app — no root Dockerfile)
+
+| App    | Dockerfile               | Start                                  | Health            |
+| ------ | ------------------------ | -------------------------------------- | ----------------- |
+| api    | `apps/api/Dockerfile`    | `node apps/api/dist/main.js`           | `/live`, `/ready` |
+| worker | `apps/worker/Dockerfile` | `node apps/worker/dist/main.js`        | `/live`, `/ready` |
+| web    | `apps/web/Dockerfile`    | `node apps/web/server.js` (standalone) | `/healthz`        |
+
+Build pattern: `turbo prune <app> --docker` → pnpm install → build → `pnpm deploy --prod`.
+
+Node **24**, pnpm via corepack. Production runs as non-root (`nestjs`, `worker`, `nextjs`).
+
+## Compose files
+
+| File                               | Use                                                         |
+| ---------------------------------- | ----------------------------------------------------------- |
+| `docker-compose.yml`               | Local: Postgres 17, Redis 8, MinIO, Mailpit                 |
+| `docker-compose.dokploy.yml`       | Production stack (migrate job + api + worker + web + infra) |
+| `docker-compose.observability.yml` | Prometheus scrape config                                    |
+| `deploy/docker-stack.swarm.yml`    | Secondary Swarm + Traefik path                              |
+
+**Primary prod path:** Dokploy Compose (`docker-compose.dokploy.yml`), not Nixpacks.
+
+## Dokploy notes
+
+- One Compose app; build context = repo root.
+- Secrets in Dokploy Environment UI → `.env` for compose interpolation.
+- Required: `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`.
+- Do **not** set `REDIS_URL` in Dokploy UI for in-compose Redis — compose builds it from `REDIS_PASSWORD`.
+- Traefik labels on `web` and `api`; worker is internal only.
+- `migrate` service runs `docker-entrypoint.migrate.sh` before api/worker start.
+
+## Web build args
+
+`NEXT_PUBLIC_*` vars must be passed as Docker `--build-arg` (baked at build time).
+
+## Ask before changing
+
+Dockerfiles, compose files, Swarm stack, or deployment env wiring — unless explicitly requested.

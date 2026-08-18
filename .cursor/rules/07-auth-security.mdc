@@ -1,0 +1,66 @@
+---
+description: Clerk auth, Nest RBAC, tenant scope, secrets, validation
+globs:
+  - "apps/api/src/auth/**/*"
+  - "apps/api/src/common/guards/**/*"
+  - "apps/api/src/common/decorators/**/*"
+  - "apps/api/src/users/**/*"
+  - "apps/api/src/portal/**/*"
+  - "apps/api/src/demand-notices/**/*"
+  - "apps/web/proxy.ts"
+  - "apps/web/providers/**/*"
+  - "apps/web/app/**/layout.tsx"
+  - "apps/web/lib/auth/**/*"
+  - "apps/web/stores/**/*"
+alwaysApply: false
+---
+
+# Authentication & Security
+
+## Split of concerns
+
+- **Clerk** — identity (JWT). `@clerk/nextjs` (web), `@clerk/backend` (api guard).
+- **Nest DB** — authorization (`UserTenantRole`, permission strings like `survey:view`).
+- Clerk metadata is **not** the product permission source.
+
+## API flows
+
+### Admin dashboard (Clerk JWT)
+
+1. `Authorization: Bearer <jwt>`
+2. `ClerkAuthGuard` — verify JWT (main + optional **portal Clerk** instance via `PORTAL_CLERK_SECRET_KEY`), upsert `User`, load permissions/tenant roles.
+3. `PermissionsGuard` — `@RequirePermission` / `@RequireAnyPermission`.
+4. `TenantGuard` — optional geo ID check on body/query/params.
+
+### ULB portal (`v1/portal/*`)
+
+- `@Public()` bypasses Clerk guards; `UlbApiKeyGuard` validates `X-API-Key` against `UlbApiKey` hash.
+- Tenant scope comes from the key record (`request.ulbId`), not client-supplied ULB IDs.
+
+### Demand-notice print (`demand-notices/print/*`)
+
+- `@Public()` routes gated by short-lived HMAC print tokens minted by authenticated `POST /demand-notices/print-token`.
+- Do not weaken token validation or expose print routes without token checks.
+
+## Dev-only bypass
+
+`ALLOW_DEV_AUTH=true` (non-production): `Bearer dev` + `x-dev-clerk-user-id` or `Bearer dev:<clerkUserId>`. Never enable in production.
+
+## Rules
+
+- Never trust client-sent user IDs, roles, permissions, or tenant IDs.
+- Never skip guards or add routes without `@Public()` intentionally.
+- Never expose `CLERK_SECRET_KEY`, `DATABASE_URL`, Redis, MinIO/S3 keys to the browser.
+- CORS: `CORS_ORIGIN` (comma-separated origins). No `*` in production.
+- Throttle: 120 req / 60s global.
+- File uploads: MIME whitelist + size limits via `StorageService.validateImage`.
+
+## Web
+
+- `proxy.ts` — session context only (not route protection).
+- `(dashboard)/layout.tsx` — `auth.protect()` + Nest profile + `forbidden()` when no permissions.
+- UI gates: `useAuthStore` from `@/stores/app-store` — `hasPermission("resource:action")` mirrors API checks; does not replace them.
+
+## Bootstrap admins
+
+`BOOTSTRAP_ADMIN_CLERK_USER_IDS` — first-login admin provisioning. Ask before changing guard chain or permission model.

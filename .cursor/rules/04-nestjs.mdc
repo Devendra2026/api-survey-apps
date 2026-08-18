@@ -1,0 +1,71 @@
+---
+description: NestJS API — modules, guards, DTOs, Prisma, jobs enqueue
+globs:
+  - "apps/api/**/*.ts"
+alwaysApply: false
+---
+
+# apps/api — NestJS 11
+
+ESM. Relative imports use `.js` extensions.
+
+## Module layout (common pattern)
+
+```
+feature/
+  feature.module.ts
+  feature.controller.ts   # routes + DTO binding only
+  feature.service.ts      # authz + orchestration
+  feature.repository.ts   # Prisma queries (when used)
+  dto/*.dto.ts
+  *.spec.ts
+```
+
+Controllers stay thin. No Prisma in controllers.
+
+Many data-heavy features use `*.repository.ts` (~20 modules). Smaller modules (e.g. `tax-configs`, parts of `etl`) call `PrismaService` from the service — **do not add a repository layer** unless the feature already has one or complexity warrants it.
+
+## Global stack (`app.module.ts`)
+
+- `ConfigModule.forRoot` + `validateEnv`, `PrismaModule`, `StorageModule`, `JobsModule`.
+- Filters/interceptors: `GlobalExceptionFilter`, `ResponseTransformInterceptor`, `LoggingInterceptor`.
+- Guards (`APP_GUARD` order): `ThrottlerGuard` → `ClerkAuthGuard` → `PermissionsGuard` → `TenantGuard`.
+
+## Auth decorators
+
+```ts
+@Public()
+@RequirePermission(PERMISSIONS.SURVEY_VIEW)
+@RequireAnyPermission(...)
+@CurrentUser() user: AuthenticatedUser
+```
+
+Permissions: `common/constants/permissions.ts`. `TenantGuard` checks geo IDs when present — repositories must still apply `buildTenantWhere`.
+
+## Prisma
+
+```ts
+constructor(private readonly prisma: PrismaService) {}
+await this.prisma.db.survey.findMany(...)
+import type { Prisma } from "@workspace/database"
+```
+
+Use `getSkipTake`, `toPaginatedResult`, `buildOrderBy`, `buildTenantWhere`.
+
+## DTOs
+
+- Global `ValidationPipe`: `whitelist`, `transform`, `forbidNonWhitelisted`.
+- Query numbers: `@Type(() => Number)` + `@IsInt`.
+- Lists: extend `PaginationQueryDto` or feature query DTO.
+
+## Jobs
+
+- Enqueue via `apps/api/src/jobs/jobs.service.ts` only — do not `@InjectQueue` in API feature modules.
+- Queue/job names and payloads from `@workspace/jobs`.
+- Worker processors may `@InjectQueue` for job chaining (e.g. import → image migration, ETL pipelines).
+
+## Errors
+
+- Throw Nest HTTP exceptions with clear messages.
+- `GlobalExceptionFilter` maps Prisma `P2002` → 409.
+- Never return raw Prisma errors to clients.

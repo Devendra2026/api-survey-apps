@@ -1,0 +1,62 @@
+---
+description: Prisma 7, PostgreSQL, migrations, queries, tenant grain
+globs:
+  - "packages/database/**/*"
+  - "packages/database/prisma/schema.prisma"
+  - "apps/api/src/prisma/**/*"
+  - "apps/worker/src/database/**/*"
+alwaysApply: false
+---
+
+# Prisma & PostgreSQL
+
+## Schema
+
+- Location: `packages/database/prisma/schema.prisma`.
+- Generator: `prisma-client` → `packages/database/src/generated/prisma`.
+- Datasource: PostgreSQL. Runtime uses `@prisma/adapter-pg` + `pg` (`createPrismaClient`).
+- Migrations config: `packages/database/prisma.config.ts` — prefers `DIRECT_URL` for migrate/deploy.
+
+Import client/types/enums via `@workspace/database` only.
+
+## Migrations
+
+- Dev: `pnpm db:migrate` (`prisma migrate dev`).
+- CI/prod: `pnpm db:deploy` (`prisma migrate deploy`).
+- Commit migration SQL. Never edit applied migrations.
+- Ask before schema changes — production data depends on them.
+
+## Client usage
+
+```ts
+// API
+constructor(private readonly prisma: PrismaService) {}
+this.prisma.db.survey.findMany(...)
+
+// Worker — separate PrismaService in apps/worker/src/database/
+```
+
+Never `new PrismaClient()` in app code.
+
+## Domain conventions
+
+- **Tenant grain:** `ulbId`. Geography: State → District → ULB → Ward.
+- **RBAC:** roles via `UserTenantRole` — no direct `User.role` field.
+- **Soft delete:** `Survey.deletedAt`, `Ward.deletedAt` — active uniqueness enforced by partial indexes in SQL (not always expressible as `@@unique` in Prisma).
+- **Legacy fields:** `legacySurveyId`, denormalized ward/ulb strings — migration/ETL provenance only.
+
+## Queries
+
+- Lists: `getSkipTake` + `toPaginatedResult`, or cursor pagination (`cursorPagination=true` on surveys).
+- Tenant scope: `buildTenantWhere` / `resolveTenantScope`.
+- Avoid N+1: use `include`/`select` thoughtfully.
+- Partial unique / trigram indexes live in migration SQL — check migrations when adding filters.
+
+## Transactions
+
+- `$transaction` for atomic multi-table writes (survey + audit rows).
+- Never hold transactions open during S3, Redis, or HTTP calls.
+
+## Security
+
+- `DATABASE_URL` / `DIRECT_URL` server-only. Never in web bundles.

@@ -6,18 +6,26 @@ import { QcWardGrid } from "@/components/qc/qc-ward-grid"
 import { EmptyState } from "@/components/shared/page-elements"
 import { useQcMetrics, useQcWards } from "@/hooks/use-api"
 import type { QcCommandCenterFilters } from "@/lib/api/types"
+import { allotmentScopeFromProfile } from "@/lib/qc/allotment-scope"
 import { useAuthStore } from "@/stores/app-store"
 import { Button } from "@workspace/ui/components/button"
 import { ClipboardCheck } from "lucide-react"
 import Link from "next/link"
-import { useCallback, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 
 export default function QcCommandCenterPage() {
   const hasPermission = useAuthStore((s) => s.hasPermission)
+  const profile = useAuthStore((s) => s.profile)
   const canApprove = hasPermission("survey:approve")
 
-  const [stateId, setStateId] = useState("")
-  const [filters, setFilters] = useState<QcCommandCenterFilters>({})
+  const allotmentDefaults = useMemo(() => allotmentScopeFromProfile(profile?.tenantRoles), [profile?.tenantRoles])
+
+  const [stateId, setStateId] = useState(allotmentDefaults?.stateId ?? "")
+  const [filters, setFilters] = useState<QcCommandCenterFilters>(() => ({
+    districtId: allotmentDefaults?.districtId || undefined,
+    ulbId: allotmentDefaults?.ulbId || undefined,
+    wardId: allotmentDefaults?.wardId || undefined,
+  }))
 
   const onChange = useCallback((next: QcCommandCenterFilters) => setFilters(next), [])
   const onStateChange = useCallback((next: string) => {
@@ -62,7 +70,13 @@ export default function QcCommandCenterPage() {
         </Button>
       </header>
 
-      <QcFilterPanel filters={filters} onChange={onChange} stateId={stateId} onStateChange={onStateChange} />
+      <QcFilterPanel
+        filters={filters}
+        onChange={onChange}
+        stateId={stateId}
+        onStateChange={onStateChange}
+        allotmentDefaults={allotmentDefaults}
+      />
 
       <QcMetricSummary metrics={metricsQuery.data} isLoading={metricsQuery.isLoading} />
 

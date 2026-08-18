@@ -135,18 +135,34 @@ type SurveyForEditable = {
   }>
 }
 
+const DEFAULT_USAGE_FACTOR = "RESIDENTIAL"
+const DEFAULT_CONSTRUCTION_TYPE = "PAKKA_BUILDING_WITH_RCC_ROOF"
+
+function normalizeFloorFields(floor: { usageFactor: string | null; constructionType: string | null }): {
+  usageFactor: string
+  constructionType: string
+} {
+  return {
+    usageFactor: floor.usageFactor || DEFAULT_USAGE_FACTOR,
+    constructionType: floor.constructionType || DEFAULT_CONSTRUCTION_TYPE,
+  }
+}
+
 export function mapQcEditable(survey: SurveyForEditable): QcSurveyEditable {
   const floors = [...(survey.floors ?? [])]
     .sort((a, b) => a.position - b.position)
-    .map((floor) => ({
-      id: floor.id,
-      floorPosition: floor.floorPosition,
-      usageType: floor.usageType,
-      usageFactor: floor.usageFactor,
-      constructionType: floor.constructionType,
-      areaSqFt: toNumber(floor.areaSqFt),
-      position: floor.position,
-    }))
+    .map((floor) => {
+      const normalized = normalizeFloorFields(floor)
+      return {
+        id: floor.id,
+        floorPosition: floor.floorPosition,
+        usageType: floor.usageType,
+        usageFactor: normalized.usageFactor,
+        constructionType: normalized.constructionType,
+        areaSqFt: toNumber(floor.areaSqFt),
+        position: floor.position,
+      }
+    })
 
   const coOwners = [...(survey.coOwners ?? [])]
     .sort((a, b) => a.ownerIndex - b.ownerIndex)

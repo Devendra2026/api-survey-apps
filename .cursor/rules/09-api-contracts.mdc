@@ -1,0 +1,80 @@
+---
+description: Web↔API envelope, DTOs, pagination, errors
+globs:
+  - "apps/api/src/**/dto/**/*.ts"
+  - "apps/api/src/common/interfaces/**/*"
+  - "apps/api/src/common/interceptors/**/*"
+  - "apps/api/src/common/filters/**/*"
+  - "apps/web/lib/api/**/*"
+  - "apps/web/hooks/use-api*.ts"
+alwaysApply: false
+---
+
+# API Contracts
+
+Web talks to Nest via HTTP only. No Prisma in web.
+
+## Response envelope
+
+`ResponseTransformInterceptor` wraps success responses:
+
+```ts
+{ success: true, message: "OK", data: T, errors: null, timestamp, path, statusCode }
+```
+
+Exceptions via `GlobalExceptionFilter`:
+
+```ts
+{ success: false, message, data: null, errors?: string[], timestamp, path, statusCode }
+```
+
+Exceptions: `/metrics` (plain text), `StreamableFile` downloads.
+
+## Pagination (offset)
+
+Request: `PaginationQueryDto` — `page`, `limit` (1–100), `sortBy`, `sortOrder`, `search`.
+
+Response (`PaginatedResult`):
+
+```ts
+{ items: T[], meta: { total, page, limit, totalPages } }
+```
+
+## Pagination (cursor)
+
+Some endpoints (e.g. surveys with `cursorPagination=true`):
+
+```ts
+{ items: T[], meta: { limit, nextCursor: string | null } }
+```
+
+Do not mix cursor and offset shapes in the same endpoint.
+
+## DTOs (API)
+
+- `class-validator` + `@ApiProperty` for Swagger.
+- Query numbers: `@Type(() => Number)` + `@IsInt`.
+- Prisma enums: `@IsEnum(...)`.
+
+## Web client
+
+- `lib/api/client.ts` — unwraps `data`, throws on `!success`.
+- `getApiErrorMessage()` — prefer `errors[]` over generic "Validation failed".
+- RSC server fetch: `unwrapApiProfile()` for `/users/me`.
+
+## Shared validation
+
+- Prefer `@workspace/validation` Zod schemas for domain rules used on both sides.
+- Do not invent parallel request shapes in web types when API DTO exists in `lib/api/types.ts`.
+
+## HTTP status mapping
+
+| Case                     | Status                    |
+| ------------------------ | ------------------------- |
+| DTO validation           | 400                       |
+| Missing/invalid JWT      | 401                       |
+| Permission/tenant denied | 403                       |
+| Not found                | 404                       |
+| Prisma P2002             | 409                       |
+| Throttle                 | 429                       |
+| Unhandled                | 500 (no internal details) |

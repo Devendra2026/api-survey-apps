@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, Logger } from "@ne
 import { PERMISSIONS } from "../common/constants/permissions.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { canAccessTenant, resolveTenantScope } from "../common/utils/tenant-scope.util.js"
+import { warningsFromSurveyRow } from "../floors/floor-usage-warnings.util.js"
 import { StorageService } from "../storage/storage.service.js"
 import { refreshSurveyPhotoUrls } from "../surveys/survey-photo-urls.js"
 import { mapSurveyToDetailsDto } from "../surveys/survey-view.mapper.js"
@@ -10,7 +11,6 @@ import { SurveysService } from "../surveys/surveys.service.js"
 import type { QcFiltersDto } from "./dto/qc-filters.dto.js"
 import type { QcRegistryQueryDto } from "./dto/qc-registry.dto.js"
 import type { QcSurveyActionDto, QcSurveyCorrectionDto } from "./dto/qc-survey-action.dto.js"
-import { warningsFromSurveyRow } from "../floors/floor-usage-warnings.util.js"
 import { mapQcEditable, type QcSurveyDetailDto } from "./qc-survey.mapper.js"
 import { QcRepository } from "./qc.repository.js"
 
@@ -58,7 +58,7 @@ export class QcService {
       stateName: row.state?.name,
       warnings: warningsFromSurveyRow(row),
     }
-    return refreshSurveyPhotoUrls(this.storageService, detail, row.photos, this.logger)
+    return refreshSurveyPhotoUrls(this.storageService, detail, row.photos, this.logger, 14_400)
   }
 
   getAuditHistory(id: string, user: AuthenticatedUser) {
@@ -96,7 +96,7 @@ export class QcService {
           stateName: updated.state?.name,
           warnings: warningsFromSurveyRow(updated),
         }
-        return refreshSurveyPhotoUrls(this.storageService, detail, updated.photos, this.logger)
+        return refreshSurveyPhotoUrls(this.storageService, detail, updated.photos, this.logger, 14_400)
       }
       default:
         throw new BadRequestException(`Unsupported QC action: ${dto.action as string}`)

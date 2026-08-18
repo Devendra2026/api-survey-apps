@@ -6,9 +6,10 @@ import {
   Logger,
   NotFoundException,
 } from "@nestjs/common"
+import { ConfigService } from "@nestjs/config"
 import { ExportFormat, JobStatus, OwnershipType, PhotoType, SurveyStatus } from "@workspace/database"
 import { formatPropertyId } from "@workspace/validation"
-import { ConfigService } from "@nestjs/config"
+import { PERMISSIONS } from "../common/constants/permissions.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import {
   assertActiveSurveyIdentityAvailable,
@@ -407,6 +408,16 @@ export class SurveysService {
     const survey = await this.surveysRepository.findById(id, user)
     if (survey.surveyStatus !== "SUBMITTED") {
       throw new BadRequestException("Only SUBMITTED surveys can be approved")
+    }
+    if (
+      !userHasPermissionInTenant(user, PERMISSIONS.SURVEY_APPROVE, {
+        stateId: survey.stateId,
+        districtId: survey.districtId,
+        ulbId: survey.ulbId,
+        wardId: survey.wardId,
+      })
+    ) {
+      throw new ForbiddenException("Missing permission survey:approve in this tenant scope")
     }
     const isAdmin = user.tenantRoles.some((r) => r.isActive && r.roleName === "ADMIN")
     if (survey.createdById === user.id && !isAdmin) {

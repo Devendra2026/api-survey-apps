@@ -1,0 +1,48 @@
+---
+description: S3/MinIO storage abstraction, presigned URLs, object keys
+globs:
+  - "apps/api/src/storage/**/*"
+  - "apps/worker/src/storage/**/*"
+alwaysApply: false
+---
+
+# Storage — S3 / MinIO
+
+## Abstraction
+
+- `STORAGE_PROVIDER=s3` (default) or `minio` — factory in `storage.factory.ts`.
+- API: inject `StorageService` (wraps `STORAGE_SERVICE` port).
+- Worker: `ObjectStorageService` — separate copy, same env vars.
+
+Feature code must **not** call `@aws-sdk/*` directly.
+
+## Presigned URLs
+
+```ts
+await storageService.getPresignedUploadUrl(key, mimeType, expiresIn)
+await storageService.getPresignedDownloadUrl(key, expiresIn)
+```
+
+Signing uses public URL env (`MINIO_PUBLIC_URL` / `AWS_S3_PUBLIC_URL`) when set so browsers avoid internal endpoints.
+
+## Object key layout
+
+```
+uploads/{stateId}/{districtId}/{ulbId}/{wardId}/survey/{surveyId}/{uuid}.ext
+imports/...
+exports/...
+```
+
+Use `StorageService.buildKey()` for survey photo uploads.
+
+## Validation
+
+- Images: jpeg, png, webp only. Magic-byte check on upload.
+- Max size: `UPLOAD_MAX_FILE_SIZE_BYTES` / `STORAGE_MAX_FILE_SIZE_BYTES` (default 5MB).
+
+## Env (validated in `env.validation.ts`)
+
+MinIO: `MINIO_ENDPOINT`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `MINIO_BUCKET`, …  
+AWS: `AWS_REGION`, `AWS_S3_BUCKET`; static keys optional (instance role supported).
+
+Local dev: MinIO via `docker compose up` (port 9000/9001).

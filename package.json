@@ -34,14 +34,14 @@
     "@workspace/validation": "workspace:*",
     "eslint": "^9.39.5",
     "husky": "^9.1.7",
-    "lint-staged": "^16.1.2",
+    "lint-staged": "^16.4.0",
     "prettier": "^3.9.6",
-    "prettier-plugin-tailwindcss": "^0.8.0",
-    "turbo": "^2.10.7",
+    "prettier-plugin-tailwindcss": "^0.8.1",
+    "turbo": "^2.10.10",
     "typescript": "^5.9.3"
   },
   "engines": {
     "node": ">=24"
   },
-  "packageManager": "pnpm@11.17.0"
+  "packageManager": "pnpm@11.22.0+sha512.1ff870c4c6133dfd88fb2afc46dd13d47f09c9794b438c6fdb47ca98caf3bc16381ee0be93a091b8e3824cf01f889f46d7d9e20910fb0be1ab0fb5baa80dd621"
 }

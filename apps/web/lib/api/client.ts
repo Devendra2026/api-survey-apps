@@ -37,8 +37,23 @@ apiClient.interceptors.request.use(async (config) => {
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
-    const config = error.config as (AxiosRequestConfig & { _retry429?: boolean }) | undefined
+    const config = error.config as (AxiosRequestConfig & { _retry429?: boolean; _retry401?: boolean }) | undefined
     const requestUrl = String(config?.url ?? "")
+
+    if (config && error.response?.status === 401 && !config._retry401 && tokenGetter) {
+      config._retry401 = true
+      const token = await tokenGetter()
+      if (token) {
+        if (typeof config.headers?.set === "function") {
+          config.headers.set("Authorization", `Bearer ${token}`)
+        } else {
+          config.headers = config.headers ?? {}
+          ;(config.headers as Record<string, string>).Authorization = `Bearer ${token}`
+        }
+        return apiClient.request(config)
+      }
+    }
+
     // Never auto-retry preview — a client loop + Retry-After retry amplifies 429 storms.
     const isTaxPreview = requestUrl.includes("/tax-configs/preview")
     if (!config || error.response?.status !== 429 || config._retry429 || isTaxPreview) {

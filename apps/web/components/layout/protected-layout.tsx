@@ -4,6 +4,7 @@ import { DashboardShell } from "@/components/layout/dashboard-shell"
 import { useCurrentUser } from "@/hooks/use-api"
 import { getApiErrorMessage } from "@/lib/api/client"
 import { hasDashboardAccess } from "@/lib/auth/dashboard-access"
+import { useValidateQcWorkingContext } from "@/lib/qc/use-validate-qc-working-context"
 import { useAuthStore } from "@/stores/app-store"
 import { useAuth } from "@clerk/nextjs"
 import { Button } from "@workspace/ui/components/button"
@@ -28,6 +29,8 @@ export function ProtectedDashboardLayout({ children }: { children: React.ReactNo
   const setProfile = useAuthStore((s) => s.setProfile)
   const clearProfile = useAuthStore((s) => s.clearProfile)
   const { data: user, isLoading, isError, error, refetch, isFetching } = useCurrentUser()
+
+  useValidateQcWorkingContext()
 
   useEffect(() => {
     if (isLoaded && !isSignedIn) {

@@ -46,7 +46,8 @@ export async function refreshSurveyPhotoUrls<T extends PhotoDetail>(
   storageService: StorageService,
   detail: T,
   rawPhotos: ReadonlyArray<RawPhoto>,
-  logger?: { warn: (message: string) => void }
+  logger?: { warn: (message: string) => void },
+  expiresInSeconds = 3600
 ): Promise<T> {
   if (detail.photos.length === 0) {
     return detail
@@ -69,7 +70,7 @@ export async function refreshSurveyPhotoUrls<T extends PhotoDetail>(
 
       if (objectKey && storageReady) {
         try {
-          const url = await storageService.getPresignedDownloadUrl(objectKey, 3600)
+          const url = await storageService.getPresignedDownloadUrl(objectKey, expiresInSeconds)
           return { ...photo, url, importStatus }
         } catch (err) {
           logger?.warn(`Failed to refresh signed URL for photo=${photo.id}: ${String(err)}`)

@@ -1,0 +1,44 @@
+---
+description: Logging, metrics, health endpoints, Prometheus
+globs:
+  - "apps/api/src/health/**/*"
+  - "apps/api/src/main.ts"
+  - "apps/api/src/common/interceptors/logging*"
+  - "apps/worker/src/health/**/*"
+  - "docker-compose.observability.yml"
+  - "deploy/observability/**/*"
+alwaysApply: false
+---
+
+# Observability
+
+## Health endpoints
+
+| Service | Live        | Ready                             | Metrics                                 |
+| ------- | ----------- | --------------------------------- | --------------------------------------- |
+| API     | `GET /live` | `GET /ready` (DB, Redis, storage) | `GET /metrics`                          |
+| Worker  | `GET /live` | `GET /ready` (Redis)              | `GET /metrics`                          |
+| Web     | —           | —                                 | `GET /healthz` (`app/healthz/route.ts`) |
+
+API health routes are `@Public()`. Worker has no global auth guards. Docker/K8s/Dokploy healthchecks hit `/live` or `/healthz`.
+
+## Metrics
+
+- **prom-client** default metrics with prefix `api_` / `worker_`.
+- `/metrics` returns Prometheus text — **not** wrapped in JSON envelope (`ResponseTransformInterceptor` skips it).
+
+## Logging
+
+- API: **pino-http** in `main.ts` with `x-request-id` propagation.
+- Nest `LoggingInterceptor` for request/response logging.
+- Worker/API: use Nest `Logger` with job id / correlation id in ETL paths.
+
+## Prometheus (optional)
+
+`docker-compose.observability.yml` + `deploy/observability/prometheus.yml` scrape api/worker `/metrics`.
+
+## Do not
+
+- Log secrets, JWTs, or presigned URL query strings at info level.
+- Break `/metrics` content-type or wrap metrics in the API envelope.
+- Remove readiness checks for Redis/DB when adding new infra dependencies without updating `/ready`.

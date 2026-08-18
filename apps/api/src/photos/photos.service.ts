@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from "@nestjs/common"
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common"
 import { PhotoType } from "@workspace/database"
 import type { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
@@ -45,6 +45,21 @@ export class PhotosService {
     }
 
     throw new BadRequestException("Photo is not stored in private object storage")
+  }
+
+  async getFileStream(id: string, user: AuthenticatedUser) {
+    const photo = await this.photosRepository.findById(id)
+    await this.surveysService.assertReadableSurvey(photo.surveyId, user)
+    if (!photo.objectKey) {
+      throw new NotFoundException("Photo file is not stored in object storage")
+    }
+
+    const file = await this.storageService.getObjectStream(photo.objectKey)
+    return {
+      stream: file.body,
+      contentType: file.contentType ?? photo.mimeType ?? "application/octet-stream",
+      contentLength: file.contentLength,
+    }
   }
 
   async create(dto: CreatePhotoDto, user: AuthenticatedUser) {

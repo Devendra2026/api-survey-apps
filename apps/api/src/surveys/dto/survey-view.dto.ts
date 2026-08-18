@@ -23,6 +23,7 @@ export class SurveyPhotoDto {
   capturedAt!: string | null
   surveyorName!: string
   importStatus?: string | null
+  objectKey?: string | null
 }
 
 export class QcRemarkItemDto {

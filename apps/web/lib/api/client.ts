@@ -106,6 +106,23 @@ export function getApiErrorMessage(error: unknown): string {
   return "An unexpected error occurred"
 }
 
+export async function apiGetBlob(url: string, config?: AxiosRequestConfig): Promise<Blob> {
+  const response = await apiClient.get<Blob>(url, { ...config, responseType: "blob" })
+  const data = response.data
+  const contentType = String(response.headers["content-type"] ?? data.type ?? "")
+  if (contentType.includes("application/json")) {
+    const text = await data.text()
+    try {
+      const parsed = JSON.parse(text) as ApiResponse
+      throw new Error(parsed.message || "Request failed")
+    } catch (err) {
+      if (err instanceof Error && err.message !== "Request failed" && !(err instanceof SyntaxError)) throw err
+      throw new Error("Request failed")
+    }
+  }
+  return data
+}
+
 export async function apiGet<T>(url: string, config?: AxiosRequestConfig): Promise<T> {
   const { data } = await apiClient.get<ApiResponse<T>>(url, config)
   if (!data.success) throw new Error(data.message || "Request failed")

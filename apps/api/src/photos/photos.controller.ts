@@ -8,16 +8,17 @@ import {
   Post,
   Put,
   Query,
+  StreamableFile,
   UploadedFile,
   UseInterceptors,
 } from "@nestjs/common"
 import { FileInterceptor } from "@nestjs/platform-express"
-import { Throttle } from "@nestjs/throttler"
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiPropertyOptional, ApiTags } from "@nestjs/swagger"
+import { Throttle } from "@nestjs/throttler"
 import { PhotoType } from "@workspace/database"
+import { Type } from "class-transformer"
 import { IsDateString, IsEnum, IsInt, IsOptional, IsString, Min } from "class-validator"
 import { memoryStorage } from "multer"
-import { Type } from "class-transformer"
 import { PERMISSIONS } from "../common/constants/permissions.js"
 import { CurrentUser } from "../common/decorators/current-user.decorator.js"
 import { RequirePermission } from "../common/decorators/require-permission.decorator.js"
@@ -75,6 +76,20 @@ export class PhotosController {
   @ApiOperation({ summary: "Get a short-lived signed URL for a private survey photo" })
   download(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.photosService.getDownloadUrl(id, user)
+  }
+
+  @Get(":id/file")
+  @RequirePermission(PERMISSIONS.SURVEY_VIEW)
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @ApiOperation({
+    summary: "Stream photo bytes through the API (avoids expired Convex URLs and internal MinIO hosts)",
+  })
+  async streamFile(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
+    const file = await this.photosService.getFileStream(id, user)
+    return new StreamableFile(file.stream, {
+      type: file.contentType,
+      length: file.contentLength,
+    })
   }
 
   @Get(":id")

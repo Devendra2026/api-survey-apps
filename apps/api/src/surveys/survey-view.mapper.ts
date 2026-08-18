@@ -183,6 +183,7 @@ export function mapSurveyToDetailsDto(survey: SurveyForView): SurveyDetailsDto {
     capturedAt: photo.capturedAt ? formatWhen(photo.capturedAt) : null,
     surveyorName: surveyor,
     importStatus: photo.importStatus ?? null,
+    objectKey: photo.objectKey ?? null,
   }))
 
   const front = photos.find((p) => p.photoType === "FRONT")

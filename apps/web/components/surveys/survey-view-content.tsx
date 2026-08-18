@@ -7,7 +7,14 @@ import {
   statusBadgeClass,
   SurveyViewField,
 } from "@/components/surveys/survey-view-field"
-import type { SurveyAuditHistoryItem, SurveyDetails, SurveyFloorRow, SurveyOwnerRow } from "@/lib/api/types"
+import { useAuthenticatedPhotoSrc } from "@/hooks/use-authenticated-photo-src"
+import type {
+  SurveyAuditHistoryItem,
+  SurveyDetails,
+  SurveyFloorRow,
+  SurveyOwnerRow,
+  SurveyPhotoItem,
+} from "@/lib/api/types"
 import type { ColumnDef } from "@tanstack/react-table"
 import { flexRender, getCoreRowModel, getSortedRowModel, useReactTable, type SortingState } from "@tanstack/react-table"
 import { Badge } from "@workspace/ui/components/badge"
@@ -99,44 +106,37 @@ function GlassTable<T>({ columns, data, empty }: { columns: ColumnDef<T>[]; data
   )
 }
 
-function SurveyPhotoCard({
-  label,
-  url,
-  caption,
-  importStatus,
-}: {
-  label: string
-  url: string
-  caption: string
-  importStatus?: string | null
-}) {
-  const [failed, setFailed] = useState(false)
-  const usableUrl = url?.trim() && /^https?:\/\//i.test(url.trim()) ? url.trim() : ""
-  const migrating = !usableUrl && importStatus === "PENDING"
+function SurveyPhotoCard({ photo, caption }: { photo: SurveyPhotoItem; caption: string }) {
+  const { src, status, setStatus } = useAuthenticatedPhotoSrc(photo)
 
   return (
     <div className="group relative overflow-hidden rounded-2xl border border-white/40 bg-white/30 shadow-lg backdrop-blur-md dark:border-white/10 dark:bg-white/5">
-      {migrating ? (
+      {status === "migrating" ? (
         <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 text-slate-500 dark:text-slate-400">
           <ImageIcon className="size-8 opacity-50" />
           <span className="text-xs">Photo migrating…</span>
         </div>
-      ) : failed || !usableUrl ? (
+      ) : status === "loading" ? (
+        <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 text-slate-500 dark:text-slate-400">
+          <ImageIcon className="size-8 opacity-50" />
+          <span className="text-xs">Loading photo…</span>
+        </div>
+      ) : status === "unavailable" || !src ? (
         <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 text-slate-500 dark:text-slate-400">
           <ImageIcon className="size-8 opacity-50" />
           <span className="text-xs">Image unavailable</span>
         </div>
       ) : (
-        // eslint-disable-next-line @next/next/no-img-element -- external/demo photo URLs
+        // eslint-disable-next-line @next/next/no-img-element -- authenticated blob or demo photo URLs
         <img
-          src={usableUrl}
-          alt={label}
-          onError={() => setFailed(true)}
+          src={src}
+          alt={photo.label}
+          onError={() => setStatus("unavailable")}
           className="aspect-video w-full object-cover transition-transform duration-500 group-hover:scale-110"
         />
       )}
       <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-slate-950/80 via-slate-950/40 to-transparent p-4 text-white">
-        <p className="text-sm font-semibold">{label}</p>
+        <p className="text-sm font-semibold">{photo.label}</p>
         <p className="mt-0.5 text-xs text-white/85">{caption}</p>
       </div>
     </div>
@@ -376,10 +376,8 @@ export function SurveyViewContent({
             {photoItems.map((photo) => (
               <SurveyPhotoCard
                 key={photo.id}
-                label={photo.label}
-                url={photo.url}
+                photo={photo}
                 caption={[photo.capturedAt, photo.surveyorName].filter(Boolean).join(" · ") || survey.surveyor}
-                importStatus={photo.importStatus}
               />
             ))}
           </div>

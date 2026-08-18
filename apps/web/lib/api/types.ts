@@ -562,6 +562,7 @@ export interface SurveyPhotoItem {
   capturedAt: string | null
   surveyorName: string
   importStatus?: string | null
+  objectKey?: string | null
 }
 
 export interface SurveyQcRemarkItem {

@@ -27,11 +27,39 @@ function looksLikeStorageKey(value: string | null | undefined): boolean {
   return (
     trimmed.startsWith("uploads/") ||
     trimmed.startsWith("surveys/") ||
+    trimmed.startsWith("etah-images/") ||
     (!trimmed.includes("://") && trimmed.includes("/"))
   )
 }
 
-function httpsFallback(raw: RawPhoto | undefined, photo: SurveyPhotoDto): string | null {
+export function isConvexHostedUrl(value: string | null | undefined): boolean {
+  if (!value) return false
+  const trimmed = value.trim()
+  try {
+    const host = new URL(trimmed).hostname.toLowerCase()
+    return (
+      host === "convex.cloud" ||
+      host === "convex.site" ||
+      host.endsWith(".convex.cloud") ||
+      host.endsWith(".convex.site")
+    )
+  } catch {
+    return /convex\.(cloud|site)/i.test(trimmed)
+  }
+}
+
+function durableHttpsUrl(raw: RawPhoto | undefined, photo: SurveyPhotoDto): string | null {
+  const candidates = [raw?.sourceUrl, raw?.url, photo.url]
+  for (const candidate of candidates) {
+    if (!isHttpUrl(candidate)) continue
+    const trimmed = candidate!.trim()
+    if (isConvexHostedUrl(trimmed)) continue
+    return trimmed
+  }
+  return null
+}
+
+function anyHttpsUrl(raw: RawPhoto | undefined, photo: SurveyPhotoDto): string | null {
   if (raw && isHttpUrl(raw.sourceUrl)) return raw.sourceUrl!.trim()
   if (raw && isHttpUrl(raw.url)) return raw.url!.trim()
   if (isHttpUrl(photo.url)) return photo.url.trim()
@@ -39,8 +67,9 @@ function httpsFallback(raw: RawPhoto | undefined, photo: SurveyPhotoDto): string
 }
 
 /**
- * Prefer HTTPS sourceUrl for display when present (import / CDN links work in the browser).
- * Otherwise mint a signed URL from objectKey. Never expose bare storage keys as img src.
+ * Prefer a signed URL from objectKey (durable MinIO/S3). Convex getUrl snapshots expire
+ * and must not win when an objectKey exists. HTTPS sourceUrl is used only for true CDNs
+ * or pending imports with no stored object.
  */
 export async function refreshSurveyPhotoUrls<T extends PhotoDetail>(
   storageService: StorageService,
@@ -60,29 +89,35 @@ export async function refreshSurveyPhotoUrls<T extends PhotoDetail>(
     detail.photos.map(async (photo) => {
       const raw = rawById.get(photo.id)
       const importStatus = raw?.importStatus ?? photo.importStatus ?? null
-      const objectKey = raw?.objectKey ?? null
-      const fallback = httpsFallback(raw, photo)
-
-      // Imported photos keep a durable public HTTPS sourceUrl — prefer it for <img src>.
-      if (fallback) {
-        return { ...photo, url: fallback, importStatus }
-      }
+      const objectKey = raw?.objectKey ?? photo.objectKey ?? null
 
       if (objectKey && storageReady) {
         try {
           const url = await storageService.getPresignedDownloadUrl(objectKey, expiresInSeconds)
-          return { ...photo, url, importStatus }
+          return { ...photo, url, importStatus, objectKey }
         } catch (err) {
           logger?.warn(`Failed to refresh signed URL for photo=${photo.id}: ${String(err)}`)
-          return { ...photo, url: "", importStatus }
+          return { ...photo, url: "", importStatus, objectKey }
+        }
+      }
+
+      const durable = durableHttpsUrl(raw, photo)
+      if (durable) {
+        return { ...photo, url: durable, importStatus, objectKey }
+      }
+
+      if (!objectKey) {
+        const fallback = anyHttpsUrl(raw, photo)
+        if (fallback) {
+          return { ...photo, url: fallback, importStatus, objectKey }
         }
       }
 
       if (looksLikeStorageKey(photo.url) || looksLikeStorageKey(raw?.url)) {
-        return { ...photo, url: "", importStatus }
+        return { ...photo, url: "", importStatus, objectKey }
       }
 
-      return { ...photo, importStatus }
+      return { ...photo, importStatus, objectKey }
     })
   )
 

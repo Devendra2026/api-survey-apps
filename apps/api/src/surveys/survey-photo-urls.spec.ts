@@ -1,34 +1,75 @@
 import { describe, expect, it, jest } from "@jest/globals"
-import { refreshSurveyPhotoUrls } from "./survey-photo-urls.js"
+import { isConvexHostedUrl, refreshSurveyPhotoUrls } from "./survey-photo-urls.js"
+
+function photoDetail(overrides?: { url?: string; importStatus?: string | null; objectKey?: string | null }) {
+  return {
+    photos: [
+      {
+        id: "p1",
+        photoType: "FRONT",
+        label: "Front",
+        url: overrides?.url ?? "uploads/old-key",
+        capturedAt: null,
+        surveyorName: "A",
+        importStatus: overrides?.importStatus ?? "SUCCEEDED",
+        objectKey: overrides?.objectKey ?? null,
+      },
+    ],
+    frontPhotoUrl: overrides?.url ?? "uploads/old-key",
+    sidePhotoUrl: null as string | null,
+  }
+}
+
+describe("isConvexHostedUrl", () => {
+  it("detects convex.cloud and convex.site hosts", () => {
+    expect(isConvexHostedUrl("https://happy-animal-123.convex.cloud/api/storage/abc")).toBe(true)
+    expect(isConvexHostedUrl("https://site.convex.site/get?id=1")).toBe(true)
+    expect(isConvexHostedUrl("https://cdn.example/a.jpg")).toBe(false)
+  })
+})
 
 describe("refreshSurveyPhotoUrls", () => {
-  it("prefers https sourceUrl over objectKey for browser-safe display", async () => {
+  it("presigns objectKey even when a Convex sourceUrl is present", async () => {
     const storage = {
       isConfigured: () => true,
       getPresignedDownloadUrl: jest.fn(() => Promise.resolve("https://signed.example/photo.jpg")),
     }
-    const detail = {
-      photos: [
-        {
-          id: "p1",
-          photoType: "FRONT",
-          label: "Front",
-          url: "uploads/old-key",
-          capturedAt: null,
-          surveyorName: "A",
-          importStatus: "SUCCEEDED",
-        },
-      ],
-      frontPhotoUrl: "uploads/old-key",
-      sidePhotoUrl: null as string | null,
-    }
-
-    const result = await refreshSurveyPhotoUrls(storage as never, detail, [
-      { id: "p1", objectKey: "uploads/real-key", sourceUrl: "https://cdn.example/a.jpg", importStatus: "SUCCEEDED" },
+    const result = await refreshSurveyPhotoUrls(storage as never, photoDetail(), [
+      {
+        id: "p1",
+        objectKey: "etah-images/district-05/ward-12/legacy/front.jpg",
+        sourceUrl: "https://happy-animal-123.convex.cloud/api/storage/expired",
+        importStatus: "SUCCEEDED",
+      },
     ])
 
+    expect(result.photos[0]?.url).toBe("https://signed.example/photo.jpg")
+    expect(storage.getPresignedDownloadUrl).toHaveBeenCalledWith(
+      "etah-images/district-05/ward-12/legacy/front.jpg",
+      3600
+    )
+  })
+
+  it("ignores Convex hosts when choosing an HTTPS fallback without objectKey", async () => {
+    const storage = {
+      isConfigured: () => true,
+      getPresignedDownloadUrl: jest.fn(),
+    }
+    const result = await refreshSurveyPhotoUrls(
+      storage as never,
+      photoDetail({ url: "https://cdn.example/a.jpg", importStatus: "SUCCEEDED" }),
+      [
+        {
+          id: "p1",
+          objectKey: null,
+          sourceUrl: "https://happy-animal-123.convex.cloud/api/storage/expired",
+          url: "https://cdn.example/a.jpg",
+          importStatus: "SUCCEEDED",
+        },
+      ]
+    )
+
     expect(result.photos[0]?.url).toBe("https://cdn.example/a.jpg")
-    expect(result.frontPhotoUrl).toBe("https://cdn.example/a.jpg")
     expect(storage.getPresignedDownloadUrl).not.toHaveBeenCalled()
   })
 
@@ -37,23 +78,7 @@ describe("refreshSurveyPhotoUrls", () => {
       isConfigured: () => true,
       getPresignedDownloadUrl: jest.fn(() => Promise.resolve("https://signed.example/photo.jpg")),
     }
-    const detail = {
-      photos: [
-        {
-          id: "p1",
-          photoType: "FRONT",
-          label: "Front",
-          url: "uploads/old-key",
-          capturedAt: null,
-          surveyorName: "A",
-          importStatus: "SUCCEEDED",
-        },
-      ],
-      frontPhotoUrl: "uploads/old-key",
-      sidePhotoUrl: null as string | null,
-    }
-
-    const result = await refreshSurveyPhotoUrls(storage as never, detail, [
+    const result = await refreshSurveyPhotoUrls(storage as never, photoDetail(), [
       { id: "p1", objectKey: "uploads/real-key", sourceUrl: null, importStatus: "SUCCEEDED" },
     ])
 
@@ -66,34 +91,45 @@ describe("refreshSurveyPhotoUrls", () => {
       isConfigured: () => true,
       getPresignedDownloadUrl: jest.fn(),
     }
-    const detail = {
-      photos: [
+    const result = await refreshSurveyPhotoUrls(
+      storage as never,
+      photoDetail({ url: "https://cdn.example/pending.jpg", importStatus: "PENDING" }),
+      [
         {
           id: "p1",
-          photoType: "FRONT",
-          label: "Front",
+          objectKey: null,
+          sourceUrl: "https://cdn.example/pending.jpg",
           url: "https://cdn.example/pending.jpg",
-          capturedAt: null,
-          surveyorName: "A",
           importStatus: "PENDING",
         },
-      ],
-      frontPhotoUrl: "https://cdn.example/pending.jpg",
-      sidePhotoUrl: null as string | null,
-    }
-
-    const result = await refreshSurveyPhotoUrls(storage as never, detail, [
-      {
-        id: "p1",
-        objectKey: null,
-        sourceUrl: "https://cdn.example/pending.jpg",
-        url: "https://cdn.example/pending.jpg",
-        importStatus: "PENDING",
-      },
-    ])
+      ]
+    )
 
     expect(result.photos[0]?.url).toBe("https://cdn.example/pending.jpg")
     expect(storage.getPresignedDownloadUrl).not.toHaveBeenCalled()
+  })
+
+  it("uses Convex URL only as last resort when there is no objectKey", async () => {
+    const storage = {
+      isConfigured: () => true,
+      getPresignedDownloadUrl: jest.fn(),
+    }
+    const convexUrl = "https://happy-animal-123.convex.cloud/api/storage/pending"
+    const result = await refreshSurveyPhotoUrls(
+      storage as never,
+      photoDetail({ url: convexUrl, importStatus: "PENDING" }),
+      [
+        {
+          id: "p1",
+          objectKey: null,
+          sourceUrl: convexUrl,
+          url: convexUrl,
+          importStatus: "PENDING",
+        },
+      ]
+    )
+
+    expect(result.photos[0]?.url).toBe(convexUrl)
   })
 
   it("never returns a bare storage key as url", async () => {
@@ -110,7 +146,7 @@ describe("refreshSurveyPhotoUrls", () => {
           url: "uploads/migrated-key",
           capturedAt: null,
           surveyorName: "A",
-          importStatus: "SUCCEEDED",
+          importStatus: "SUCCEEDED" as string | null,
         },
       ],
       frontPhotoUrl: null as string | null,
@@ -129,25 +165,11 @@ describe("refreshSurveyPhotoUrls", () => {
       isConfigured: () => false,
       getPresignedDownloadUrl: jest.fn(),
     }
-    const detail = {
-      photos: [
-        {
-          id: "p1",
-          photoType: "FRONT",
-          label: "Front",
-          url: "https://cdn.example/a.jpg",
-          capturedAt: null,
-          surveyorName: "A",
-          importStatus: null as string | null,
-        },
-      ],
-      frontPhotoUrl: "https://cdn.example/a.jpg",
-      sidePhotoUrl: null as string | null,
-    }
-
-    const result = await refreshSurveyPhotoUrls(storage as never, detail, [
-      { id: "p1", objectKey: null, sourceUrl: "https://cdn.example/a.jpg", importStatus: "PENDING" },
-    ])
+    const result = await refreshSurveyPhotoUrls(
+      storage as never,
+      photoDetail({ url: "https://cdn.example/a.jpg", importStatus: null }),
+      [{ id: "p1", objectKey: null, sourceUrl: "https://cdn.example/a.jpg", importStatus: "PENDING" }]
+    )
 
     expect(result.photos[0]?.url).toBe("https://cdn.example/a.jpg")
     expect(result.photos[0]?.importStatus).toBe("PENDING")

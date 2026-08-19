@@ -1,4 +1,5 @@
 import {
+  computeFloorsAbbreviation,
   formatExportMobile,
   formatExportParcel,
   formatExportText,
@@ -7,8 +8,8 @@ import {
   type ExportTaxSummary,
 } from "@workspace/validation"
 import { display, number } from "./convex-full.js"
-import type { ColumnKind } from "./workbook-shell.js"
 import type { FloorExportRow, SurveyExportBundle } from "./types.js"
+import type { ColumnKind } from "./workbook-shell.js"
 
 export type PremiumColumn = {
   header: string
@@ -116,47 +117,50 @@ export function resolvePremiumSurveyId(row: SurveyExportBundle): string {
  * Used by Survey Excel and as the QC Final prefix.
  */
 export const COMMON_SURVEY_COLUMNS: PremiumColumn[] = [
-  { header: "S. No", kind: "number" },
-  { header: "Survey ID", kind: "text", mandatory: true, forceText: true },
+  // 1–6: Survey / Workflow
+  { header: "SN", kind: "number" },
   { header: "Status", kind: "text" },
   { header: "Surveyor Name", kind: "text" },
-  { header: "Survey Date", kind: "date" },
   { header: "Assessment Year", kind: "text" },
-  { header: "ULB Name", kind: "text" },
-  { header: "Ward Number and Name", kind: "text", mandatory: true, forceText: true },
-  { header: "Sector Number", kind: "text", forceText: true },
-  { header: "Parcel Number", kind: "text", mandatory: true, forceText: true },
-  { header: "Unit Number", kind: "text", forceText: true },
-  { header: "Old Property Number", kind: "text", forceText: true },
-  { header: "Constructed Year", kind: "number" },
-  { header: "Slum", kind: "text" },
-  { header: "Name of Respondent", kind: "text" },
-  { header: "Respondent Relation with Owner", kind: "text" },
+  { header: "Property Id", kind: "text", mandatory: true, forceText: true },
+  { header: "Date of Survey", kind: "date" },
+  // 7–17: Owner / Respondent
   { header: "Owner Name", kind: "text", mandatory: true },
-  { header: "Father/Husband Name", kind: "text" },
-  { header: "Mobile Number", kind: "text", forceText: true },
-  { header: "Alternative Mobile Number", kind: "text", forceText: true },
-  { header: "Number of Family Members", kind: "number" },
-  { header: "House Number", kind: "text" },
-  { header: "Locality Name", kind: "text" },
-  { header: "Colony Name", kind: "text" },
+  { header: "Owner Father Name", kind: "text" },
+  { header: "Mobile No", kind: "text", forceText: true },
+  { header: "Ward Name", kind: "text", mandatory: true, forceText: true },
+  { header: "Is Slum", kind: "text" },
+  { header: "Parcel No", kind: "text", mandatory: true, forceText: true },
+  { header: "Unit No", kind: "text", forceText: true },
+  { header: "old property Number", kind: "text", forceText: true },
+  { header: "Constructed Date", kind: "date" },
+  { header: "Respondent Name", kind: "text" },
+  { header: "Respondent Relationship", kind: "text" },
+  // 18–22: Address Information
   { header: "City", kind: "text" },
-  { header: "PIN Code", kind: "text", forceText: true },
-  { header: "Ownership Use", kind: "text" },
+  { header: "Pincode", kind: "text", forceText: true },
+  { header: "House No", kind: "text" },
+  { header: "Locality", kind: "text" },
+  { header: "Colony", kind: "text" },
+  // 23–29: Property Classification
+  { header: "Tax Rate Zone", kind: "text" },
+  { header: "Property Ownership", kind: "text" },
   { header: "Property Type", kind: "text", mandatory: true },
-  { header: "Property Use", kind: "text", mandatory: true },
+  { header: "Property Uses", kind: "text", mandatory: true },
   { header: "Situation", kind: "text" },
   { header: "Road Type", kind: "text" },
-  { header: "Taxation Zone", kind: "text" },
-  { header: "Plot Area", kind: "number", mandatory: true },
-  { header: "Plinth Area", kind: "number" },
-  { header: "Total Built-up Area", kind: "number" },
-  ...buildFloorPivotColumns(),
-  { header: "Water Connection", kind: "text" },
-  { header: "Source of Water", kind: "text" },
-  { header: "Sanitation", kind: "text" },
-  { header: "Door-to-Door Collection", kind: "text" },
-  { header: "Electricity Consumer No", kind: "text", forceText: true },
+  { header: "Floors", kind: "number" },
+  // 30–32: Area Measurements
+  { header: "Plot Area SqFt", kind: "number", mandatory: true },
+  { header: "Plinth Area SqFt", kind: "number" },
+  { header: "Total Built Up Area SqFt", kind: "number" },
+  // 33–37: Utility Information
+  { header: "Is Municipal Water Supply", kind: "text" },
+  { header: "Total Water Connection", kind: "number" },
+  { header: "Water Connection Id/Type", kind: "text" },
+  { header: "Toilet Type", kind: "text" },
+  { header: "Is Municipal Waste Service", kind: "text" },
+  // 38–39: GPS / Location
   { header: "Latitude", kind: "number" },
   { header: "Longitude", kind: "number" },
 ]
@@ -187,7 +191,7 @@ export const QC_FINAL_COLUMNS: PremiumColumn[] = [...COMMON_SURVEY_COLUMNS, ...Q
 /** @deprecated Use QC_FINAL_COLUMNS */
 export const QC_PREMIUM_COLUMNS = QC_FINAL_COLUMNS
 
-export const SURVEY_ID_COLUMN_INDEX = 2 // 1-based: S. No=1, Survey ID=2
+export const SURVEY_ID_COLUMN_INDEX = 5 // 1-based: Property Id is column 5
 
 export function toCommonSurveyRow(row: SurveyExportBundle, serialNumber: number): unknown[] {
   const owner = row.coOwners[0]
@@ -197,47 +201,50 @@ export function toCommonSurveyRow(row: SurveyExportBundle, serialNumber: number)
   const wardName = row.ward?.wardName
 
   return [
+    // 1–6: Survey / Workflow
     serialNumber,
-    resolvePremiumSurveyId(row),
     display(row.surveyStatus) || "N/A",
     na(row.createdBy?.fullName),
-    row.submittedAt ?? row.capturedAt ?? "",
     display(row.assessmentYear) || "N/A",
-    na(row.ulb?.name),
+    resolvePremiumSurveyId(row),
+    row.submittedAt ?? row.capturedAt ?? "",
+    // 7–17: Owner / Respondent
+    na(owner?.name ?? row.respondentName),
+    na(owner?.fatherOrHusbandName),
+    formatExportMobile(owner?.mobile ?? row.mobileNumber),
     formatWardNumberAndName(wardNo, wardName),
-    textId(row.sectorNo),
+    yesNo(row.isSlum),
     parcel || "N/A",
     unit,
     textId(row.propertyIdOld),
     row.constructedYear ?? "",
-    yesNo(row.isSlum),
     na(row.respondentName),
     display(row.relationshipWithOwner) || "N/A",
-    na(owner?.name ?? row.respondentName),
-    na(owner?.fatherOrHusbandName),
-    formatExportMobile(owner?.mobile ?? row.mobileNumber),
-    formatExportMobile(owner?.alternateMobile ?? row.alternateMobile),
-    row.familySize ?? "",
+    // 18–22: Address Information
+    na(row.city ?? row.ulb?.name),
+    textId(row.pinCode),
     na(row.houseDoorNo),
     na(row.locality),
     na(row.colony),
-    na(row.city),
-    textId(row.pinCode),
+    // 23–29: Property Classification
+    display(row.taxRateZone) || "N/A",
     display(row.ownershipType) || "N/A",
     display(row.propertyType) || "N/A",
     display(row.propertyUse) || "N/A",
     display(row.situation) || "N/A",
     display(row.roadType) || "N/A",
-    display(row.taxRateZone) || "N/A",
+    computeFloorsAbbreviation(row.floors),
+    // 30–32: Area Measurements
     number(row.plotAreaSqFt),
     number(row.plinthAreaSqFt),
     number(row.totalBuiltAreaSqFt),
-    ...floorPivotValues(row.floors),
+    // 33–37: Utility Information
     display(row.waterConnection) || "N/A",
+    "",
     display(row.sourceOfWater) || "N/A",
     display(row.sanitationType) || "N/A",
     yesNo(row.solidWasteCollection),
-    textId(row.electricityConsumerNo),
+    // 38–39: GPS / Location
     number(row.latitude),
     number(row.longitude),
   ]

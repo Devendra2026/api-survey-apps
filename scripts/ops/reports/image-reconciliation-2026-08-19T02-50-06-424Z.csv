@@ -1,0 +1,5 @@
+old_parcel_id,new_parcel_id,ward_id,legacy_survey_id,property_id,slot,old_storage_id,minio_bucket,minio_object_key,status,action
+00305,,12,k970djzvy9cbnxewwdc36d9yj98bg13r,801262-012-00305-001-R,front,kg2ekvverwyyd5q8agfn5h0kyn8bhsva,api-survey-app,,nest_survey_missing,SKIP
+00305,,12,k970djzvy9cbnxewwdc36d9yj98bg13r,801262-012-00305-001-R,side,kg28g1gjrt6gdg7prczckq6vsx8bh9s1,api-survey-app,,nest_survey_missing,SKIP
+00304,,12,k975s0a9rhftm537r6b77v88sx8bhv66,801262-012-00304-001-R,front,kg21fw18pxyaexqa6fn809f7a98bg35b,api-survey-app,,nest_survey_missing,SKIP
+00304,,12,k975s0a9rhftm537r6b77v88sx8bhv66,801262-012-00304-001-R,side,kg2b5908tsmj7mh5kqbe3gb14d8bhy26,api-survey-app,,nest_survey_missing,SKIP

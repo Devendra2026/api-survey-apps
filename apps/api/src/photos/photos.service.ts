@@ -54,6 +54,21 @@ export class PhotosService {
     await this.surveysService.assertReadableSurvey(photo.surveyId, user)
     const objectKey = resolveStoredObjectKey(photo)
     if (!objectKey) {
+      // #region agent log
+      fetch("http://127.0.0.1:7681/ingest/0fc9f6c6-0c15-443b-bd77-d3106250dbc1", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "25fc54" },
+        body: JSON.stringify({
+          sessionId: "25fc54",
+          runId: "post-fix",
+          hypothesisId: "F",
+          location: "photos.service.ts:getFileStream",
+          message: "No resolvable objectKey",
+          data: { photoId: photo.id, surveyId: photo.surveyId },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {})
+      // #endregion
       throw new NotFoundException("Photo file is not stored in object storage")
     }
 
@@ -65,6 +80,26 @@ export class PhotosService {
         if (key !== photo.objectKey) {
           void this.persistResolvedObjectKey(photo.id, key)
         }
+        // #region agent log
+        fetch("http://127.0.0.1:7681/ingest/0fc9f6c6-0c15-443b-bd77-d3106250dbc1", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "25fc54" },
+          body: JSON.stringify({
+            sessionId: "25fc54",
+            runId: "post-fix",
+            hypothesisId: "F",
+            location: "photos.service.ts:getFileStream",
+            message: "MinIO stream succeeded",
+            data: {
+              photoId: photo.id,
+              surveyId: photo.surveyId,
+              streamedKey: key,
+              contentLength: file.contentLength ?? null,
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {})
+        // #endregion
         return {
           stream: file.body,
           contentType: file.contentType ?? photo.mimeType ?? "application/octet-stream",

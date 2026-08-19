@@ -1,0 +1,3 @@
+old_parcel_id,new_parcel_id,ward_id,legacy_survey_id,property_id,slot,old_storage_id,minio_bucket,minio_object_key,status,action
+00305,,12,k970djzvy9cbnxewwdc36d9yj98bg13r,801262-012-00305-001-R,front,kg2ekvverwyyd5q8agfn5h0kyn8bhsva,api-survey-app,etah-images/district-ETA/ward-12/k970djzvy9cbnxewwdc36d9yj98bg13r/front.jpg,nest_survey_missing,create_survey_stub + upload + create_metadata
+00305,,12,k970djzvy9cbnxewwdc36d9yj98bg13r,801262-012-00305-001-R,side,kg28g1gjrt6gdg7prczckq6vsx8bh9s1,api-survey-app,etah-images/district-ETA/ward-12/k970djzvy9cbnxewwdc36d9yj98bg13r/side.jpg,nest_survey_missing,create_survey_stub + upload + create_metadata

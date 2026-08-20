@@ -1,5 +1,5 @@
 import {
-  computeFloorsAbbreviation,
+  formatExportFloorDetails,
   formatExportMobile,
   formatExportParcel,
   formatExportText,
@@ -18,6 +18,8 @@ export type PremiumColumn = {
   mandatory?: boolean
   /** Preserve as Excel text (leading zeros). */
   forceText?: boolean
+  /** Wider column for long narrative cells (e.g. Floors). */
+  wide?: boolean
 }
 
 /** Floor positions in schema order (wide pivot). */
@@ -149,7 +151,7 @@ export const COMMON_SURVEY_COLUMNS: PremiumColumn[] = [
   { header: "Property Uses", kind: "text", mandatory: true },
   { header: "Situation", kind: "text" },
   { header: "Road Type", kind: "text" },
-  { header: "Floors", kind: "number" },
+  { header: "Floors", kind: "text", wide: true },
   // 30–32: Area Measurements
   { header: "Plot Area SqFt", kind: "number", mandatory: true },
   { header: "Plinth Area SqFt", kind: "number" },
@@ -233,7 +235,7 @@ export function toCommonSurveyRow(row: SurveyExportBundle, serialNumber: number)
     display(row.propertyUse) || "N/A",
     display(row.situation) || "N/A",
     display(row.roadType) || "N/A",
-    computeFloorsAbbreviation(row.floors),
+    formatExportFloorDetails(row.floors),
     // 30–32: Area Measurements
     number(row.plotAreaSqFt),
     number(row.plinthAreaSqFt),

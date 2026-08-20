@@ -1,6 +1,8 @@
 import { describe, expect, it } from "@jest/globals"
 import {
   computeFloorsAbbreviation,
+  formatExportFloorDetailLine,
+  formatExportFloorDetails,
   formatExportMobile,
   formatExportParcel,
   formatExportText,
@@ -51,6 +53,44 @@ describe("export-format", () => {
 
     it("maps FIFTH_FLOOR_PLUS to F5", () => {
       expect(computeFloorsAbbreviation([{ floorPosition: "FIFTH_FLOOR_PLUS", areaSqFt: 500 }])).toBe("F5")
+    })
+  })
+
+  describe("formatExportFloorDetails", () => {
+    it("formats a ground floor narrative line", () => {
+      expect(
+        formatExportFloorDetailLine({
+          floorPosition: "GROUND_FLOOR",
+          areaSqFt: 600,
+          usageFactor: "RESIDENTIAL",
+          usageType: "SELF_OCCUPIED",
+          constructionType: "PAKKA_BUILDING_WITH_RCC_ROOF",
+        })
+      ).toBe(
+        "Ground Floor - 600 SqFt - 55.7418 SqMt || Usage Type - Residential || Usage Factor - Self Occupied || Usage Type - Pakka Building with R.C.C Roof or R.B. Roof"
+      )
+    })
+
+    it("joins multiple floors with comma newline", () => {
+      const text = formatExportFloorDetails([
+        {
+          floorPosition: "GROUND_FLOOR",
+          areaSqFt: 800,
+          usageFactor: "RESIDENTIAL",
+          usageType: "SELF",
+          constructionType: "RCC",
+        },
+        {
+          floorPosition: "FIRST_FLOOR",
+          areaSqFt: 500,
+          usageFactor: "RESIDENTIAL",
+          usageType: "SELF",
+          constructionType: "RCC",
+        },
+      ])
+      expect(text.split(",\n")).toHaveLength(2)
+      expect(text).toContain("Ground Floor - 800 SqFt")
+      expect(text).toContain("First Floor - 500 SqFt")
     })
   })
 

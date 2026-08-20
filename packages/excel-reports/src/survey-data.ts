@@ -27,7 +27,7 @@ async function* mapSurveyRows(
   for await (const row of rows) {
     serial += 1
     const values = toCommonSurveyRow(row, serial)
-    const surveyId = String(values[1] ?? "")
+    const surveyId = String(values[SURVEY_ID_COLUMN_INDEX - 1] ?? "")
     if (surveyId && surveyId !== "N/A") {
       if (seen.has(surveyId)) duplicateLog.push(surveyId)
       else seen.add(surveyId)

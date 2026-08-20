@@ -110,15 +110,6 @@ export async function streamEnterpriseWorkbookToFile(input: EnterpriseWorkbookIn
   workbook.created = input.exportedAt ?? new Date()
 
   const dataSheet = workbook.addWorksheet(input.dataSheetName, {
-    views: [
-      {
-        state: "frozen",
-        xSplit: input.freezeCol,
-        ySplit: 1,
-        topLeftCell: `${excelCol(input.freezeCol + 1)}2`,
-        activeCell: `${excelCol(input.freezeCol + 1)}2`,
-      },
-    ],
     pageSetup: {
       paperSize: 9,
       orientation: "landscape",
@@ -129,10 +120,9 @@ export async function streamEnterpriseWorkbookToFile(input: EnterpriseWorkbookIn
     },
   })
 
-  const headerRow = dataSheet.getRow(1)
-  headers.forEach((header, index) => {
+  const headerRow = dataSheet.addRow(headers)
+  headers.forEach((_header, index) => {
     const cell = headerRow.getCell(index + 1)
-    cell.value = header
     cell.font = HEADER_FONT
     cell.fill = HEADER_FILL
     cell.alignment = HEADER_ALIGN
@@ -165,9 +155,23 @@ export async function streamEnterpriseWorkbookToFile(input: EnterpriseWorkbookIn
   }
 
   columns.forEach((col, index) => {
-    const width = Math.min(Math.max(col.header.length + 2, col.kind === "money" ? 12 : 10), 36)
+    const maxWidth = col.wide ? 80 : 36
+    const minWidth = col.wide ? 48 : col.kind === "money" ? 12 : 10
+    const width = Math.min(Math.max(col.header.length + 2, minWidth), maxWidth)
     dataSheet.getColumn(index + 1).width = width
   })
+
+  // Re-apply after rows/columns are written — ExcelJS can drop views set at sheet creation.
+  const scrollCol = excelCol(input.freezeCol + 1)
+  dataSheet.views = [
+    {
+      state: "frozen",
+      xSplit: input.freezeCol,
+      ySplit: 1,
+      topLeftCell: `${scrollCol}2`,
+      activeCell: "A2",
+    },
+  ]
 
   await workbook.xlsx.writeFile(input.filename)
   return { rowCount }

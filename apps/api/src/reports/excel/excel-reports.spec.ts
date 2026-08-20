@@ -6,7 +6,6 @@ import {
   buildExportFilename,
   COMMON_SURVEY_COLUMNS,
   FIXED_HEADERS,
-  FLOOR_EXPORT_POSITIONS,
   formatWardNumberAndName,
   QC_FINAL_COLUMNS,
   QC_FINAL_HEADERS,
@@ -182,64 +181,44 @@ describe("Excel report templates", () => {
     expect(rowValues(generatedSheet, 1)).toHaveLength(45)
   })
 
-  it("renders Word-baseline Survey Data with full floor pivot and no tax", async () => {
+  it("renders 39-column Survey Data with floor narrative in Floors column", async () => {
     const workbook = await loadFromBuffer(await renderSurveyDataWorkbook([bundle]))
     expect(workbook.worksheets.map((s) => s.name)).toEqual(["Survey Data"])
     const sheet = workbook.getWorksheet("Survey Data")!
     expect(sheet.autoFilter).toBeFalsy()
-    expect(sheet.views?.[0]).toMatchObject({ state: "frozen", ySplit: 1, xSplit: 2 })
+    expect(sheet.views?.[0]).toMatchObject({ state: "frozen", ySplit: 1, xSplit: 5 })
     const headerRow = rowValues(sheet, 1)
-    expect(headerRow[0]).toBe("S. No")
-    expect(headerRow[1]).toBe("Survey ID")
-    expect(headerRow).toContain("Ward Number and Name")
-    expect(headerRow).not.toContain("Ward Number")
-    expect(headerRow).not.toContain("Ward Name")
-    for (const label of [
-      "Assessment Year",
-      "ULB Name",
-      "Sector Number",
-      "Plinth Area",
-      "Source of Water",
-      "Door-to-Door Collection",
-      "Electricity Consumer No",
-    ]) {
-      expect(headerRow).toContain(label)
-    }
-    for (const floor of FLOOR_EXPORT_POSITIONS) {
-      expect(headerRow).toContain(`${floor.label} Area`)
-      expect(headerRow).toContain(`${floor.label} Usage Factor`)
-      expect(headerRow).toContain(`${floor.label} Usage Type`)
-      expect(headerRow).toContain(`${floor.label} Construction Type`)
-    }
-    expect(headerRow).not.toContain("GIS Status")
-    expect(headerRow).not.toContain("Rain Water Harvesting")
-    expect(headerRow).not.toContain("Category")
-    expect(headerRow).not.toContain("Total Demand")
-    expect(headerRow).not.toContain("Building Tax")
-    expect(headerRow).not.toContain("Land Tax")
-    expect(headerRow).not.toContain("Arrears")
+    expect(headerRow[0]).toBe("SN")
+    expect(headerRow[1]).toBe("Status")
+    expect(headerRow[4]).toBe("Property Id")
+    expect(headerRow[28]).toBe("Floors")
+    expect(headerRow[37]).toBe("Latitude")
+    expect(headerRow[38]).toBe("Longitude")
     expect(headerRow).toEqual(COMMON_SURVEY_COLUMNS.map((c) => c.header))
-    expect(COMMON_SURVEY_COLUMNS).toHaveLength(78)
+    expect(COMMON_SURVEY_COLUMNS).toHaveLength(39)
     expect(sheet.getRow(2).getCell(1).value).toBe(1)
-    expect(sheet.getRow(2).getCell(2).value).toBe(bundle.propertyId)
-    const wardCol = headerRow.indexOf("Ward Number and Name") + 1
+    expect(sheet.getRow(2).getCell(2).value).not.toBe("Status")
+    expect(sheet.getRow(2).getCell(5).value).toBe(bundle.propertyId)
+    expect(sheet.views?.[0]).toMatchObject({ state: "frozen", ySplit: 1, xSplit: 5 })
+    const wardCol = headerRow.indexOf("Ward Name") + 1
     expect(sheet.getRow(2).getCell(wardCol).value).toBe("001 - Ward 1")
-    const parcelCol = headerRow.indexOf("Parcel Number") + 1
+    const parcelCol = headerRow.indexOf("Parcel No") + 1
     expect(sheet.getRow(2).getCell(parcelCol).value).toBe("00004")
     expect(sheet.getRow(2).getCell(parcelCol).numFmt).toBe("@")
+    const floorsCol = headerRow.indexOf("Floors") + 1
+    const floorsText = cellText(sheet.getRow(2).getCell(floorsCol).value)
+    expect(floorsText).toContain("Ground Floor - 100 SqFt")
+    expect(floorsText).toContain("Usage Type - Residential")
+    expect(floorsText).toContain("Pakka Building with R.C.C Roof or R.B. Roof")
+    expect(sheet.getColumn(floorsCol).width).toBeGreaterThanOrEqual(48)
   })
 
-  it("matches Ward-1-Etah headers after merging Ward Number + Ward Name", async () => {
+  it("matches Ward-1-Etah 39-column headers when golden file is available", async () => {
     const golden = await loadGolden("C:/Users/sikar/Downloads/survey-data-district-ETA-wards/ETM/1-Ward-1-Etah.xlsx")
     if (!golden) return
 
     const refHeaders = rowValues(golden.getWorksheet("Survey Data")!, 1)
-    const wardNoIdx = refHeaders.indexOf("Ward Number")
-    const wardNameIdx = refHeaders.indexOf("Ward Name")
-    expect(wardNoIdx).toBeGreaterThanOrEqual(0)
-    expect(wardNameIdx).toBe(wardNoIdx + 1)
-    const expected = [...refHeaders.slice(0, wardNoIdx), "Ward Number and Name", ...refHeaders.slice(wardNameIdx + 1)]
-    expect(COMMON_SURVEY_COLUMNS.map((c) => c.header)).toEqual(expected)
+    expect(COMMON_SURVEY_COLUMNS.map((c) => c.header)).toEqual(refHeaders.slice(0, COMMON_SURVEY_COLUMNS.length))
   })
 
   it("sets AutoFilter when enableAutoFilter is true", async () => {
@@ -265,7 +244,7 @@ describe("Excel report templates", () => {
     expect(workbook.worksheets.map((s) => s.name)).toEqual(["QC Final Report"])
     const sheet = workbook.getWorksheet("QC Final Report")!
     expect(sheet.autoFilter).toBeFalsy()
-    expect(sheet.views?.[0]).toMatchObject({ state: "frozen", ySplit: 1, xSplit: 2 })
+    expect(sheet.views?.[0]).toMatchObject({ state: "frozen", ySplit: 1, xSplit: 5 })
     const headers = rowValues(sheet, 1)
     expect(headers.slice(0, COMMON_SURVEY_COLUMNS.length)).toEqual(COMMON_SURVEY_COLUMNS.map((c) => c.header))
     expect(headers).toEqual(QC_FINAL_COLUMNS.map((c) => c.header))
@@ -286,7 +265,7 @@ describe("Excel report templates", () => {
     const currentCol = headers.indexOf("Current Demand") + 1
     const totalDemandCol = headers.indexOf("Total Demand") + 1
     const ownerCol = headers.indexOf("Owner Name") + 1
-    const parcelCol = headers.indexOf("Parcel Number") + 1
+    const parcelCol = headers.indexOf("Parcel No") + 1
     expect(Number(sheet.getRow(2).getCell(buildingCol).value)).toBe(80)
     expect(Number(sheet.getRow(2).getCell(waterCol).value)).toBe(60)
     expect(Number(sheet.getRow(2).getCell(drainageCol).value)).toBe(20)
@@ -302,8 +281,8 @@ describe("Excel report templates", () => {
   it("streaming Survey Data matches buffer renderer key cells", async () => {
     const streamed = await loadFromBuffer(await renderSurveyDataWorkbookStreaming([bundle]))
     const buffered = await loadFromBuffer(await renderSurveyDataWorkbook([bundle]))
-    expect(cellText(streamed.getWorksheet("Survey Data")!.getCell("B2").value)).toBe(
-      cellText(buffered.getWorksheet("Survey Data")!.getCell("B2").value)
+    expect(cellText(streamed.getWorksheet("Survey Data")!.getCell("E2").value)).toBe(
+      cellText(buffered.getWorksheet("Survey Data")!.getCell("E2").value)
     )
   })
 
@@ -382,7 +361,7 @@ describe("Survey / QC shared capture mapping", () => {
     expect(QC_FINAL_HEADERS.length).toBe(SURVEY_CAPTURE_HEADERS.length + 9)
   })
 
-  it("reconciles Survey and QC Final floor columns and values identically", async () => {
+  it("reconciles Survey and QC Final Floors narrative identically", () => {
     const multiFloor: SurveyExportBundle = {
       ...bundle,
       floors: [
@@ -405,53 +384,37 @@ describe("Survey / QC shared capture mapping", () => {
       ],
     }
 
-    const surveyWb = await loadFromBuffer(await renderSurveyDataWorkbook([multiFloor]))
-    const qcWb = await loadFromBuffer(await renderQcFinalWideWorkbook([multiFloor], { rates: sampleRates }))
-    const surveyHeaders = rowValues(surveyWb.getWorksheet("Survey Data")!, 1)
-    const qcHeaders = rowValues(qcWb.getWorksheet("QC Final Report")!, 1)
-
-    const plotIdx = surveyHeaders.indexOf("Plot Area")
-    const waterIdx = surveyHeaders.indexOf("Water Connection")
-    expect(plotIdx).toBeGreaterThanOrEqual(0)
-    expect(waterIdx).toBeGreaterThan(plotIdx)
-
-    const surveyFloorHeaders = surveyHeaders.slice(plotIdx, waterIdx)
-    const qcFloorHeaders = qcHeaders.slice(plotIdx, waterIdx)
-    expect(qcFloorHeaders).toEqual(surveyFloorHeaders)
-    expect(surveyFloorHeaders[0]).toBe("Plot Area")
-    expect(surveyFloorHeaders[1]).toBe("Plinth Area")
-    expect(surveyFloorHeaders[2]).toBe("Total Built-up Area")
-    expect(surveyFloorHeaders).toContain("Basement Area")
-    expect(surveyFloorHeaders).toContain("Ground Floor Area")
-    expect(surveyFloorHeaders).toContain("First Floor Area")
-    expect(surveyFloorHeaders).toContain("Open Land Construction Type")
-
-    const surveyRow = rowValues(surveyWb.getWorksheet("Survey Data")!, 2)
-    const qcRow = rowValues(qcWb.getWorksheet("QC Final Report")!, 2)
-    expect(qcRow.slice(0, surveyRow.length)).toEqual(surveyRow)
-
-    const gfAreaIdx = surveyHeaders.indexOf("Ground Floor Area")
-    const basementAreaIdx = surveyHeaders.indexOf("Basement Area")
-    expect(surveyRow[gfAreaIdx]).toBe("800")
-    expect(surveyRow[surveyHeaders.indexOf("First Floor Area")]).toBe("500")
-    expect(surveyRow[basementAreaIdx]).toBe("")
-    expect(surveyRow[surveyHeaders.indexOf("Basement Usage Factor")]).toBe("N/A")
+    const surveyRow = toCommonSurveyRow(multiFloor, 1)
+    const qcRow = toQcFinalWideRow(multiFloor, 1, {
+      propertyTax: 80,
+      waterTax: 60,
+      drainageTax: 20,
+      penalty: 0,
+      totalDemand: 160,
+    })
+    const floorsIdx = COMMON_SURVEY_COLUMNS.findIndex((c) => c.header === "Floors")
+    const floorsValue = surveyRow[floorsIdx]
+    expect(typeof floorsValue).toBe("string")
+    const floorsText = floorsValue as string
+    expect(floorsText).toContain("Ground Floor - 800 SqFt")
+    expect(floorsText).toContain("First Floor - 500 SqFt")
+    expect(qcRow[floorsIdx]).toBe(floorsText)
   })
 
   it("preserves leading-zero parcel and unit as text IDs", () => {
     const row = toCommonSurveyRow({ ...bundle, parcelNumber: "4", unitSubNo: "1", pinCode: "012345" }, 1)
-    expect(row[COMMON_SURVEY_COLUMNS.findIndex((c) => c.header === "Parcel Number")]).toBe("00004")
-    expect(row[COMMON_SURVEY_COLUMNS.findIndex((c) => c.header === "Unit Number")]).toBe("001")
-    expect(row[COMMON_SURVEY_COLUMNS.findIndex((c) => c.header === "PIN Code")]).toBe("012345")
+    expect(row[COMMON_SURVEY_COLUMNS.findIndex((c) => c.header === "Parcel No")]).toBe("00004")
+    expect(row[COMMON_SURVEY_COLUMNS.findIndex((c) => c.header === "Unit No")]).toBe("001")
+    expect(row[COMMON_SURVEY_COLUMNS.findIndex((c) => c.header === "Pincode")]).toBe("012345")
   })
 
-  it("formats Ward Number and Name as a single combined value", () => {
+  it("formats Ward Name as ward number and name combined", () => {
     expect(formatWardNumberAndName("1", "Ward 1 - Etah")).toBe("1 - Ward 1 - Etah")
     expect(formatWardNumberAndName("001", "Ward 1")).toBe("001 - Ward 1")
     expect(formatWardNumberAndName(null, null)).toBe("N/A")
-    expect(
-      toCommonSurveyRow(bundle, 1)[COMMON_SURVEY_COLUMNS.findIndex((c) => c.header === "Ward Number and Name")]
-    ).toBe("001 - Ward 1")
+    expect(toCommonSurveyRow(bundle, 1)[COMMON_SURVEY_COLUMNS.findIndex((c) => c.header === "Ward Name")]).toBe(
+      "001 - Ward 1"
+    )
   })
 })
 

@@ -2,6 +2,7 @@
  * Shared formatting for Survey Data / QC Final Excel export rows.
  */
 
+import { sqFtToSqMeter } from "./convex-import-map.js"
 import { formatPropertyId, padParcelNo, padUnitNo } from "./property-id.js"
 
 export const EXPORT_NA = "N/A"
@@ -24,6 +25,73 @@ export const EXPORT_FLOOR_ABBREV_ORDER: ReadonlyArray<{ position: string; code: 
 export type ExportFloorAreaInput = {
   floorPosition: string
   areaSqFt?: number | { toString(): string } | null
+}
+
+export type ExportFloorDetailInput = ExportFloorAreaInput & {
+  usageFactor?: string | null
+  usageType?: string | null
+  constructionType?: string | null
+}
+
+const FLOOR_POSITION_EXPORT_LABELS: Record<string, string> = {
+  OPEN_LAND: "Open Land (Plot)",
+  FIFTH_FLOOR_PLUS: "Fifth Floor",
+}
+
+const CONSTRUCTION_EXPORT_LABELS: Record<string, string> = {
+  PAKKA_BUILDING_WITH_RCC_ROOF: "Pakka Building with R.C.C Roof or R.B. Roof",
+  RCC: "Pakka Building with R.C.C Roof or R.B. Roof",
+  TIN_SHED: "Tin Shed",
+  OPEN_LAND: "Open Land (Plot) / Under Construction land",
+  UNDER_CONSTRUCTION: "Open Land (Plot) / Under Construction land",
+  KACCHA_BUILDING: "Kaccha Building",
+}
+
+const USAGE_TYPE_EXPORT_LABELS: Record<string, string> = {
+  SELF_OCCUPIED: "Self Occupied",
+  SELF: "Self Occupied",
+  RENTED: "Rented",
+}
+
+function titleCaseFromEnum(value: string): string {
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ")
+}
+
+function formatExportUsageFactorLabel(value: string | null | undefined): string {
+  if (!value?.trim()) return "N/A"
+  const key = value.toUpperCase()
+  if (key === "OPEN_LAND") return "Open Land"
+  return titleCaseFromEnum(key)
+}
+
+function formatExportUsageTypeLabel(value: string | null | undefined): string {
+  if (!value?.trim()) return "N/A"
+  const key = value.toUpperCase()
+  return USAGE_TYPE_EXPORT_LABELS[key] ?? titleCaseFromEnum(key)
+}
+
+function formatExportConstructionLabel(value: string | null | undefined): string {
+  if (!value?.trim()) return "N/A"
+  const key = value.toUpperCase().replace(/\s+/g, "_")
+  return CONSTRUCTION_EXPORT_LABELS[key] ?? titleCaseFromEnum(key)
+}
+
+function formatExportFloorPositionLabel(floorPosition: string): string {
+  const key = floorPosition.toUpperCase()
+  return FLOOR_POSITION_EXPORT_LABELS[key] ?? titleCaseFromEnum(key)
+}
+
+function formatExportAreaSqFt(area: number): string {
+  return Number.isInteger(area) ? String(area) : String(area)
+}
+
+function formatExportAreaSqMt(sqFt: number): string {
+  const sqMt = sqFtToSqMeter(sqFt)
+  return sqMt == null ? "0.0000" : sqMt.toFixed(4)
 }
 
 function toFiniteArea(value: number | { toString(): string } | null | undefined): number {
@@ -58,6 +126,34 @@ export function computeFloorsAbbreviation(floors: ExportFloorAreaInput[]): strin
   }
 
   return codes.length > 0 ? codes.join("") : "P"
+}
+
+/**
+ * One floor row in legacy survey Excel narrative format:
+ * `Ground Floor - 600 SqFt - 55.7418 SqMt || Usage Type - Residential || Usage Factor - Self Occupied || Usage Type - Pakka Building...`
+ */
+export function formatExportFloorDetailLine(floor: ExportFloorDetailInput): string {
+  const area = toFiniteArea(floor.areaSqFt)
+  const position = formatExportFloorPositionLabel(floor.floorPosition)
+  return [
+    `${position} - ${formatExportAreaSqFt(area)} SqFt - ${formatExportAreaSqMt(area)} SqMt`,
+    `Usage Type - ${formatExportUsageFactorLabel(floor.usageFactor)}`,
+    `Usage Factor - ${formatExportUsageTypeLabel(floor.usageType)}`,
+    `Usage Type - ${formatExportConstructionLabel(floor.constructionType)}`,
+  ].join(" || ")
+}
+
+/** Join all floor rows into the single Floors column narrative. */
+export function formatExportFloorDetails(floors: ExportFloorDetailInput[]): string {
+  if (!floors.length) return ""
+  const lines = floors
+    .filter((floor) => {
+      const area = toFiniteArea(floor.areaSqFt)
+      if (area > 0) return true
+      return floor.floorPosition.toUpperCase() === "OPEN_LAND"
+    })
+    .map(formatExportFloorDetailLine)
+  return lines.join(",\n")
 }
 
 /** Blank / non-10-digit / all-zeros → 0000000000. */

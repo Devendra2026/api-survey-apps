@@ -69,6 +69,7 @@ export class EtlSurveyImportProcessor extends WorkerHost {
           createdById: payload.createdById,
           districtId: payload.districtId,
           refreshPending: payload.type === "REFRESH_PENDING" || payload.refreshPending === true,
+          force: payload.force === true,
         }
         await this.surveyQueue.add(JOB_NAMES.importSurvey, child, {
           jobId: `${payload.migrationJobId}-${legacySurveyId}`,

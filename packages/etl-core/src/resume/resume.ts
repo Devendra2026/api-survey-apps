@@ -11,6 +11,30 @@ export function shouldSkipSurvey(status: MigrationStatus | null | undefined): bo
   return status === "COMPLETED" || status === "SKIPPED"
 }
 
+export interface ShouldSkipSurveyForImportInput {
+  migrationStatus: MigrationStatus | null | undefined
+  imagesImported?: number | null
+  nestPhotoCount?: number | null
+  nestQcStatus?: "PENDING" | "APPROVED" | "REJECTED" | null | undefined
+  force?: boolean
+}
+
+/**
+ * Default import skip: COMPLETED/SKIPPED rows are not reprocessed unless force is set
+ * or a COMPLETED row still has zero Nest photos (photo backfill while QC is open).
+ */
+export function shouldSkipSurveyForImport(input: ShouldSkipSurveyForImportInput): boolean {
+  if (input.force) return false
+  if (!shouldSkipSurvey(input.migrationStatus)) return false
+  if (input.migrationStatus === "SKIPPED") return true
+
+  const needsPhotoBackfill = (input.nestPhotoCount ?? 0) === 0 || (input.imagesImported ?? 0) === 0
+  const qcOpen = input.nestQcStatus !== "APPROVED" && input.nestQcStatus !== "REJECTED"
+  if (needsPhotoBackfill && qcOpen) return false
+
+  return true
+}
+
 /**
  * Refresh-pending mode: only skip when Nest QC is already terminal.
  * COMPLETED migration rows with PENDING Nest QC must be reprocessed.

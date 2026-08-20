@@ -1,5 +1,11 @@
 import { describe, expect, it } from "@jest/globals"
-import { isStuckInProgress, nextRetryCount, shouldSkipSurvey, shouldSkipSurveyForRefresh } from "./resume.js"
+import {
+  isStuckInProgress,
+  nextRetryCount,
+  shouldSkipSurvey,
+  shouldSkipSurveyForImport,
+  shouldSkipSurveyForRefresh,
+} from "./resume.js"
 
 describe("resume engine", () => {
   it("never restarts completed surveys", () => {
@@ -11,6 +17,77 @@ describe("resume engine", () => {
     expect(shouldSkipSurveyForRefresh({ migrationStatus: "COMPLETED", nestQcStatus: "REJECTED" })).toBe(true)
     expect(shouldSkipSurveyForRefresh({ migrationStatus: "COMPLETED", nestQcStatus: "PENDING" })).toBe(false)
     expect(shouldSkipSurveyForRefresh({ migrationStatus: "COMPLETED", nestQcStatus: null })).toBe(false)
+  })
+
+  it("import skips COMPLETED when Nest already has photos", () => {
+    expect(
+      shouldSkipSurveyForImport({
+        migrationStatus: "COMPLETED",
+        imagesImported: 2,
+        nestPhotoCount: 2,
+        nestQcStatus: "PENDING",
+      })
+    ).toBe(true)
+  })
+
+  it("import backfills COMPLETED rows with zero Nest photos while QC is open", () => {
+    expect(
+      shouldSkipSurveyForImport({
+        migrationStatus: "COMPLETED",
+        imagesImported: 0,
+        nestPhotoCount: 0,
+        nestQcStatus: "PENDING",
+      })
+    ).toBe(false)
+    expect(
+      shouldSkipSurveyForImport({
+        migrationStatus: "COMPLETED",
+        imagesImported: 0,
+        nestPhotoCount: 0,
+        nestQcStatus: null,
+      })
+    ).toBe(false)
+  })
+
+  it("import honors force over COMPLETED skip", () => {
+    expect(
+      shouldSkipSurveyForImport({
+        migrationStatus: "COMPLETED",
+        imagesImported: 2,
+        nestPhotoCount: 2,
+        nestQcStatus: "PENDING",
+        force: true,
+      })
+    ).toBe(false)
+  })
+
+  it("import always skips SKIPPED unless force", () => {
+    expect(
+      shouldSkipSurveyForImport({
+        migrationStatus: "SKIPPED",
+        nestPhotoCount: 0,
+        nestQcStatus: "PENDING",
+      })
+    ).toBe(true)
+    expect(
+      shouldSkipSurveyForImport({
+        migrationStatus: "SKIPPED",
+        nestPhotoCount: 0,
+        nestQcStatus: "PENDING",
+        force: true,
+      })
+    ).toBe(false)
+  })
+
+  it("import skips COMPLETED zero-photo rows when QC is terminal", () => {
+    expect(
+      shouldSkipSurveyForImport({
+        migrationStatus: "COMPLETED",
+        imagesImported: 0,
+        nestPhotoCount: 0,
+        nestQcStatus: "APPROVED",
+      })
+    ).toBe(true)
   })
 
   it("detects stuck IN_PROGRESS past TTL", () => {

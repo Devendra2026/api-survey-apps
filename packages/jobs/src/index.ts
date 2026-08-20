@@ -141,6 +141,8 @@ export interface EtlSurveyImportPayload {
   createdById?: string
   refreshPending?: boolean
   districtId?: string
+  /** When true, reprocess even if migration_state is COMPLETED (unless Nest QC terminal). */
+  force?: boolean
 }
 
 export interface EtlPhotoPayload {

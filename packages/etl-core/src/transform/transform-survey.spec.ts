@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto"
 import { describe, expect, it } from "@jest/globals"
+import { createHash } from "node:crypto"
 import {
   buildStorageKey,
   classifyError,
@@ -173,6 +173,54 @@ describe("transformSurveyBundle", () => {
     }
   })
 
+  it("fails when Convex photo has storageId but no url", () => {
+    const result = transformSurveyBundle(
+      fixtureBundle({
+        photos: [
+          {
+            slot: "front",
+            storageId: "kg2718gxk5bpaar0922xfjjwp188h8dn",
+            sizeKb: 120,
+            capturedAt: Date.now(),
+            url: null,
+          },
+        ],
+      }),
+      ctx
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toMatch(/url missing for slot\(s\): front/i)
+    }
+  })
+
+  it("ignores photo slots without url and without storageId", () => {
+    const result = transformSurveyBundle(
+      fixtureBundle({
+        photos: [
+          {
+            slot: "front",
+            sizeKb: 120,
+            capturedAt: Date.now(),
+            url: "https://convex.example/storage/front",
+          },
+          {
+            slot: "side",
+            sizeKb: 100,
+            capturedAt: Date.now(),
+            url: null,
+          },
+        ],
+      }),
+      ctx
+    )
+    expect(result.ok).toBe(true)
+    if (result.ok && "survey" in result && result.survey) {
+      expect(result.survey.photos).toHaveLength(1)
+      expect(result.survey.photos[0]?.slot).toBe("front")
+    }
+  })
+
   it("keeps Residential Pakka and Tin Shed as separate ground-floor segments", () => {
     const result = transformSurveyBundle(
       fixtureBundle({
@@ -243,6 +291,10 @@ describe("computeChecksum", () => {
     const a = computeChecksum({ b: 1, a: 2 })
     const b = computeChecksum({ a: 2, b: 1 })
     expect(a).toBe(b)
-    expect(a).toBe(createHash("sha256").update(JSON.stringify({ a: 2, b: 1 })).digest("hex"))
+    expect(a).toBe(
+      createHash("sha256")
+        .update(JSON.stringify({ a: 2, b: 1 }))
+        .digest("hex")
+    )
   })
 })

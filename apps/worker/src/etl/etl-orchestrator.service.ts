@@ -39,6 +39,7 @@ import {
   rebuildPhotoKeysWithExtension,
   remediationFor,
   shouldSkipSurvey,
+  shouldSkipSurveyForImport,
   shouldSkipSurveyForRefresh,
   transformSurveyBundle,
   validateImageBuffer,
@@ -91,6 +92,14 @@ export class EtlOrchestratorService {
         where: { legacySurveyId, deletedAt: null },
         select: { id: true, qcStatus: true, districtId: true },
       })
+      const nestPhotoCount = nestSurvey ? await this.prisma.db.photo.count({ where: { surveyId: nestSurvey.id } }) : 0
+      const skipImportInput = {
+        migrationStatus: existing?.status,
+        imagesImported: existing?.imagesImported,
+        nestPhotoCount,
+        nestQcStatus: nestSurvey?.qcStatus,
+        force: payload.force === true,
+      }
 
       if (nestSurvey && (nestSurvey.qcStatus === QcStatus.APPROVED || nestSurvey.qcStatus === QcStatus.REJECTED)) {
         await this.appendLog(migrationJobId, "info", "Skipped: Nest QC already terminal", legacySurveyId, correlationId)
@@ -115,7 +124,7 @@ export class EtlOrchestratorService {
           await this.appendLog(migrationJobId, "info", "Skipped refresh", legacySurveyId, correlationId)
           return { outcome: "duplicate", imagesUploaded: 0, imagesDownloaded: 0, missingImages: 0 }
         }
-      } else if (shouldSkipSurvey(existing?.status)) {
+      } else if (shouldSkipSurveyForImport(skipImportInput)) {
         await this.appendLog(migrationJobId, "info", "Skipped existing survey", legacySurveyId, correlationId)
         return { outcome: "duplicate", imagesUploaded: 0, imagesDownloaded: 0, missingImages: 0 }
       }
@@ -155,8 +164,12 @@ export class EtlOrchestratorService {
       await this.ensureGeoForBundle(bundle)
 
       const transformCtx = await this.buildTransformContext()
+      const reprocessExisting =
+        refreshPending ||
+        payload.force === true ||
+        (shouldSkipSurvey(existing?.status) && !shouldSkipSurveyForImport(skipImportInput))
       const transformed = transformSurveyBundle(bundle, transformCtx, {
-        existingStatus: refreshPending ? null : (existing?.status ?? null),
+        existingStatus: reprocessExisting ? null : (existing?.status ?? null),
       })
 
       if (transformed.ok && "skip" in transformed && transformed.skip) {
@@ -197,8 +210,10 @@ export class EtlOrchestratorService {
         )
       }
 
-      // Refresh path for existing PENDING Nest rows: update fields only, no image re-download.
-      if (refreshPending && nestSurvey) {
+      // Refresh path for existing PENDING Nest rows: update fields only when photos already present.
+      const needsPhotoImport =
+        survey.photos.length > 0 && (nestPhotoCount === 0 || nestPhotoCount < survey.photos.length)
+      if (refreshPending && nestSurvey && !needsPhotoImport) {
         const { surveyId } = await this.loadSurveyTransaction(survey, [], { statusOnlyRefresh: true })
         await this.prisma.db.migrationState.upsert({
           where: { legacySurveyId },

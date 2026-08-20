@@ -118,8 +118,14 @@ export function transformSurveyBundle(
   ).toUpperCase()
 
   const photos: MappedPhotoPlan[] = []
+  const missingUrlSlots: string[] = []
   for (const photo of bundle.photos ?? []) {
-    if (!photo.url) continue
+    if (!photo.url) {
+      if (photo.storageId) {
+        missingUrlSlots.push(photo.slot)
+      }
+      continue
+    }
     const photoType = SLOT_TO_PHOTO_TYPE[photo.slot]
     if (!photoType) continue
     photos.push({
@@ -139,6 +145,15 @@ export function transformSurveyBundle(
       sizeKb: photo.sizeKb,
       capturedAt: photo.capturedAt,
     })
+  }
+
+  if (missingUrlSlots.length > 0) {
+    return {
+      ok: false,
+      legacySurveyId,
+      stage: "TRANSFORM",
+      error: `Convex photo url missing for slot(s): ${missingUrlSlots.join(", ")}`,
+    }
   }
 
   // Stash district code for key rebuild after MIME detection (via photos[0] path or rebuild helper)

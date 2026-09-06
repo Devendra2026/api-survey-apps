@@ -1,0 +1,42 @@
+---
+description: Survey Registry production-safe change constraints
+globs:
+  - apps/web/app/(dashboard)/surveys/page.tsx
+  - apps/web/components/surveys/survey-registry-*.tsx
+  - apps/web/lib/survey-registry-xlsx.ts
+  - apps/api/src/survey-registry/**
+  - apps/api/src/surveys/surveys.controller.ts
+  - apps/api/src/surveys/surveys.service.ts
+alwaysApply: false
+---
+
+# Survey Registry
+
+## Scope
+
+- Change only Survey Registry UI/filter/data paths required by the task.
+- Do not redesign unrelated QC, Command Center, Demand, or Report workflows.
+- Do not invent survey statuses, QC statuses, or permission systems.
+
+## Active Survey Scope
+
+- User-selected State → District → ULB → Ward is the single source of truth for Registry data.
+- Cascade must clear invalid child selections when a parent changes.
+- Do not hardcode district/ULB/ward defaults or production geographic names.
+- Do not fetch unscoped registry lists when ward scope is incomplete.
+- Selection must reset when scope, search, status tab, page, or page size changes.
+
+## Data & actions
+
+- Prefer server-side `sortBy=parcelNumber` ascending for Registry lists; do not rewrite stored parcel numbers.
+- Soft-delete only (`deletedAt`); never introduce hard delete unless explicitly required.
+- Send to QC = existing submit transition (`SUBMITTED` + `qcStatus: PENDING`).
+- Reuse existing bulk result shape (`succeeded` / `failed`) and audit logging patterns.
+- Select All = current page only (existing DataTable pagination architecture).
+
+## Safety
+
+- No schema/migrations, env, Docker, auth guard, or breaking API contract changes unless explicitly requested.
+- Additive API endpoints only; do not remove existing response properties.
+- Backend must continue enforcing permissions for delete/submit.
+- After changes: `pnpm typecheck`, `pnpm lint`, relevant tests; review git diff and drop unrelated edits.

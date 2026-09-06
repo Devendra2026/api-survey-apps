@@ -180,12 +180,12 @@ export class CommandCenterRepository {
       surveyorsByWard.get(activeId)?.add(row.createdById)
     }
 
-    return wards.map((ward) => {
+    const mapped = wards.map((ward) => {
       const buckets = bucketsByWard.get(ward.id) ?? emptyBucketTotals()
-      const label = ward.wardName?.trim()
+      const label = ward.wardName?.trim() ?? ""
       return {
         wardId: ward.id,
-        wardName: label || `Ward ${ward.wardNumber}`,
+        wardName: label,
         wardNumber: ward.wardNumber,
         totalProperties: buckets.total,
         draft: buckets.fieldDraft + buckets.rework,
@@ -196,5 +196,12 @@ export class CommandCenterRepository {
         activeSurveyors: surveyorsByWard.get(ward.id)?.size ?? 0,
       }
     })
+
+    // When a specific ward is selected, return only that card (avoid zero-filled siblings).
+    if (f.wardId) {
+      return mapped.filter((ward) => ward.wardId === f.wardId)
+    }
+
+    return mapped
   }
 }

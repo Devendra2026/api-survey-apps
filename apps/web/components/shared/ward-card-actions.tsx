@@ -9,18 +9,34 @@ function formatNum(n: number) {
   return new Intl.NumberFormat("en-IN").format(n)
 }
 
+export type WardCardActionsMode = "full" | "registry"
+
 export function WardCardActions({
   ids,
   pendingCount,
   startQcLabel = "Start QC",
+  mode = "full",
 }: {
   ids: WardActionIds
   pendingCount: number
   startQcLabel?: string
+  /** Survey Command Center uses registry-only; QC Command Center keeps full actions. */
+  mode?: WardCardActionsMode
 }) {
   const canLink = Boolean(ids.wardId && ids.ulbId)
 
   if (!canLink) return null
+
+  if (mode === "registry") {
+    return (
+      <Button asChild variant="outline" className="h-9 w-full cursor-pointer">
+        <Link href={buildWardActionHref("registry", ids)}>
+          <LayoutGrid className="size-3.5" />
+          Survey Registry
+        </Link>
+      </Button>
+    )
+  }
 
   return (
     <div className="space-y-2">

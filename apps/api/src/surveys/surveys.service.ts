@@ -364,7 +364,8 @@ export class SurveysService {
   async submit(id: string, user: AuthenticatedUser) {
     const survey = await this.surveysRepository.findById(id, user)
 
-    if (survey.createdById !== user.id && survey.assignedToId !== user.id) {
+    const isAdmin = user.tenantRoles.some((r) => r.isActive && r.roleName === "ADMIN")
+    if (!isAdmin && survey.createdById !== user.id && survey.assignedToId !== user.id) {
       throw new ForbiddenException("Only the creator or assignee can submit this survey")
     }
     if (!EDITABLE.includes(survey.surveyStatus)) {
@@ -497,6 +498,68 @@ export class SurveysService {
     })
 
     this.logger.log(`Bulk approve by ${user.id}: ${succeeded.length}/${dto.ids.length}`)
+    return { succeeded, failed }
+  }
+
+  async bulkSubmit(dto: BulkSurveyIdsDto, user: AuthenticatedUser) {
+    const succeeded: string[] = []
+    const failed: BulkItemResult[] = []
+
+    for (const id of dto.ids) {
+      try {
+        await this.submit(id, user)
+        succeeded.push(id)
+      } catch (error: unknown) {
+        failed.push({ id, reason: this.errorMessage(error) })
+      }
+    }
+
+    await this.prisma.db.securityAudit.create({
+      data: {
+        action: "SURVEY_BULK_SUBMIT",
+        actorId: user.id,
+        targetType: "Survey",
+        targetId: succeeded[0] ?? dto.ids[0] ?? "none",
+        metadata: {
+          requested: dto.ids.length,
+          succeeded,
+          failed,
+        },
+      },
+    })
+
+    this.logger.log(`Bulk submit by ${user.id}: ${succeeded.length}/${dto.ids.length}`)
+    return { succeeded, failed }
+  }
+
+  async bulkDelete(dto: BulkSurveyIdsDto, user: AuthenticatedUser) {
+    const succeeded: string[] = []
+    const failed: BulkItemResult[] = []
+
+    for (const id of dto.ids) {
+      try {
+        await this.softDelete(id, user)
+        succeeded.push(id)
+      } catch (error: unknown) {
+        failed.push({ id, reason: this.errorMessage(error) })
+      }
+    }
+
+    await this.prisma.db.securityAudit.create({
+      data: {
+        action: "SURVEY_BULK_DELETE",
+        actorId: user.id,
+        targetType: "Survey",
+        targetId: succeeded[0] ?? dto.ids[0] ?? "none",
+        metadata: {
+          requested: dto.ids.length,
+          succeeded,
+          failed,
+        },
+      },
+    })
+
+    this.logger.log(`Bulk delete by ${user.id}: ${succeeded.length}/${dto.ids.length}`)
     return { succeeded, failed }
   }
 

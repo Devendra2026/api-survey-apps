@@ -144,12 +144,15 @@ export class SurveyRegistryRepository {
       AND: [base, this.tabWhere(query.tab)],
     }
 
-    const orderBy: Prisma.SurveyOrderByWithRelationInput =
+    const sortDir = query.sortOrder === "asc" ? "asc" : "desc"
+    const orderBy: Prisma.SurveyOrderByWithRelationInput | Prisma.SurveyOrderByWithRelationInput[] =
       query.sortBy === "propertyId"
-        ? { propertyId: query.sortOrder === "asc" ? "asc" : "desc" }
+        ? { propertyId: sortDir }
         : query.sortBy === "surveyStatus"
-          ? { surveyStatus: query.sortOrder === "asc" ? "asc" : "desc" }
-          : { createdAt: query.sortOrder === "asc" ? "asc" : "desc" }
+          ? { surveyStatus: sortDir }
+          : query.sortBy === "parcelNumber"
+            ? [{ parcelNumber: { sort: sortDir, nulls: "last" } }, { id: "asc" }]
+            : { createdAt: sortDir }
 
     const searching = Boolean(query.search?.trim())
 

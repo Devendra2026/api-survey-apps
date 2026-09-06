@@ -68,3 +68,5 @@ infra/terraform/envs/**/terraform.tfvars
 # superpowers agent reports
 .superpowers/
 
+# cursor
+.cursor/

@@ -1,0 +1,36 @@
+---
+description: Survey Command Center production-safe change constraints
+globs:
+  - apps/web/app/(dashboard)/surveys/command-center/**
+  - apps/web/components/surveys/command-center-*.tsx
+  - apps/api/src/command-center/**
+alwaysApply: false
+---
+
+# Survey Command Center
+
+## Scope
+
+- Change only Command Center UI/filter/data paths required by the task.
+- Do not redesign unrelated pages or refactor QC / Registry / Demand / Report workflows.
+- Do not delete New Survey routes, APIs, or permissions when removing the header button from this page.
+
+## Data & filters
+
+- Treat Smart Filter state as the single source of truth for KPIs and ward cards.
+- Respect District → ULB → Ward cascade; clear invalid child selections after parent changes.
+- Never send sentinel values (`all`, `any`) as database IDs unless the backend explicitly supports them.
+- Reuse existing survey status buckets (`survey-bucket.util`) — do not invent new completed/draft definitions.
+- Use existing UTC date/month helpers already used by Command Center; do not hardcode IST without an explicit product decision.
+- Ward lists: numeric ward-number ascending (`sortWardsByNumberAsc` / `compareWardNumbersAsc`). Display both number and name.
+
+## Surveyor data on ward cards
+
+- Ward card `activeSurveyors` counts remain allowed where already implemented.
+- Do not reintroduce a dedicated Surveyor Activity section on Command Center unless explicitly requested.
+
+## Safety
+
+- No schema/migrations, env, Docker, auth guard, or API contract breaking changes unless explicitly requested.
+- Additive API fields/endpoints only; do not remove existing response properties.
+- After changes: `pnpm typecheck`, `pnpm lint`, relevant tests; review git diff and drop unrelated edits.

@@ -155,4 +155,14 @@ describe("SurveyRegistryRepository list search", () => {
     expect(result.counts).toBeNull()
     expect(count).toHaveBeenCalledTimes(1)
   })
+
+  it("sortBy=parcelNumber orders by parcelNumber asc with id tie-breaker", async () => {
+    findMany.mockResolvedValue([] as never)
+    count.mockResolvedValue(0 as never)
+
+    await repo.list(user, { page: 1, limit: 50, sortBy: "parcelNumber", sortOrder: "asc" })
+
+    const call = findMany.mock.calls[0]?.[0] as { orderBy: unknown }
+    expect(call.orderBy).toEqual([{ parcelNumber: { sort: "asc", nulls: "last" } }, { id: "asc" }])
+  })
 })

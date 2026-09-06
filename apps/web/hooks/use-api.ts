@@ -430,6 +430,7 @@ export function useSurveyMutations() {
   const qc = useQueryClient()
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ["surveys"] })
+    void qc.invalidateQueries({ queryKey: ["survey-registry"] })
     void qc.invalidateQueries({ queryKey: ["dashboard"] })
   }
 
@@ -475,6 +476,14 @@ export function useSurveyMutations() {
     bulkReject: useMutation({
       mutationFn: ({ ids, qcRemarks }: { ids: string[]; qcRemarks: string }) =>
         apiPost<BulkActionResult>("/surveys/bulk/reject", { ids, qcRemarks }),
+      onSuccess: invalidate,
+    }),
+    bulkSubmit: useMutation({
+      mutationFn: (ids: string[]) => apiPost<BulkActionResult>("/surveys/bulk/submit", { ids }),
+      onSuccess: invalidate,
+    }),
+    bulkDelete: useMutation({
+      mutationFn: (ids: string[]) => apiPost<BulkActionResult>("/surveys/bulk/delete", { ids }),
       onSuccess: invalidate,
     }),
     bulkExport: useMutation({

@@ -4,7 +4,6 @@ import * as XLSX from "xlsx"
 const EXPORT_HEADERS = [
   "S.No",
   "Status",
-  "Survey Progress",
   "Surveyor Name",
   "Property ID",
   "Ward Number",
@@ -17,7 +16,6 @@ export function exportRegistryToExcel(rows: SurveyRegistryRecord[], filename = "
   const data = rows.map((row, index) => ({
     "S.No": index + 1,
     Status: row.status,
-    "Survey Progress": `${row.progress}%`,
     "Surveyor Name": row.surveyorName,
     "Property ID": row.propertyId,
     "Ward Number": row.wardNumber,

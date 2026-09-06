@@ -15,17 +15,21 @@ import {
 import { Label } from "@workspace/ui/components/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
 import { MapPinned } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
-
-const DEFAULT_DISTRICT_NAME = "Baghpat"
-const DEFAULT_ULB_HINT = "aminagar"
-const DEFAULT_WARD_NUMBERS = new Set(["05", "5"])
+import { useState } from "react"
+import { toast } from "sonner"
 
 export interface RegistryScopeState {
   stateId: string
   districtId: string
   ulbId: string
   wardId: string
+}
+
+export interface RegistryScopeLines {
+  stateName?: string
+  districtName?: string
+  ulbName?: string
+  wardLabel?: string
 }
 
 export const emptyScope = (): RegistryScopeState => ({
@@ -36,11 +40,11 @@ export const emptyScope = (): RegistryScopeState => ({
 })
 
 export function SurveyRegistryHeader({
-  scopeLabel,
+  scopeLines,
   scope,
   onScopeChange,
 }: {
-  scopeLabel: string
+  scopeLines: RegistryScopeLines
   scope: RegistryScopeState
   onScopeChange: (next: RegistryScopeState) => void
 }) {
@@ -51,49 +55,21 @@ export function SurveyRegistryHeader({
   const { data: ulbs } = useUlbs(open ? draft.districtId || undefined : scope.districtId || undefined)
   const { data: wards } = useWards(open ? draft.ulbId || undefined : scope.ulbId || undefined)
 
-  const defaultsApplied = useRef({ state: false, district: false, ulb: false, ward: false })
-
-  useEffect(() => {
-    if (defaultsApplied.current.state || scope.stateId || !(states?.items ?? []).length) return
-    const first = states?.items?.[0]
-    if (first) {
-      defaultsApplied.current.state = true
-      onScopeChange({ ...scope, stateId: first.id })
-    }
-  }, [scope, states?.items, onScopeChange])
-
-  useEffect(() => {
-    if (defaultsApplied.current.district || scope.districtId || !(districts?.items ?? []).length) return
-    const match = (districts?.items ?? []).find((d) =>
-      d.name.toLowerCase().includes(DEFAULT_DISTRICT_NAME.toLowerCase())
-    )
-    if (match) {
-      defaultsApplied.current.district = true
-      onScopeChange({ ...scope, districtId: match.id, ulbId: "", wardId: "" })
-    }
-  }, [districts?.items, scope, onScopeChange])
-
-  useEffect(() => {
-    if (defaultsApplied.current.ulb || !scope.districtId || scope.ulbId || !(ulbs?.items ?? []).length) return
-    const match = (ulbs?.items ?? []).find((u) => u.name.toLowerCase().includes(DEFAULT_ULB_HINT))
-    if (match) {
-      defaultsApplied.current.ulb = true
-      onScopeChange({ ...scope, ulbId: match.id, wardId: "" })
-    }
-  }, [ulbs?.items, scope, onScopeChange])
-
-  useEffect(() => {
-    if (defaultsApplied.current.ward || !scope.ulbId || scope.wardId || !(wards?.items ?? []).length) return
-    const match = (wards?.items ?? []).find((w) => DEFAULT_WARD_NUMBERS.has(String(w.wardNumber)))
-    if (match) {
-      defaultsApplied.current.ward = true
-      onScopeChange({ ...scope, wardId: match.id })
-    }
-  }, [wards?.items, scope, onScopeChange])
+  const hasActiveScope = Boolean(scope.districtId && scope.ulbId && scope.wardId)
+  const draftComplete = Boolean(draft.stateId && draft.districtId && draft.ulbId && draft.wardId)
 
   function openScopeDialog() {
     setDraft(scope)
     setOpen(true)
+  }
+
+  function applyScope() {
+    if (!draft.stateId || !draft.districtId || !draft.ulbId || !draft.wardId) {
+      toast.error("Select state, district, ULB, and ward before applying scope")
+      return
+    }
+    onScopeChange(draft)
+    setOpen(false)
   }
 
   return (
@@ -109,15 +85,27 @@ export function SurveyRegistryHeader({
       </header>
 
       <Card className="border-slate-100 shadow-sm dark:border-slate-800">
-        <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <p className="text-[10px] font-semibold tracking-[0.14em] text-violet-600 uppercase dark:text-violet-400">
               Active Survey Scope
             </p>
-            <p className="mt-1 flex items-center gap-2 truncate text-sm font-medium text-foreground">
-              <MapPinned className="size-4 shrink-0 text-indigo-500" />
-              <span className="truncate">{scopeLabel || "Select district, ULB, and ward"}</span>
-            </p>
+            {hasActiveScope ? (
+              <div className="mt-2 flex items-start gap-2 text-sm text-foreground">
+                <MapPinned className="mt-0.5 size-4 shrink-0 text-indigo-500" />
+                <div className="min-w-0 space-y-0.5">
+                  {scopeLines.stateName ? <p className="font-medium">{scopeLines.stateName}</p> : null}
+                  {scopeLines.districtName ? <p className="text-muted-foreground">{scopeLines.districtName}</p> : null}
+                  {scopeLines.ulbName ? <p className="text-muted-foreground">{scopeLines.ulbName}</p> : null}
+                  {scopeLines.wardLabel ? <p className="font-medium">{scopeLines.wardLabel}</p> : null}
+                </div>
+              </div>
+            ) : (
+              <p className="mt-1 flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <MapPinned className="size-4 shrink-0 text-indigo-500" />
+                Select district, ULB, and ward
+              </p>
+            )}
           </div>
           <Button
             type="button"
@@ -169,7 +157,7 @@ export function SurveyRegistryHeader({
                 disabled={!draft.stateId}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder={DEFAULT_DISTRICT_NAME} />
+                  <SelectValue placeholder="Select district" />
                 </SelectTrigger>
                 <SelectContent>
                   {(districts?.items ?? []).map((d) => (
@@ -188,7 +176,7 @@ export function SurveyRegistryHeader({
                 disabled={!draft.districtId}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Town Panchayat Aminagar Sarai" />
+                  <SelectValue placeholder="Select ULB" />
                 </SelectTrigger>
                 <SelectContent>
                   {(ulbs?.items ?? []).map((u) => (
@@ -202,15 +190,14 @@ export function SurveyRegistryHeader({
             <div className="space-y-1.5">
               <Label>Ward</Label>
               <Select
-                value={draft.wardId || "all"}
-                onValueChange={(value) => setDraft({ ...draft, wardId: value === "all" ? "" : value })}
+                value={draft.wardId || ""}
+                onValueChange={(wardId) => setDraft({ ...draft, wardId })}
                 disabled={!draft.ulbId}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Ward 05" />
+                  <SelectValue placeholder="Select ward" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All wards</SelectItem>
                   {(wards?.items ?? []).map((w) => (
                     <SelectItem key={w.id} value={w.id}>
                       {formatWardOptionLabel(w)}
@@ -227,10 +214,8 @@ export function SurveyRegistryHeader({
             <Button
               type="button"
               className="cursor-pointer bg-violet-600 text-white hover:bg-violet-700"
-              onClick={() => {
-                onScopeChange(draft)
-                setOpen(false)
-              }}
+              disabled={!draftComplete}
+              onClick={applyScope}
             >
               Apply scope
             </Button>
@@ -239,4 +224,26 @@ export function SurveyRegistryHeader({
       </Dialog>
     </div>
   )
+}
+
+export function buildRegistryScopeLines(args: {
+  stateName?: string
+  districtName?: string
+  ulbName?: string
+  ward?: { wardNumber: string | number; wardName?: string | null } | null
+}): RegistryScopeLines {
+  let wardLabel: string | undefined
+  if (args.ward) {
+    const number = String(args.ward.wardNumber ?? "").trim()
+    const name = (args.ward.wardName ?? "").trim()
+    if (number && name) wardLabel = `Ward ${number} — ${name}`
+    else if (number) wardLabel = `Ward ${number}`
+    else if (name) wardLabel = name
+  }
+  return {
+    stateName: args.stateName,
+    districtName: args.districtName,
+    ulbName: args.ulbName,
+    wardLabel,
+  }
 }

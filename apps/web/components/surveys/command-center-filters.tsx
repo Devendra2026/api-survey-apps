@@ -2,28 +2,18 @@
 
 import { useDistricts, useStates, useUlbs, useWards } from "@/hooks/use-api"
 import type { CommandCenterFilters } from "@/lib/api/types"
-import { formatWardOptionLabel } from "@/lib/format-ward-label"
+import { formatWardDisplayLabel } from "@/lib/format-ward-label"
 import { Button } from "@workspace/ui/components/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@workspace/ui/components/popover"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
+import { sortWardsByNumberAsc } from "@workspace/validation"
 import { CalendarDays, Loader2, RotateCcw } from "lucide-react"
 import { useEffect, useMemo, useRef } from "react"
 
-function monthBounds(offsetMonths: number): { dateFrom: string; dateTo: string; month: string } {
-  const now = new Date()
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offsetMonths, 1))
-  const end = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0))
-  const y = start.getUTCFullYear()
-  const m = String(start.getUTCMonth() + 1).padStart(2, "0")
-  return {
-    month: `${y}-${m}`,
-    dateFrom: `${y}-${m}-01`,
-    dateTo: `${y}-${m}-${String(end.getUTCDate()).padStart(2, "0")}`,
-  }
-}
+const NONE = "__none__"
 
 function formatDisplayDate(value?: string) {
   if (!value) return "Select"
@@ -65,20 +55,25 @@ export function CommandCenterFiltersPanel({
   onChange,
   stateId,
   onStateChange,
+  onReset,
 }: {
   filters: CommandCenterFilters
-  onChange: (next: CommandCenterFilters) => void
+  onChange: (next: CommandCenterFilters | ((prev: CommandCenterFilters) => CommandCenterFilters)) => void
   stateId: string
   onStateChange: (stateId: string) => void
+  onReset: () => void
 }) {
   const { data: states, isLoading: statesLoading, isError: statesError } = useStates({ limit: 100 })
   const { data: districts, isLoading: districtsLoading, isError: districtsError } = useDistricts(stateId || undefined)
-  const { data: ulbs, isLoading: ulbsLoading, isError: ulbsError } = useUlbs(filters.districtId)
-  const { data: wards, isLoading: wardsLoading, isError: wardsError } = useWards(filters.ulbId)
+  const { data: ulbs, isLoading: ulbsLoading, isError: ulbsError, isFetched: ulbsFetched } = useUlbs(filters.districtId)
+  const { data: wards, isLoading: wardsLoading, isError: wardsError, isFetched: wardsFetched } = useWards(filters.ulbId)
 
   const districtItems = useMemo(() => districts?.items ?? [], [districts?.items])
   const ulbItems = useMemo(() => ulbs?.items ?? [], [ulbs?.items])
-  const wardItems = useMemo(() => wards?.items ?? [], [wards?.items])
+  const wardItems = useMemo(
+    () => sortWardsByNumberAsc((wards?.items ?? []).map((w) => ({ ...w, wardNumber: String(w.wardNumber) }))),
+    [wards?.items]
+  )
   const stateItems = useMemo(() => states?.items ?? [], [states?.items])
 
   const defaultsApplied = useRef({ state: false })
@@ -92,28 +87,33 @@ export function CommandCenterFiltersPanel({
     }
   }, [stateId, stateItems, onStateChange])
 
-  const patch = (partial: Partial<CommandCenterFilters>) => onChange({ ...filters, ...partial })
+  // Clear invalid ULB when district's ULB list loads
+  useEffect(() => {
+    if (!filters.districtId || !filters.ulbId || !ulbsFetched || ulbsLoading) return
+    if (ulbItems.some((u) => u.id === filters.ulbId)) return
+    onChange((prev) => {
+      if (!prev.ulbId) return prev
+      if (ulbItems.some((u) => u.id === prev.ulbId)) return prev
+      return { ...prev, ulbId: undefined, wardId: undefined }
+    })
+  }, [filters.districtId, filters.ulbId, ulbItems, ulbsFetched, ulbsLoading, onChange])
 
-  const quickRanges = useMemo(
-    () => [
-      { label: "This month", ...monthBounds(0) },
-      { label: "Last month", ...monthBounds(-1) },
-      { label: "2 months back", ...monthBounds(-2) },
-    ],
-    []
-  )
+  // Clear invalid ward when ULB's ward list loads
+  useEffect(() => {
+    if (!filters.ulbId || !filters.wardId || !wardsFetched || wardsLoading) return
+    if (wardItems.some((w) => w.id === filters.wardId)) return
+    onChange((prev) => {
+      if (!prev.wardId) return prev
+      if (wardItems.some((w) => w.id === prev.wardId)) return prev
+      return { ...prev, wardId: undefined }
+    })
+  }, [filters.ulbId, filters.wardId, wardItems, wardsFetched, wardsLoading, onChange])
+
+  const patch = (partial: Partial<CommandCenterFilters>) => onChange((prev) => ({ ...prev, ...partial }))
 
   const reset = () => {
-    defaultsApplied.current = { state: true }
-    onChange({
-      surveyStatus: "any",
-      districtId: undefined,
-      ulbId: undefined,
-      wardId: undefined,
-      dateFrom: undefined,
-      dateTo: undefined,
-      month: undefined,
-    })
+    defaultsApplied.current = { state: false }
+    onReset()
   }
 
   return (
@@ -128,36 +128,16 @@ export function CommandCenterFiltersPanel({
               District, ULB, ward, survey status, and date range for focused field analysis.
             </CardDescription>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {quickRanges.map((range) => (
-              <Button
-                key={range.label}
-                type="button"
-                variant="outline"
-                size="sm"
-                className="cursor-pointer border-slate-200 dark:border-slate-800"
-                onClick={() =>
-                  patch({
-                    month: range.month,
-                    dateFrom: range.dateFrom,
-                    dateTo: range.dateTo,
-                  })
-                }
-              >
-                {range.label}
-              </Button>
-            ))}
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="cursor-pointer"
-              aria-label="Reset filters"
-              onClick={reset}
-            >
-              <RotateCcw className="size-4" />
-            </Button>
-          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="cursor-pointer"
+            aria-label="Reset filters"
+            onClick={reset}
+          >
+            <RotateCcw className="size-4" />
+          </Button>
         </div>
       </CardHeader>
 
@@ -165,11 +145,14 @@ export function CommandCenterFiltersPanel({
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">State</Label>
-            <Select value={stateId || ""} onValueChange={onStateChange}>
+            <Select value={stateId || NONE} onValueChange={(v) => onStateChange(v === NONE ? "" : v)}>
               <SelectTrigger className="h-9 cursor-pointer border-slate-200 dark:border-slate-800">
                 <SelectValue placeholder="Select state" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value={NONE} disabled>
+                  Select state
+                </SelectItem>
                 {stateItems.map((s) => (
                   <SelectItem key={s.id} value={s.id}>
                     {s.name}
@@ -188,14 +171,15 @@ export function CommandCenterFiltersPanel({
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">District</Label>
             <Select
-              value={filters.districtId || ""}
-              onValueChange={(districtId) => {
-                onChange({
-                  ...filters,
+              value={filters.districtId || NONE}
+              onValueChange={(value) => {
+                const districtId = value === NONE ? undefined : value
+                onChange((prev) => ({
+                  ...prev,
                   districtId,
                   ulbId: undefined,
                   wardId: undefined,
-                })
+                }))
               }}
               disabled={!stateId}
             >
@@ -203,6 +187,7 @@ export function CommandCenterFiltersPanel({
                 <SelectValue placeholder="Select district" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value={NONE}>Select district</SelectItem>
                 {districtItems.map((d) => (
                   <SelectItem key={d.id} value={d.id}>
                     {d.name}
@@ -223,9 +208,10 @@ export function CommandCenterFiltersPanel({
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">ULB</Label>
             <Select
-              value={filters.ulbId || ""}
-              onValueChange={(ulbId) => {
-                onChange({ ...filters, ulbId, wardId: undefined })
+              value={filters.ulbId || NONE}
+              onValueChange={(value) => {
+                const ulbId = value === NONE ? undefined : value
+                onChange((prev) => ({ ...prev, ulbId, wardId: undefined }))
               }}
               disabled={!filters.districtId}
             >
@@ -233,6 +219,7 @@ export function CommandCenterFiltersPanel({
                 <SelectValue placeholder="Select municipality" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value={NONE}>Select municipality</SelectItem>
                 {ulbItems.map((u) => (
                   <SelectItem key={u.id} value={u.id}>
                     {u.name}
@@ -264,7 +251,7 @@ export function CommandCenterFiltersPanel({
                 <SelectItem value="all">All wards</SelectItem>
                 {wardItems.map((w) => (
                   <SelectItem key={w.id} value={w.id}>
-                    {formatWardOptionLabel(w)}
+                    {formatWardDisplayLabel(w)}
                   </SelectItem>
                 ))}
               </SelectContent>

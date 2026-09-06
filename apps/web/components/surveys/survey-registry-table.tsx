@@ -1,18 +1,18 @@
 "use client"
 
-import { DataTable } from "@/components/data-table/data-table"
+import { DataTable, DataTableSelectColumn } from "@/components/data-table/data-table"
 import type { SurveyRegistryCounts, SurveyRegistryRecord, SurveyRegistryTab } from "@/lib/api/types"
 import { formatParcelDisplay } from "@/lib/format-parcel"
-import type { ColumnDef } from "@tanstack/react-table"
+import type { ColumnDef, OnChangeFn, RowSelectionState } from "@tanstack/react-table"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { Card, CardContent } from "@workspace/ui/components/card"
 import { Input } from "@workspace/ui/components/input"
-import { Progress } from "@workspace/ui/components/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
 import { cn } from "@workspace/ui/lib/utils"
 import { Eye, Loader2, Search, X } from "lucide-react"
 import Link from "next/link"
+import { useMemo } from "react"
 
 export type SurveyRegistrySearchField = "all" | "owner" | "parcel" | "propertyId"
 
@@ -45,6 +45,7 @@ function statusTone(status: string) {
 
 export function buildRegistryColumns(page: number, limit: number): ColumnDef<SurveyRegistryRecord>[] {
   return [
+    DataTableSelectColumn<SurveyRegistryRecord>(),
     {
       id: "sno",
       header: "S.No",
@@ -71,18 +72,6 @@ export function buildRegistryColumns(page: number, limit: number): ColumnDef<Sur
       header: "Status",
       cell: ({ row }) => (
         <Badge className={cn("rounded-full font-medium", statusTone(row.original.status))}>{row.original.status}</Badge>
-      ),
-    },
-    {
-      accessorKey: "progress",
-      header: "Survey Progress",
-      cell: ({ row }) => (
-        <div className="flex min-w-28 items-center gap-2">
-          <Progress value={row.original.progress} className="h-1.5 flex-1" />
-          <span className="w-9 text-right text-xs font-medium text-muted-foreground tabular-nums">
-            {row.original.progress}%
-          </span>
-        </div>
       ),
     },
     {
@@ -136,6 +125,9 @@ export function SurveyRegistryTable({
   onPageChange,
   onPageSizeChange,
   toolbar,
+  rowSelection,
+  onRowSelectionChange,
+  scopeReady = true,
 }: {
   data: SurveyRegistryRecord[]
   isLoading?: boolean
@@ -154,8 +146,11 @@ export function SurveyRegistryTable({
   onPageChange: (page: number) => void
   onPageSizeChange: (size: number) => void
   toolbar?: React.ReactNode
+  rowSelection?: RowSelectionState
+  onRowSelectionChange?: OnChangeFn<RowSelectionState>
+  scopeReady?: boolean
 }) {
-  const columns = buildRegistryColumns(page, limit)
+  const columns = useMemo(() => buildRegistryColumns(page, limit), [page, limit])
 
   return (
     <Card className="border-slate-100 shadow-sm dark:border-slate-800">
@@ -179,6 +174,7 @@ export function SurveyRegistryTable({
               value={search}
               onChange={(e) => onSearchChange(e.target.value)}
               placeholder={SEARCH_PLACEHOLDER}
+              disabled={!scopeReady}
               className={cn(
                 "h-9 border-slate-200/80 bg-background/70 pl-9 backdrop-blur dark:border-slate-800",
                 (search || isLoading) && "pr-9"
@@ -212,11 +208,13 @@ export function SurveyRegistryTable({
                 key={item.id}
                 type="button"
                 onClick={() => onTabChange(item.id)}
+                disabled={!scopeReady}
                 className={cn(
                   "inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
                   active
                     ? "border-violet-600 bg-violet-600 text-white shadow-sm"
-                    : "border-slate-200 bg-background text-muted-foreground hover:bg-muted dark:border-slate-800"
+                    : "border-slate-200 bg-background text-muted-foreground hover:bg-muted dark:border-slate-800",
+                  !scopeReady && "cursor-not-allowed opacity-60"
                 )}
               >
                 {item.label}
@@ -240,13 +238,21 @@ export function SurveyRegistryTable({
           data={data}
           isLoading={isLoading}
           toolbar={toolbar}
-          emptyTitle={search.trim() ? "No results found" : "No surveys found"}
-          emptyDescription={
-            search.trim()
-              ? "Try a different parcel number, property ID, or owner name."
-              : "Adjust scope or filters to see registry records."
+          emptyTitle={
+            !scopeReady ? "Select an active survey scope" : search.trim() ? "No results found" : "No surveys found"
           }
-          stickyFirstColumns={2}
+          emptyDescription={
+            !scopeReady
+              ? "Choose state, district, ULB, and ward, then click Apply scope."
+              : search.trim()
+                ? "Try a different parcel number, property ID, or owner name."
+                : "Adjust scope or filters to see registry records."
+          }
+          stickyFirstColumns={3}
+          enableRowSelection
+          rowSelection={rowSelection}
+          onRowSelectionChange={onRowSelectionChange}
+          getRowId={(row) => row.id}
           pagination={{
             page,
             totalPages,

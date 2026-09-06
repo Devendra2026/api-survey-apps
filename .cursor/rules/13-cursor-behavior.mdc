@@ -17,6 +17,19 @@ alwaysApply: true
 - Nest relative imports: `.js` extension. Web: `@/` alias.
 - Reuse existing DTOs, repositories, services, guards.
 
+## Production change safety
+
+- Change only what was explicitly requested. Preserve existing functionality.
+- Do not refactor, redesign, or rewrite unrelated business logic.
+- Do not change database schemas, API contracts, or auth/authorization unless explicitly asked.
+- Reuse existing components, hooks, utilities, services, and auth mechanisms — no duplicate systems.
+- UI: preserve the design system; make targeted UI changes only; keep responsive behavior.
+- Do not add unnecessary libraries or dependencies.
+- Local and production: no environment-specific hacks; no hardcoded URLs, user names, IDs, tokens, or credentials; preserve existing env var behavior.
+- Do not hardcode production business data (surveyor names, ward/ULB names, counts, geo IDs).
+- After changes: inspect affected files; run typecheck/lint/tests; fix only issues caused by your changes.
+- Review git diff before finishing; revert unrelated edits.
+
 ## After changes
 
 - Run `pnpm typecheck` and `pnpm lint`.
@@ -35,6 +48,7 @@ alwaysApply: true
 - Add npm dependencies without justification.
 - Commit `.env` or secrets.
 - Modify Docker/deployment without being asked.
+- Make destructive changes without explicit instruction.
 
 ## Ask before
 

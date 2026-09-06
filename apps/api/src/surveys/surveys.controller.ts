@@ -50,6 +50,20 @@ export class SurveysController {
     return this.surveysService.bulkReject(dto, user)
   }
 
+  @Post("bulk/submit")
+  @RequirePermission(PERMISSIONS.SURVEY_SUBMIT)
+  @ApiOperation({ summary: "Bulk submit editable surveys to QC (SUBMITTED + PENDING)" })
+  bulkSubmit(@Body() dto: BulkSurveyIdsDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.surveysService.bulkSubmit(dto, user)
+  }
+
+  @Post("bulk/delete")
+  @RequirePermission(PERMISSIONS.SURVEY_DELETE)
+  @ApiOperation({ summary: "Bulk soft-delete surveys (blocks SUBMITTED and APPROVED)" })
+  bulkDelete(@Body() dto: BulkSurveyIdsDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.surveysService.bulkDelete(dto, user)
+  }
+
   @Post("bulk/export")
   @RequirePermission(PERMISSIONS.REPORT_EXPORT)
   @ApiOperation({ summary: "Enqueue export for selected survey ids" })

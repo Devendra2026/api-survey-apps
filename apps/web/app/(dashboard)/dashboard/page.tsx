@@ -21,9 +21,9 @@ import { useMemo } from "react"
 
 export default function DashboardPage() {
   const hasPermission = useAuthStore((s) => s.hasPermission)
+  const profile = useAuthStore((s) => s.profile)
   const canView = hasPermission("dashboard:view")
-  const canCreate = hasPermission("survey:create")
-  const canApprove = hasPermission("survey:approve")
+  const greetingName = profile?.fullName?.trim() || "there"
 
   const summaryQuery = useDashboardSummary()
   const organizationQuery = useOrganizationOverview()
@@ -112,7 +112,7 @@ export default function DashboardPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 md:gap-8">
-      <WelcomeHeader name="Tarun" canCreate={canCreate} canApprove={canApprove} />
+      <WelcomeHeader name={greetingName} />
       <MetricKpiRow kpis={summaryView.kpis} />
       <QcOperations cards={qcOps} />
       <OrgOverview cards={orgCards} />

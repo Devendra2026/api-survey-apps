@@ -69,7 +69,11 @@ describe("QcRepository queue first/neighbors", () => {
         where: expect.objectContaining({
           wardId,
           surveyStatus: "SUBMITTED",
-          qcStatus: "PENDING",
+          AND: expect.arrayContaining([
+            expect.objectContaining({
+              OR: [{ qcStatus: "PENDING" }, { qcStatus: null }],
+            }),
+          ]),
         }),
         orderBy: [{ parcelNumber: { sort: "asc", nulls: "last" } }, { id: "asc" }],
       })
@@ -108,16 +112,42 @@ describe("QcRepository queue first/neighbors", () => {
     await expect(repo.findQueueNeighbors(user, wardId, "missing")).rejects.toThrow(NotFoundException)
   })
 
-  it("finds pending parcel by parcel number", async () => {
+  it("finds pending parcel by parcel number with zero-pad variants", async () => {
     findFirst.mockResolvedValue(queue[1] as never)
     await expect(repo.findQueueByParcel(user, wardId, "2")).resolves.toEqual(queue[1])
     expect(findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({
-          wardId,
-          surveyStatus: "SUBMITTED",
-          qcStatus: "PENDING",
-        }),
+        where: {
+          AND: [
+            expect.objectContaining({
+              wardId,
+              surveyStatus: "SUBMITTED",
+              AND: expect.arrayContaining([
+                expect.objectContaining({
+                  OR: [{ qcStatus: "PENDING" }, { qcStatus: null }],
+                }),
+              ]),
+            }),
+            {
+              OR: [{ parcelNumber: { in: expect.arrayContaining(["2", "00002"]) } }, { parcelNumber: "2" }],
+            },
+          ],
+        },
+      })
+    )
+  })
+
+  it("finds pending parcel when qcStatus is null", async () => {
+    findFirst.mockResolvedValue(queue[2] as never)
+    await expect(repo.findQueueByParcel(user, wardId, "00003")).resolves.toEqual(queue[2])
+    const call = findFirst.mock.calls[0]?.[0] as { where: { AND: unknown[] } }
+    expect(call.where.AND[0]).toEqual(
+      expect.objectContaining({
+        AND: expect.arrayContaining([
+          expect.objectContaining({
+            OR: [{ qcStatus: "PENDING" }, { qcStatus: null }],
+          }),
+        ]),
       })
     )
   })

@@ -22,7 +22,7 @@ import { Input } from "@workspace/ui/components/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@workspace/ui/components/table"
 import { cn } from "@workspace/ui/lib/utils"
-import { isOpenLandPropertyUse, sumBuiltUpArea } from "@workspace/validation"
+import { isOpenLandPropertyUse, sortWardsByNumberAsc, sumBuiltUpArea } from "@workspace/validation"
 import { AlertTriangle } from "lucide-react"
 import { useMemo } from "react"
 
@@ -208,8 +208,16 @@ export function QcReviewSections({
   const stateItems = useMemo(() => states?.items ?? [], [states?.items])
   const districtItems = useMemo(() => districts?.items ?? [], [districts?.items])
   const ulbItems = useMemo(() => ulbs?.items ?? [], [ulbs?.items])
-  const wardItems = useMemo(() => wards?.items ?? [], [wards?.items])
-  const userItems = useMemo(() => users?.items ?? [], [users?.items])
+  const wardItems = useMemo(
+    () => sortWardsByNumberAsc((wards?.items ?? []).map((w) => ({ ...w, wardNumber: String(w.wardNumber) }))),
+    [wards?.items]
+  )
+  const userItems = useMemo(() => {
+    const items = users?.items ?? []
+    return [...items].sort((a, b) =>
+      (a.fullName ?? "").localeCompare(b.fullName ?? "", undefined, { sensitivity: "base" })
+    )
+  }, [users?.items])
 
   const setField = <K extends keyof QcSurveyEditable>(key: K, value: QcSurveyEditable[K]) => {
     onDraftChange({ ...draft, [key]: value })
@@ -222,15 +230,16 @@ export function QcReviewSections({
 
   const liveBuiltUpArea = useMemo(() => {
     if (isOpenLand) return "N/A"
+    const floorsForTotal = editMode ? draft.floors : survey.editable.floors
     const sqFt = sumBuiltUpArea(
-      survey.editable.floors.map((f) => ({
+      floorsForTotal.map((f) => ({
         floorPosition: f.floorPosition,
         usageFactor: f.usageFactor,
         areaSqFt: f.areaSqFt,
       }))
     )
     return formatLiveBuiltUpArea(sqFt)
-  }, [isOpenLand, survey.editable.floors])
+  }, [isOpenLand, editMode, draft.floors, survey.editable.floors])
 
   const auditColumns = useMemo<ColumnDef<SurveyAuditHistoryItem>[]>(
     () => [
@@ -640,10 +649,10 @@ export function QcReviewSections({
         </div>
 
         <QcFloorEditor
-          surveyId={survey.id}
           editMode={editMode}
           displayFloors={floorsSorted}
-          editableFloors={survey.editable.floors}
+          editableFloors={draft.floors}
+          onChange={(floors) => setField("floors", floors)}
           builtUpArea={liveBuiltUpArea}
           openLandPropertyUse={isOpenLand}
         />

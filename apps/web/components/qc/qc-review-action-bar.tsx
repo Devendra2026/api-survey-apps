@@ -17,6 +17,7 @@ import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
 import { cn } from "@workspace/ui/lib/utils"
+import { sortWardsByNumberAsc } from "@workspace/validation"
 import { ArrowLeft, Check, ChevronLeft, ChevronRight, Pencil, RotateCcw, Save, Trash2, X, XCircle } from "lucide-react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
@@ -80,6 +81,10 @@ export function QcReviewActionBar({
 
   const ulbId = activeUlbId || survey.editable.ulbId
   const { data: wards, isLoading: wardsLoading } = useWards(ulbId || undefined)
+  const sortedWards = useMemo(
+    () => sortWardsByNumberAsc((wards?.items ?? []).map((w) => ({ ...w, wardNumber: String(w.wardNumber) }))),
+    [wards?.items]
+  )
 
   const backHref = useMemo(
     () =>
@@ -243,7 +248,7 @@ export function QcReviewActionBar({
                 <SelectValue placeholder={wardsLoading ? "Loading wards…" : "Select active ward"} />
               </SelectTrigger>
               <SelectContent>
-                {(wards?.items ?? []).map((w) => (
+                {sortedWards.map((w) => (
                   <SelectItem key={w.id} value={w.id} className="cursor-pointer">
                     {formatWardOptionLabel(w)}
                   </SelectItem>

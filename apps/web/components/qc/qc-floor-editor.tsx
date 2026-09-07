@@ -1,8 +1,6 @@
 "use client"
 
 import { glassInsetClass } from "@/components/surveys/survey-view-field"
-import { useFloorMutations } from "@/hooks/use-api"
-import { getApiErrorMessage } from "@/lib/api/client"
 import type { QcSurveyFloorEditable, SurveyFloorRow } from "@/lib/api/types"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
@@ -77,6 +75,10 @@ function segmentKey(usageFactor: string, constructionType: string) {
   return `${usageFactor}::${constructionType}`
 }
 
+function floorRowKey(floor: QcSurveyFloorEditable, index: number) {
+  return floor.id || `draft-${index}`
+}
+
 /** Segments already present on a floor position (usage + construction). */
 function usedSegments(floors: QcSurveyFloorEditable[], floorPosition: string, excludeId?: string | null): Set<string> {
   const used = new Set<string>()
@@ -129,29 +131,31 @@ const OPEN_LAND_FORM = (): FloorForm => ({
   areaSqFt: "",
 })
 
+function newDraftFloorId() {
+  return `new-${crypto.randomUUID()}`
+}
+
 export function QcFloorEditor({
-  surveyId,
   editMode,
   displayFloors,
   editableFloors,
+  onChange,
   builtUpArea,
   openLandPropertyUse = false,
 }: {
-  surveyId: string
   editMode: boolean
   displayFloors: SurveyFloorRow[]
   editableFloors: QcSurveyFloorEditable[]
+  onChange: (next: QcSurveyFloorEditable[]) => void
   builtUpArea: string
   /** When Property Use is OPEN_LAND, only Open Land floor rows are allowed. */
   openLandPropertyUse?: boolean
 }) {
-  const floorsApi = useFloorMutations(surveyId)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const [form, setForm] = useState<FloorForm>(emptyForm)
   const [fieldError, setFieldError] = useState<string | null>(null)
 
-  const busy = floorsApi.create.isPending || floorsApi.update.isPending || floorsApi.remove.isPending
   const canEdit = editMode
 
   const floorPositionOptions = useMemo(
@@ -285,7 +289,7 @@ export function QcFloorEditor({
     setForm((f) => ({ ...f, constructionType }))
   }
 
-  const save = async () => {
+  const applyFloor = () => {
     setFieldError(null)
     const floorPosition = openLandPropertyUse ? "OPEN_LAND" : form.floorPosition
     const usageFactor = openLandPropertyUse ? "OPEN_LAND" : form.usageFactor || "RESIDENTIAL"
@@ -309,45 +313,31 @@ export function QcFloorEditor({
       return
     }
 
-    const body = {
+    const nextFloor: QcSurveyFloorEditable = {
+      id: editingId ?? existing?.id ?? newDraftFloorId(),
       floorPosition,
       usageType: form.usageType || null,
       usageFactor,
       constructionType,
       areaSqFt,
+      position: existing?.position ?? editableFloors.length,
     }
-    try {
-      if (adding) {
-        // Same floor + usage + construction already exists → update that row.
-        if (existing) {
-          await floorsApi.update.mutateAsync({ id: existing.id, body })
-          toast.success("Floor usage updated")
-        } else {
-          await floorsApi.create.mutateAsync(body)
-          toast.success(openLandPropertyUse ? "Open land row created" : "Floor created")
-        }
-      } else if (editingId) {
-        await floorsApi.update.mutateAsync({ id: editingId, body })
-        toast.success(openLandPropertyUse ? "Open land row updated" : "Floor updated")
+
+    if (adding) {
+      if (existing) {
+        onChange(editableFloors.map((f) => (f.id === existing.id ? { ...existing, ...nextFloor, id: existing.id } : f)))
+      } else {
+        onChange([...editableFloors, nextFloor])
       }
-      cancel()
-    } catch (err) {
-      const message = getApiErrorMessage(err)
-      if (/Duplicate floor usage/i.test(message)) {
-        setFieldError(message)
-      }
-      toast.error(message)
+    } else if (editingId) {
+      onChange(editableFloors.map((f) => (f.id === editingId ? { ...f, ...nextFloor, id: f.id } : f)))
     }
+    cancel()
   }
 
-  const remove = async (id: string) => {
-    try {
-      await floorsApi.remove.mutateAsync(id)
-      toast.success("Floor deleted")
-      if (editingId === id) cancel()
-    } catch (err) {
-      toast.error(getApiErrorMessage(err))
-    }
+  const remove = (id: string) => {
+    onChange(editableFloors.filter((f) => f.id !== id))
+    if (editingId === id) cancel()
   }
 
   if (!editMode) {
@@ -410,7 +400,7 @@ export function QcFloorEditor({
       ) : (
         <p className="text-xs text-muted-foreground">
           Mixed use: add one row per usage/construction on the same floor (e.g. Ground + Residential + Pakka and Ground
-          + Residential + Tin Shed).
+          + Residential + Tin Shed). Floor edits apply to the draft — use page Save to persist.
         </p>
       )}
       {derivedFloorTotals.length > 0 ? (
@@ -433,8 +423,8 @@ export function QcFloorEditor({
           </TableHeader>
           <TableBody>
             {editableFloors.length ? (
-              editableFloors.map((floor) => (
-                <TableRow key={floor.id}>
+              editableFloors.map((floor, index) => (
+                <TableRow key={floorRowKey(floor, index)}>
                   <TableCell>{labelEnum(floor.floorPosition)}</TableCell>
                   <TableCell>{floor.usageType ? labelEnum(floor.usageType) : "—"}</TableCell>
                   <TableCell>{floor.usageFactor ? labelEnum(floor.usageFactor) : "—"}</TableCell>
@@ -443,23 +433,11 @@ export function QcFloorEditor({
                   <TableCell>
                     <div className="flex gap-1">
                       {canEdit ? (
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          disabled={busy}
-                          onClick={() => startEdit(floor)}
-                        >
+                        <Button type="button" size="icon" variant="ghost" onClick={() => startEdit(floor)}>
                           <Pencil className="size-3.5" />
                         </Button>
                       ) : null}
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        disabled={busy}
-                        onClick={() => void remove(floor.id)}
-                      >
+                      <Button type="button" size="icon" variant="ghost" onClick={() => remove(floor.id)}>
                         <Trash2 className="size-3.5" />
                       </Button>
                     </div>
@@ -478,7 +456,7 @@ export function QcFloorEditor({
       </div>
 
       {canEdit && !adding && !editingId ? (
-        <Button type="button" size="sm" variant="outline" onClick={startAdd} disabled={busy}>
+        <Button type="button" size="sm" variant="outline" onClick={startAdd}>
           <Plus className="size-3.5" />
           {openLandPropertyUse ? "Add open land" : "Add floor"}
         </Button>
@@ -585,10 +563,10 @@ export function QcFloorEditor({
           </div>
           {fieldError ? <p className="text-sm text-destructive">{fieldError}</p> : null}
           <div className="flex gap-2">
-            <Button type="button" size="sm" disabled={busy || Boolean(fieldError)} onClick={() => void save()}>
-              Save floor
+            <Button type="button" size="sm" disabled={Boolean(fieldError)} onClick={applyFloor}>
+              Apply
             </Button>
-            <Button type="button" size="sm" variant="outline" disabled={busy} onClick={cancel}>
+            <Button type="button" size="sm" variant="outline" onClick={cancel}>
               Cancel
             </Button>
           </div>

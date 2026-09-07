@@ -59,10 +59,10 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
   const actions = useQcSurveyActions()
 
   const survey = detailQuery.data
-  // Always scope queue neighbors to the survey's ward so Approve → Next works even if
-  // Active Ward was left on a different ward from a previous parcel.
-  const effectiveWardId = survey?.editable.wardId || activeWardId || null
-  const neighborsQuery = useQcQueueNeighbors(effectiveWardId, survey?.id, Boolean(canApprove) && Boolean(survey?.id))
+  // Prefer Active QC Ward for queue / Go-to-parcel so soft-deleted survey ward aliases resolve correctly.
+  // Fall back to the survey ward when Active Ward is unset.
+  const queueWardId = activeWardId || survey?.editable.wardId || null
+  const neighborsQuery = useQcQueueNeighbors(queueWardId, survey?.id, Boolean(canApprove) && Boolean(survey?.id))
 
   const [editMode, setEditMode] = useState(false)
   const [draft, setDraft] = useState<QcSurveyEditable | null>(() => survey?.editable ?? null)
@@ -229,10 +229,9 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
       return
     }
 
-    // Floors are mutated via /floors immediately; always send server editable floors
-    // so Save cannot wipe (or resurrect) floors from a stale draft.
-    const floorsPayload = survey.editable.floors.map((f) => ({
-      id: f.id,
+    // Floors live in the edit draft until Save; omit client-only draft ids so the API creates rows.
+    const floorsPayload = draft.floors.map((f) => ({
+      id: f.id.startsWith("new-") ? undefined : f.id,
       floorPosition: f.floorPosition,
       usageType: f.usageType,
       // Legacy rows may still have null/empty until migration backfill; coerce for validation.
@@ -336,12 +335,12 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
             ? ((draftWards?.items ?? []).find((w) => w.id === draft.wardId)?.wardNumber ?? survey.wardNo)
             : survey.wardNo
         }
-        activeWardId={effectiveWardId}
+        activeWardId={queueWardId}
         activeUlbId={activeUlbId || survey.editable.ulbId}
         prevId={neighborsQuery.data?.prevId ?? null}
         nextId={neighborsQuery.data?.nextId ?? null}
         onActiveWardChange={(wardId) => {
-          if (wardId === effectiveWardId) return
+          if (wardId === queueWardId) return
           setWardSwitchId(wardId)
         }}
         onPrev={() => goToNeighbor(neighborsQuery.data?.prevId)}
@@ -361,13 +360,13 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
           setRejectOpen(true)
         }}
         onParcelJump={async (parcelNumber) => {
-          if (!effectiveWardId) {
+          if (!queueWardId) {
             toast.error("Select an active ward first")
             return
           }
           try {
             const found = await apiGet<QcQueueParcel | null>(
-              `/qc/queue/by-parcel?wardId=${encodeURIComponent(effectiveWardId)}&parcelNumber=${encodeURIComponent(parcelNumber)}`
+              `/qc/queue/by-parcel?wardId=${encodeURIComponent(queueWardId)}&parcelNumber=${encodeURIComponent(parcelNumber)}`
             )
             if (!found?.id) {
               toast.error("No parcel found in this ward")

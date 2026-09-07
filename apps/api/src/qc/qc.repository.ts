@@ -336,8 +336,12 @@ export class QcRepository {
       deletedAt: null,
       wardId: ids.length === 1 ? ids[0] : { in: ids },
       surveyStatus: "SUBMITTED",
-      qcStatus: "PENDING",
-      ...(tenantWhere ?? {}),
+      AND: [
+        {
+          OR: [{ qcStatus: "PENDING" }, { qcStatus: null }],
+        } as Prisma.SurveyWhereInput,
+        ...(tenantWhere ? [tenantWhere] : []),
+      ],
     }
   }
 
@@ -421,10 +425,13 @@ export class QcRepository {
     }
     const variants = parcelNumberVariants(normalized)
     const wardIds = await this.wardIdsForQueue(wardId)
+    const parcelMatch: Prisma.SurveyWhereInput =
+      variants.length > 0
+        ? { OR: [{ parcelNumber: { in: variants } }, { parcelNumber: normalized }] }
+        : { parcelNumber: normalized }
     const row = await this.prisma.db.survey.findFirst({
       where: {
-        ...this.pendingQueueWhere(user, wardIds),
-        OR: [{ parcelNumber: { in: variants } }, { parcelNumber: normalized }],
+        AND: [this.pendingQueueWhere(user, wardIds), parcelMatch],
       },
       select: { id: true, parcelNumber: true },
       orderBy: [{ parcelNumber: { sort: "asc", nulls: "last" } }, { id: "asc" }],

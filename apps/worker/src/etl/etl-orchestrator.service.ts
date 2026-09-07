@@ -718,33 +718,56 @@ export class EtlOrchestratorService {
           },
         })
 
-        if (!options?.statusOnlyRefresh && photoMeta.length > 0) {
-          // Insert-only photos that are missing; do not wipe existing on refresh.
-          for (const p of photoMeta) {
-            const already = await tx.photo.findFirst({
-              where: { surveyId: existing.id, photoType: p.photoType as PhotoType },
-              select: { id: true },
-            })
-            if (already) continue
-            await tx.photo.create({
-              data: {
+        if (!options?.statusOnlyRefresh) {
+          // Pending QC only (Approved/Rejected returned above): resync floors from Convex so
+          // field floors appear in QC View after refresh (create path already nested-creates).
+          await tx.floor.deleteMany({ where: { surveyId: existing.id } })
+          if (survey.floors.length > 0) {
+            await tx.floor.createMany({
+              data: survey.floors.map((f, index) => ({
                 surveyId: existing.id,
-                photoType: p.photoType as PhotoType,
-                url: p.objectKey,
-                sourceUrl: p.sourceUrl,
-                objectKey: p.objectKey,
-                bucket: p.bucket,
-                storageProvider: p.provider === "MINIO" ? StorageProvider.MINIO : StorageProvider.S3,
-                mimeType: p.mimeType,
-                sizeBytes: p.sizeBytes,
-                sizeKB: Math.ceil(p.sizeBytes / 1024),
-                checksum: p.checksum,
-                width: p.width,
-                height: p.height,
-                capturedAt: p.capturedAt,
-                importStatus: "SUCCEEDED",
-              },
+                clientFloorId: f.clientFloorId,
+                floorPosition: (asEnum(f.floorPosition, FloorPosition) as FloorPosition) ?? FloorPosition.GROUND_FLOOR,
+                usageFactor: (asEnum(f.usageFactor, UsageFactor) as UsageFactor) ?? UsageFactor.RESIDENTIAL,
+                usageType: asEnum(f.usageType, UsageType),
+                constructionType:
+                  (asEnum(f.constructionType, ConstructionType) as ConstructionType) ??
+                  ConstructionType.PAKKA_BUILDING_WITH_RCC_ROOF,
+                occupancy: f.occupancy,
+                areaSqFt: f.areaSqFt,
+                position: f.position ?? index,
+              })),
             })
+          }
+
+          if (photoMeta.length > 0) {
+            // Insert-only photos that are missing; do not wipe existing on refresh.
+            for (const p of photoMeta) {
+              const already = await tx.photo.findFirst({
+                where: { surveyId: existing.id, photoType: p.photoType as PhotoType },
+                select: { id: true },
+              })
+              if (already) continue
+              await tx.photo.create({
+                data: {
+                  surveyId: existing.id,
+                  photoType: p.photoType as PhotoType,
+                  url: p.objectKey,
+                  sourceUrl: p.sourceUrl,
+                  objectKey: p.objectKey,
+                  bucket: p.bucket,
+                  storageProvider: p.provider === "MINIO" ? StorageProvider.MINIO : StorageProvider.S3,
+                  mimeType: p.mimeType,
+                  sizeBytes: p.sizeBytes,
+                  sizeKB: Math.ceil(p.sizeBytes / 1024),
+                  checksum: p.checksum,
+                  width: p.width,
+                  height: p.height,
+                  capturedAt: p.capturedAt,
+                  importStatus: "SUCCEEDED",
+                },
+              })
+            }
           }
         }
 

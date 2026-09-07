@@ -15,7 +15,7 @@ const surveyInclude = {
   createdBy: { select: { id: true, fullName: true, email: true } },
   assignedTo: { select: { id: true, fullName: true, email: true } },
   ward: { select: { id: true, wardName: true, wardNumber: true } },
-  ulb: { select: { id: true, name: true } },
+  ulb: { select: { id: true, name: true, code: true } },
   district: { select: { id: true, name: true } },
   state: { select: { id: true, name: true } },
 } as const

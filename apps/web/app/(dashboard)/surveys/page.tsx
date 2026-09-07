@@ -25,6 +25,7 @@ import { useHydrateGeoScopeFromSearchParams } from "@/hooks/use-hydrate-geo-scop
 import { getApiErrorMessage } from "@/lib/api/client"
 import type { SurveyRegistryCounts, SurveyRegistryRecord, SurveyRegistryTab } from "@/lib/api/types"
 import { exportRegistryToExcel, parseRegistryExcelFile } from "@/lib/survey-registry-xlsx"
+import { buildSurveyRegistryHref } from "@/lib/ward-action-links"
 import { useAuthStore } from "@/stores/app-store"
 import type { RowSelectionState } from "@tanstack/react-table"
 import { Button } from "@workspace/ui/components/button"
@@ -37,10 +38,12 @@ import {
   DialogTitle,
 } from "@workspace/ui/components/dialog"
 import { Skeleton } from "@workspace/ui/components/skeleton"
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 
 function SurveysPageInner() {
+  const router = useRouter()
   const hasPermission = useAuthStore((s) => s.hasPermission)
   const canView = hasPermission("survey:view")
   const canImport = hasPermission("survey:create")
@@ -61,11 +64,25 @@ function SurveysPageInner() {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [submitOpen, setSubmitOpen] = useState(false)
   const debouncedSearch = useDebouncedValue(search, 300)
+  const clearedInvalidWardRef = useRef<string | null>(null)
 
   const surveyMutations = useSurveyMutations()
   const scopeReady = Boolean(scope.districtId && scope.ulbId && scope.wardId)
 
   const clearSelection = useCallback(() => setRowSelection({}), [])
+
+  const replaceRegistryScopeUrl = useCallback(
+    (next: Pick<RegistryScopeState, "ulbId" | "wardId">) => {
+      router.replace(
+        buildSurveyRegistryHref({
+          ulbId: next.ulbId || undefined,
+          wardId: next.wardId || undefined,
+        }),
+        { scroll: false }
+      )
+    },
+    [router]
+  )
 
   useHydrateGeoScopeFromSearchParams(
     useCallback((hydrated) => {
@@ -77,15 +94,21 @@ function SurveysPageInner() {
       }))
       setPage(1)
       setRowSelection({})
+      clearedInvalidWardRef.current = null
     }, [])
   )
 
-  const onScopeChange = useCallback((next: RegistryScopeState) => {
-    setScope(next)
-    setPage(1)
-    setRowSelection({})
-    setLastCounts(undefined)
-  }, [])
+  const onScopeChange = useCallback(
+    (next: RegistryScopeState) => {
+      setScope(next)
+      setPage(1)
+      setRowSelection({})
+      setLastCounts(undefined)
+      clearedInvalidWardRef.current = null
+      replaceRegistryScopeUrl(next)
+    },
+    [replaceRegistryScopeUrl]
+  )
 
   const filters = useMemo(
     () => ({
@@ -119,7 +142,25 @@ function SurveysPageInner() {
   const { data: states } = useStates({ limit: 100 })
   const { data: districts } = useDistricts(scope.stateId || undefined)
   const { data: ulbs } = useUlbs(scope.districtId || undefined)
-  const { data: wards } = useWards(scope.ulbId || undefined)
+  const { data: wards, isFetched: wardsFetched } = useWards(scope.ulbId || undefined)
+
+  useEffect(() => {
+    if (!scope.ulbId || !scope.wardId || !wardsFetched || !wards?.items) return
+    const wardStillValid = wards.items.some((w) => w.id === scope.wardId)
+    if (wardStillValid) {
+      clearedInvalidWardRef.current = null
+      return
+    }
+    const clearKey = `${scope.ulbId}:${scope.wardId}`
+    if (clearedInvalidWardRef.current === clearKey) return
+    clearedInvalidWardRef.current = clearKey
+    const next = { ...scope, wardId: "" }
+    setScope(next)
+    setPage(1)
+    setRowSelection({})
+    setLastCounts(undefined)
+    replaceRegistryScopeUrl(next)
+  }, [scope, wards?.items, wardsFetched, replaceRegistryScopeUrl])
 
   const scopeLines = useMemo(() => {
     const stateName = states?.items?.find((s) => s.id === scope.stateId)?.name
@@ -296,6 +337,8 @@ function SurveysPageInner() {
           rowSelection={rowSelection}
           onRowSelectionChange={setRowSelection}
           scopeReady={scopeReady}
+          scopeUlbId={scope.ulbId || undefined}
+          scopeWardId={scope.wardId || undefined}
         />
       )}
 

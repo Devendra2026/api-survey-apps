@@ -3,6 +3,7 @@
 import { DataTable, DataTableSelectColumn } from "@/components/data-table/data-table"
 import type { SurveyRegistryCounts, SurveyRegistryRecord, SurveyRegistryTab } from "@/lib/api/types"
 import { formatParcelDisplay } from "@/lib/format-parcel"
+import { buildSurveyViewHref } from "@/lib/ward-action-links"
 import type { ColumnDef, OnChangeFn, RowSelectionState } from "@tanstack/react-table"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
@@ -43,7 +44,11 @@ function statusTone(status: string) {
   return "bg-slate-500/10 text-slate-600 dark:text-slate-300"
 }
 
-export function buildRegistryColumns(page: number, limit: number): ColumnDef<SurveyRegistryRecord>[] {
+export function buildRegistryColumns(
+  page: number,
+  limit: number,
+  scope?: { ulbId?: string; wardId?: string }
+): ColumnDef<SurveyRegistryRecord>[] {
   return [
     DataTableSelectColumn<SurveyRegistryRecord>(),
     {
@@ -60,7 +65,7 @@ export function buildRegistryColumns(page: number, limit: number): ColumnDef<Sur
       enableSorting: false,
       cell: ({ row }) => (
         <Button variant="secondary" size="sm" className="h-8 cursor-pointer" asChild>
-          <Link href={`/surveys/${row.original.id}`}>
+          <Link href={buildSurveyViewHref(row.original.id, scope)}>
             <Eye className="size-3.5" />
             View
           </Link>
@@ -128,6 +133,8 @@ export function SurveyRegistryTable({
   rowSelection,
   onRowSelectionChange,
   scopeReady = true,
+  scopeUlbId,
+  scopeWardId,
 }: {
   data: SurveyRegistryRecord[]
   isLoading?: boolean
@@ -149,8 +156,13 @@ export function SurveyRegistryTable({
   rowSelection?: RowSelectionState
   onRowSelectionChange?: OnChangeFn<RowSelectionState>
   scopeReady?: boolean
+  scopeUlbId?: string
+  scopeWardId?: string
 }) {
-  const columns = useMemo(() => buildRegistryColumns(page, limit), [page, limit])
+  const columns = useMemo(
+    () => buildRegistryColumns(page, limit, { ulbId: scopeUlbId, wardId: scopeWardId }),
+    [page, limit, scopeUlbId, scopeWardId]
+  )
 
   return (
     <Card className="border-slate-100 shadow-sm dark:border-slate-800">

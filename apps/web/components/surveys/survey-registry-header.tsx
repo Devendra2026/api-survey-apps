@@ -14,8 +14,9 @@ import {
 } from "@workspace/ui/components/dialog"
 import { Label } from "@workspace/ui/components/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
+import { sortWardsByNumberAsc } from "@workspace/validation"
 import { MapPinned } from "lucide-react"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { toast } from "sonner"
 
 export interface RegistryScopeState {
@@ -54,6 +55,10 @@ export function SurveyRegistryHeader({
   const { data: districts } = useDistricts(open ? draft.stateId || undefined : scope.stateId || undefined)
   const { data: ulbs } = useUlbs(open ? draft.districtId || undefined : scope.districtId || undefined)
   const { data: wards } = useWards(open ? draft.ulbId || undefined : scope.ulbId || undefined)
+  const sortedWards = useMemo(
+    () => sortWardsByNumberAsc((wards?.items ?? []).map((w) => ({ ...w, wardNumber: String(w.wardNumber) }))),
+    [wards?.items]
+  )
 
   const hasActiveScope = Boolean(scope.districtId && scope.ulbId && scope.wardId)
   const draftComplete = Boolean(draft.stateId && draft.districtId && draft.ulbId && draft.wardId)
@@ -198,7 +203,7 @@ export function SurveyRegistryHeader({
                   <SelectValue placeholder="Select ward" />
                 </SelectTrigger>
                 <SelectContent>
-                  {(wards?.items ?? []).map((w) => (
+                  {sortedWards.map((w) => (
                     <SelectItem key={w.id} value={w.id}>
                       {formatWardOptionLabel(w)}
                     </SelectItem>

@@ -49,10 +49,13 @@ describe("SurveyRegistryRepository list search", () => {
         ward: { findUnique: jest.fn() },
       },
     }
-    repo = new SurveyRegistryRepository(prisma as never)
+    const surveysService = {
+      ensureFormulaPropertyId: jest.fn(<T>(survey: T) => Promise.resolve(survey)),
+    }
+    repo = new SurveyRegistryRepository(prisma as never, surveysService as never)
   })
 
-  it("all / omitted searchField uses propertyId, owner, and parcel only (no surveyor)", async () => {
+  it("all / omitted searchField uses propertyId, localId, owner, and parcel only (no surveyor)", async () => {
     findMany.mockResolvedValue([] as never)
     count.mockResolvedValue(0 as never)
 
@@ -62,6 +65,7 @@ describe("SurveyRegistryRepository list search", () => {
     expect(or).toEqual(
       expect.arrayContaining([
         { propertyId: { contains: "00001", mode: "insensitive" } },
+        { localId: { contains: "00001", mode: "insensitive" } },
         { respondentName: { contains: "00001", mode: "insensitive" } },
         { coOwners: { some: { name: { contains: "00001", mode: "insensitive" } } } },
         { parcelNumber: { contains: "00001", mode: "insensitive" } },
@@ -109,7 +113,7 @@ describe("SurveyRegistryRepository list search", () => {
     expect(or.some((c) => "respondentName" in c)).toBe(false)
   })
 
-  it("searchField=propertyId matches propertyId only", async () => {
+  it("searchField=propertyId matches propertyId and localId", async () => {
     findMany.mockResolvedValue([] as never)
     count.mockResolvedValue(0 as never)
 
@@ -120,7 +124,10 @@ describe("SurveyRegistryRepository list search", () => {
       limit: 50,
     })
 
-    expect(getSearchOr(findMany)).toEqual([{ propertyId: { contains: "801262", mode: "insensitive" } }])
+    expect(getSearchOr(findMany)).toEqual([
+      { propertyId: { contains: "801262", mode: "insensitive" } },
+      { localId: { contains: "801262", mode: "insensitive" } },
+    ])
   })
 
   it("empty search does not add OR text filter", async () => {

@@ -6,6 +6,7 @@ import { parcelNumberVariants } from "../common/utils/parcel-search.util.js"
 import { buildTenantWhere, resolveTenantScope } from "../common/utils/tenant-scope.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import { createSurveyAuditRow } from "../surveys/survey-audit-write.js"
+import { SurveysService } from "../surveys/surveys.service.js"
 import type { SurveyRegistryQueryDto } from "./dto/survey-registry.dto.js"
 
 const EDITABLE: SurveyStatus[] = ["DRAFT", "IN_PROGRESS", "REOPENED"]
@@ -48,12 +49,15 @@ function progressFor(surveyStatus: string, completionPct: number | null | undefi
 
 @Injectable()
 export class SurveyRegistryRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly surveysService: SurveysService
+  ) {}
 
-  /** Field-scoped registry search: owner / parcel / propertyId / all (three-field OR). */
+  /** Field-scoped registry search: owner / parcel / propertyId (+ localId) / all. */
   private registrySearchOr(search: string, searchField?: string): Prisma.SurveyWhereInput[] {
     const contains = { contains: search, mode: "insensitive" as const }
-    const propertyIdClause: Prisma.SurveyWhereInput = { propertyId: contains }
+    const propertyIdClauses: Prisma.SurveyWhereInput[] = [{ propertyId: contains }, { localId: contains }]
     const ownerClauses: Prisma.SurveyWhereInput[] = [
       { respondentName: contains },
       { coOwners: { some: { name: contains } } },
@@ -66,14 +70,14 @@ export class SurveyRegistryRepository {
 
     switch (searchField) {
       case "propertyId":
-        return [propertyIdClause]
+        return propertyIdClauses
       case "owner":
         return ownerClauses
       case "parcel":
         return parcelClauses
       case "all":
       default:
-        return [propertyIdClause, ...ownerClauses, ...parcelClauses]
+        return [...propertyIdClauses, ...ownerClauses, ...parcelClauses]
     }
   }
 
@@ -166,7 +170,7 @@ export class SurveyRegistryRepository {
           assignedTo: { select: { id: true, fullName: true } },
           createdBy: { select: { id: true, fullName: true } },
           ward: { select: { id: true, wardName: true, wardNumber: true } },
-          ulb: { select: { id: true, name: true } },
+          ulb: { select: { id: true, name: true, code: true } },
           district: { select: { id: true, name: true } },
         },
       }),
@@ -176,21 +180,36 @@ export class SurveyRegistryRepository {
       this.resolveScopeLabel(query),
     ])
 
-    const items = rows.map((row) => ({
-      id: row.id,
-      status: displayStatus(row.surveyStatus, row.qcStatus),
-      surveyStatus: row.surveyStatus,
-      qcStatus: row.qcStatus,
-      progress: progressFor(row.surveyStatus, row.completionPct),
-      surveyorName: row.assignedTo?.fullName ?? row.createdBy.fullName,
-      surveyorId: row.assignedToId ?? row.createdById,
-      propertyId: row.propertyId,
-      wardNumber: row.ward?.wardNumber ?? row.wardNumber ?? "—",
-      parcelNumber: row.parcelNumber ?? "—",
-      ownerName: row.respondentName ?? "—",
-      surveyDate: formatSurveyDate(row.submittedAt ?? row.createdAt),
-      createdAt: row.createdAt.toISOString(),
-    }))
+    const items = await Promise.all(
+      rows.map(async (row) => {
+        const upgraded = await this.surveysService.ensureFormulaPropertyId({
+          id: row.id,
+          propertyId: row.propertyId,
+          ulbCode: row.ulbCode,
+          wardNumber: row.wardNumber,
+          parcelNumber: row.parcelNumber,
+          unitSubNo: row.unitSubNo,
+          propertyUse: row.propertyUse,
+          ulb: row.ulb,
+          ward: row.ward,
+        })
+        return {
+          id: row.id,
+          status: displayStatus(row.surveyStatus, row.qcStatus),
+          surveyStatus: row.surveyStatus,
+          qcStatus: row.qcStatus,
+          progress: progressFor(row.surveyStatus, row.completionPct),
+          surveyorName: row.assignedTo?.fullName ?? row.createdBy.fullName,
+          surveyorId: row.assignedToId ?? row.createdById,
+          propertyId: upgraded.propertyId,
+          wardNumber: row.ward?.wardNumber ?? row.wardNumber ?? "—",
+          parcelNumber: row.parcelNumber ?? "—",
+          ownerName: row.respondentName ?? "—",
+          surveyDate: formatSurveyDate(row.submittedAt ?? row.createdAt),
+          createdAt: row.createdAt.toISOString(),
+        }
+      })
+    )
 
     return {
       ...toPaginatedResult(items, total, page, limit),

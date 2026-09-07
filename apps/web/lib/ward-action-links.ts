@@ -13,17 +13,39 @@ export type ScopeFromSearchParams = {
   status?: string
 }
 
+/** Build `ulbId`/`wardId` search params for Survey Registry scope persistence. */
+export function buildRegistryScopeSearchParams(ids: Partial<WardActionIds>): URLSearchParams {
+  const params = new URLSearchParams()
+  const ulbId = ids.ulbId?.trim()
+  const wardId = ids.wardId?.trim()
+  if (ulbId) params.set("ulbId", ulbId)
+  if (wardId) params.set("wardId", wardId)
+  return params
+}
+
+/** Survey Registry list URL with optional geographic scope query. */
+export function buildSurveyRegistryHref(ids?: Partial<WardActionIds>): string {
+  const params = buildRegistryScopeSearchParams(ids ?? {})
+  const qs = params.toString()
+  return qs ? `/surveys?${qs}` : "/surveys"
+}
+
+/** Survey View URL preserving Registry scope for Back navigation. */
+export function buildSurveyViewHref(surveyId: string, ids?: Partial<WardActionIds>): string {
+  const params = buildRegistryScopeSearchParams(ids ?? {})
+  const qs = params.toString()
+  return qs ? `/surveys/${surveyId}?${qs}` : `/surveys/${surveyId}`
+}
+
 /** Build deep-link hrefs for ward card actions (IDs only). */
 export function buildWardActionHref(action: WardAction, ids: WardActionIds): string {
-  const params = new URLSearchParams()
-  params.set("wardId", ids.wardId)
-  params.set("ulbId", ids.ulbId)
+  const params = buildRegistryScopeSearchParams(ids)
 
   switch (action) {
     case "startQc":
       return `/qc/queue/start?${params.toString()}`
     case "registry":
-      return `/surveys?${params.toString()}`
+      return buildSurveyRegistryHref(ids)
     case "demand":
       return `/reports/demand-notices?${params.toString()}`
     case "report":

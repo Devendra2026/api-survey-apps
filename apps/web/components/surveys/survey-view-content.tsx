@@ -15,6 +15,7 @@ import type {
   SurveyOwnerRow,
   SurveyPhotoItem,
 } from "@/lib/api/types"
+import { buildSurveyRegistryHref, readScopeFromSearchParams } from "@/lib/ward-action-links"
 import type { ColumnDef } from "@tanstack/react-table"
 import { flexRender, getCoreRowModel, getSortedRowModel, useReactTable, type SortingState } from "@tanstack/react-table"
 import { Badge } from "@workspace/ui/components/badge"
@@ -23,6 +24,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { cn } from "@workspace/ui/lib/utils"
 import { ArrowLeft, ImageIcon } from "lucide-react"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { useMemo, useState } from "react"
 
 function GlassSection({
@@ -154,6 +156,12 @@ export function SurveyViewContent({
   auditStatus?: "loading" | "error" | "success"
   auditErrorMessage?: string | null
 }) {
+  const searchParams = useSearchParams()
+  const backHref = useMemo(() => {
+    const fromUrl = readScopeFromSearchParams(searchParams)
+    return buildSurveyRegistryHref({ ulbId: fromUrl.ulbId, wardId: fromUrl.wardId })
+  }, [searchParams])
+
   const ownerColumns = useMemo<ColumnDef<SurveyOwnerRow>[]>(
     () => [
       { accessorKey: "propertyId", header: "Property ID" },
@@ -240,7 +248,7 @@ export function SurveyViewContent({
               className="w-fit cursor-pointer rounded-full border border-white/40 bg-white/40 px-3 backdrop-blur-md hover:bg-white/60 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10"
               asChild
             >
-              <Link href="/surveys">
+              <Link href={backHref}>
                 <ArrowLeft className="size-4" />
                 Back
               </Link>

@@ -8,7 +8,7 @@ import {
 } from "@nestjs/common"
 import { ConfigService } from "@nestjs/config"
 import { ExportFormat, JobStatus, OwnershipType, PhotoType, SurveyStatus } from "@workspace/database"
-import { formatPropertyId } from "@workspace/validation"
+import { formatPropertyId, isNewPropertyIdFormat } from "@workspace/validation"
 import { PERMISSIONS } from "../common/constants/permissions.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import {
@@ -83,7 +83,11 @@ export class SurveysService {
     return refreshSurveyPhotoUrls(this.storageService, detail, survey.photos, this.logger)
   }
 
-  /** Replace legacy TEMP-* Property IDs with formula when ULB/Ward/Parcel/Unit/Use are present. */
+  /**
+   * Replace non-formula Property IDs (TEMP-*, LS_*, etc.) with the canonical formula when
+   * ULB/Ward/Parcel/Unit/Use are present. Skips already-valid formula IDs. On unique conflict,
+   * keeps the stored ID (does not change PK / localId / FKs).
+   */
   async ensureFormulaPropertyId<
     T extends {
       id: string
@@ -93,20 +97,30 @@ export class SurveysService {
       parcelNumber: string | null
       unitSubNo: string | null
       propertyUse: string | null
+      ulb?: { code?: string | null } | null
+      ward?: { wardNumber?: string | null } | null
     },
   >(survey: T): Promise<T> {
-    if (!survey.propertyId.startsWith("TEMP-")) return survey
-    if (!survey.ulbCode || !survey.wardNumber || !survey.parcelNumber || !survey.unitSubNo || !survey.propertyUse) {
+    if (isNewPropertyIdFormat(survey.propertyId)) return survey
+
+    const ulbCode = (survey.ulbCode?.trim() || survey.ulb?.code?.trim() || "").trim()
+    const wardNo = (survey.ward?.wardNumber?.trim() || survey.wardNumber?.trim() || "").trim()
+    const parcelNo = (survey.parcelNumber ?? "").trim()
+    const unitNo = (survey.unitSubNo ?? "").trim()
+    const propertyUse = (survey.propertyUse ?? "").trim()
+    if (!ulbCode || !wardNo || !parcelNo || !unitNo || !propertyUse) {
       return survey
     }
+
     const derived = formatPropertyId({
-      ulbCode: survey.ulbCode,
-      wardNo: survey.wardNumber,
-      parcelNo: survey.parcelNumber,
-      unitNo: survey.unitSubNo,
-      propertyUse: survey.propertyUse,
+      ulbCode,
+      wardNo,
+      parcelNo,
+      unitNo,
+      propertyUse,
     })
     if (!derived || derived === survey.propertyId) return survey
+
     try {
       await this.prisma.db.survey.update({
         where: { id: survey.id },
@@ -114,7 +128,11 @@ export class SurveysService {
       })
       return { ...survey, propertyId: derived }
     } catch (err) {
-      this.logger.warn(`Could not upgrade TEMP propertyId for survey=${survey.id}: ${String(err)}`)
+      if (isPrismaUniqueConflict(err)) {
+        this.logger.warn(`Could not upgrade propertyId for survey=${survey.id} to ${derived}: unique conflict`)
+      } else {
+        this.logger.warn(`Could not upgrade propertyId for survey=${survey.id}: ${String(err)}`)
+      }
       return survey
     }
   }

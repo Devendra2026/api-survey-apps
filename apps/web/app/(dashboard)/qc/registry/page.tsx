@@ -8,18 +8,21 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value"
 import { useHydrateGeoScopeFromSearchParams } from "@/hooks/use-hydrate-geo-scope"
 import type { QcRegistryCounts, QcRegistryTab } from "@/lib/api/types"
 import { formatWardOptionLabel } from "@/lib/format-ward-label"
-import { isQcRegistryTab } from "@/lib/ward-action-links"
+import { buildQcRegistryHref, isQcRegistryTab } from "@/lib/ward-action-links"
 import { useAuthStore } from "@/stores/app-store"
 import { useQcWorkingContext } from "@/stores/qc-working-context"
 import { Skeleton } from "@workspace/ui/components/skeleton"
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 function QcReviewRegistryPageInner() {
+  const router = useRouter()
   const hasPermission = useAuthStore((s) => s.hasPermission)
   const canApprove = hasPermission("survey:approve")
   const activeWardId = useQcWorkingContext((s) => s.activeWardId)
   const activeUlbId = useQcWorkingContext((s) => s.activeUlbId)
   const setActiveWard = useQcWorkingContext((s) => s.setActiveWard)
+  const clearActiveWard = useQcWorkingContext((s) => s.clearActiveWard)
 
   const [scope, setScope] = useState<QcRegistryScopeState>(emptyQcScope)
   const [page, setPage] = useState(1)
@@ -29,6 +32,23 @@ function QcReviewRegistryPageInner() {
   const [tab, setTab] = useState<QcRegistryTab>("pendingApproved")
   const [lastCounts, setLastCounts] = useState<QcRegistryCounts | undefined>()
   const debouncedSearch = useDebouncedValue(search, 300)
+  const clearedInvalidWardRef = useRef<string | null>(null)
+
+  const replaceQcScopeUrl = useCallback(
+    (next: Pick<QcRegistryScopeState, "ulbId" | "wardId">, status?: QcRegistryTab) => {
+      router.replace(
+        buildQcRegistryHref(
+          {
+            ulbId: next.ulbId || undefined,
+            wardId: next.wardId || undefined,
+          },
+          status
+        ),
+        { scroll: false }
+      )
+    },
+    [router]
+  )
 
   useHydrateGeoScopeFromSearchParams(
     useCallback(
@@ -46,6 +66,7 @@ function QcReviewRegistryPageInner() {
           setActiveWard({ wardId: hydrated.wardId, ulbId: hydrated.ulbId })
         }
         setPage(1)
+        clearedInvalidWardRef.current = null
       },
       [setActiveWard]
     )
@@ -60,14 +81,24 @@ function QcReviewRegistryPageInner() {
     })
   }, [activeWardId, activeUlbId])
 
-  const onScopeChange = useCallback((next: QcRegistryScopeState) => {
-    setScope(next)
-    setPage(1)
-  }, [])
+  const onScopeChange = useCallback(
+    (next: QcRegistryScopeState) => {
+      setScope(next)
+      setPage(1)
+      setLastCounts(undefined)
+      clearedInvalidWardRef.current = null
+      replaceQcScopeUrl(next)
+      if (next.ulbId && next.wardId) {
+        setActiveWard({ wardId: next.wardId, ulbId: next.ulbId })
+      } else if (!next.ulbId && !next.wardId) {
+        clearActiveWard()
+      }
+    },
+    [replaceQcScopeUrl, setActiveWard, clearActiveWard]
+  )
 
-  const filters = useMemo(() => {
-    const wardScoped = Boolean(scope.wardId)
-    return {
+  const filters = useMemo(
+    () => ({
       page,
       limit,
       search: debouncedSearch || undefined,
@@ -76,10 +107,11 @@ function QcReviewRegistryPageInner() {
       districtId: scope.districtId || undefined,
       ulbId: scope.ulbId || undefined,
       wardId: scope.wardId || undefined,
-      sortBy: wardScoped ? "parcelNumber" : "createdAt",
-      sortOrder: (wardScoped ? "asc" : "desc") as "asc" | "desc",
-    }
-  }, [page, limit, debouncedSearch, searchField, tab, scope.districtId, scope.ulbId, scope.wardId])
+      sortBy: "parcelNumber" as const,
+      sortOrder: "asc" as const,
+    }),
+    [page, limit, debouncedSearch, searchField, tab, scope.districtId, scope.ulbId, scope.wardId]
+  )
 
   const registryQuery = useQcRegistry(filters, Boolean(canApprove))
 
@@ -91,7 +123,24 @@ function QcReviewRegistryPageInner() {
 
   const { data: districts } = useDistricts(scope.stateId || undefined)
   const { data: ulbs } = useUlbs(scope.districtId || undefined)
-  const { data: wards } = useWards(scope.ulbId || undefined)
+  const { data: wards, isFetched: wardsFetched } = useWards(scope.ulbId || undefined)
+
+  useEffect(() => {
+    if (!scope.ulbId || !scope.wardId || !wardsFetched || !wards?.items) return
+    const wardStillValid = wards.items.some((w) => w.id === scope.wardId)
+    if (wardStillValid) {
+      clearedInvalidWardRef.current = null
+      return
+    }
+    const clearKey = `${scope.ulbId}:${scope.wardId}`
+    if (clearedInvalidWardRef.current === clearKey) return
+    clearedInvalidWardRef.current = clearKey
+    const next = { ...scope, wardId: "" }
+    setScope(next)
+    setPage(1)
+    setLastCounts(undefined)
+    replaceQcScopeUrl(next)
+  }, [scope, wards?.items, wardsFetched, replaceQcScopeUrl])
 
   const scopeLabel = useMemo(() => {
     if (registryQuery.data?.scope?.label) return registryQuery.data.scope.label
@@ -127,6 +176,8 @@ function QcReviewRegistryPageInner() {
           data={rows}
           isLoading={registryQuery.isFetching}
           isError={registryQuery.isError}
+          scopeUlbId={scope.ulbId || undefined}
+          scopeWardId={scope.wardId || undefined}
           search={search}
           onSearchChange={(value) => {
             setSearch(value)
@@ -141,6 +192,7 @@ function QcReviewRegistryPageInner() {
           onTabChange={(next) => {
             setTab(next)
             setPage(1)
+            replaceQcScopeUrl(scope, next)
           }}
           counts={registryQuery.data?.counts ?? lastCounts}
           page={page}

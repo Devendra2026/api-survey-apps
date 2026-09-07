@@ -16,11 +16,9 @@ import {
 } from "@workspace/ui/components/dialog"
 import { Label } from "@workspace/ui/components/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
+import { sortWardsByNumberAsc } from "@workspace/validation"
 import { LayoutGrid, MapPin } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
-
-const DEFAULT_DISTRICT_NAME = "Etah"
-const DEFAULT_ULB_HINT = "etah"
 
 export type QcRegistryScopeState = QcScopeState
 
@@ -45,66 +43,30 @@ export function QcRegistryHeader({
   const { data: ulbs } = useUlbs(open ? draft.districtId || undefined : scope.districtId || undefined)
   const { data: wards } = useWards(open ? draft.ulbId || undefined : scope.ulbId || undefined)
 
-  const defaultsApplied = useRef({ state: false, district: false, ulb: false, allotment: false })
+  const sortedWards = useMemo(
+    () => sortWardsByNumberAsc((wards?.items ?? []).map((w) => ({ ...w, wardNumber: String(w.wardNumber) }))),
+    [wards?.items]
+  )
+
+  const defaultsApplied = useRef({ allotment: false })
 
   // Single-ward / single-ULB QC: seed scope from allotment so TenantGuard never sees parent-only geo.
   useEffect(() => {
     if (defaultsApplied.current.allotment || !allotmentDefaults) return
     if (scope.stateId || scope.districtId || scope.ulbId || scope.wardId) {
       defaultsApplied.current.allotment = true
-      defaultsApplied.current.state = true
-      defaultsApplied.current.district = true
-      defaultsApplied.current.ulb = true
       return
     }
     defaultsApplied.current.allotment = true
-    defaultsApplied.current.state = true
-    defaultsApplied.current.district = true
-    defaultsApplied.current.ulb = true
     onScopeChange(allotmentDefaults)
   }, [allotmentDefaults, scope, onScopeChange])
-
-  useEffect(() => {
-    if (allotmentDefaults || defaultsApplied.current.state || scope.stateId || !(states?.items ?? []).length) return
-    const first = states?.items?.[0]
-    if (first) {
-      defaultsApplied.current.state = true
-      onScopeChange({ ...scope, stateId: first.id })
-    }
-  }, [allotmentDefaults, scope, states?.items, onScopeChange])
-
-  useEffect(() => {
-    if (allotmentDefaults || defaultsApplied.current.district || scope.districtId || !(districts?.items ?? []).length)
-      return
-    const match = (districts?.items ?? []).find((d) =>
-      d.name.toLowerCase().includes(DEFAULT_DISTRICT_NAME.toLowerCase())
-    )
-    if (match) {
-      defaultsApplied.current.district = true
-      onScopeChange({ ...scope, districtId: match.id, ulbId: "", wardId: "" })
-    }
-  }, [allotmentDefaults, districts?.items, scope, onScopeChange])
-
-  useEffect(() => {
-    if (
-      allotmentDefaults ||
-      defaultsApplied.current.ulb ||
-      !scope.districtId ||
-      scope.ulbId ||
-      !(ulbs?.items ?? []).length
-    )
-      return
-    const match = (ulbs?.items ?? []).find((u) => u.name.toLowerCase().includes(DEFAULT_ULB_HINT)) ?? ulbs?.items?.[0]
-    if (match) {
-      defaultsApplied.current.ulb = true
-      onScopeChange({ ...scope, ulbId: match.id, wardId: "" })
-    }
-  }, [allotmentDefaults, ulbs?.items, scope, onScopeChange])
 
   function openScopeDialog() {
     setDraft(scope)
     setOpen(true)
   }
+
+  const hasActiveScope = Boolean(scope.districtId || scope.ulbId || scope.wardId)
 
   return (
     <div className="space-y-4">
@@ -127,11 +89,9 @@ export function QcRegistryHeader({
             </p>
             <p className="mt-1 flex items-center gap-2 truncate text-sm font-semibold text-foreground">
               <MapPin className="size-4 shrink-0 text-teal-600 dark:text-teal-400" />
-              <span className="truncate">{scopeLabel || "Etah - Municipal Council Etah"}</span>
+              <span className="truncate">{scopeLabel || (hasActiveScope ? "—" : "No ward selected")}</span>
             </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Select district, ULB, and ward in Smart Filters to begin ward-wise QC.
-            </p>
+            <p className="mt-1 text-xs text-muted-foreground">Select district, ULB, and ward to begin ward-wise QC.</p>
           </div>
           <Button
             type="button"
@@ -184,7 +144,7 @@ export function QcRegistryHeader({
                 disabled={!draft.stateId}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder={DEFAULT_DISTRICT_NAME} />
+                  <SelectValue placeholder="Select district" />
                 </SelectTrigger>
                 <SelectContent>
                   {(districts?.items ?? []).map((d) => (
@@ -203,7 +163,7 @@ export function QcRegistryHeader({
                 disabled={!draft.districtId}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Municipal Council Etah" />
+                  <SelectValue placeholder="Select ULB" />
                 </SelectTrigger>
                 <SelectContent>
                   {(ulbs?.items ?? []).map((u) => (
@@ -226,7 +186,7 @@ export function QcRegistryHeader({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All wards</SelectItem>
-                  {(wards?.items ?? []).map((w) => (
+                  {sortedWards.map((w) => (
                     <SelectItem key={w.id} value={w.id}>
                       {formatWardOptionLabel(w)}
                     </SelectItem>

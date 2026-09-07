@@ -50,7 +50,10 @@ describe("QcRepository listRegistry search", () => {
       },
     }
     const wardCatalog = { listScopedWards: jest.fn<() => Promise<unknown[]>>(() => Promise.resolve([])) }
-    repo = new QcRepository(prisma as never, wardCatalog as never)
+    const surveysService = {
+      ensureFormulaPropertyId: jest.fn(<T>(survey: T) => Promise.resolve(survey)),
+    }
+    repo = new QcRepository(prisma as never, wardCatalog as never, surveysService as never)
   })
 
   it("all / omitted searchField uses propertyId, owner, and parcel only (no ward/surveyor)", async () => {
@@ -144,7 +147,7 @@ describe("QcRepository listRegistry search", () => {
         assignedTo: { id: "u2", fullName: "Surveyor" },
         createdBy: { id: "u1", fullName: "QC" },
         ward: { id: "w1", wardName: "Ward 08", wardNumber: "08" },
-        ulb: { id: "ulb1", name: "Etah" },
+        ulb: { id: "ulb1", name: "Etah", code: "801262" },
         district: { id: "d1", name: "Etah" },
         coOwners: [{ name: "Ramjeet Shaky" }],
       },
@@ -158,9 +161,58 @@ describe("QcRepository listRegistry search", () => {
       expect.objectContaining({
         include: expect.objectContaining({
           coOwners: { select: { name: true }, orderBy: { ownerIndex: "asc" }, take: 1 },
+          ulb: { select: { id: true, name: true, code: true } },
         }),
       })
     )
+  })
+
+  it("displays canonical Property ID for malformed stored values via formula fields", async () => {
+    const ensureFormulaPropertyId = jest.fn(<T>(survey: T) => Promise.resolve(survey))
+    const surveysService = { ensureFormulaPropertyId }
+    repo = new QcRepository(
+      {
+        db: {
+          survey: { findMany, count },
+          district: { findUnique: jest.fn() },
+          ulb: { findUnique: jest.fn() },
+          ward: { findUnique: jest.fn() },
+        },
+      } as never,
+      { listScopedWards: jest.fn<() => Promise<unknown[]>>(() => Promise.resolve([])) } as never,
+      surveysService as never
+    )
+
+    findMany.mockResolvedValue([
+      {
+        id: "s1",
+        propertyId: "801262-017-00015-001-R__R18DY5XT",
+        ulbCode: "801262",
+        unitSubNo: "1",
+        surveyStatus: "SUBMITTED",
+        qcStatus: "PENDING",
+        parcelNumber: "15",
+        wardNumber: "17",
+        propertyUse: "RESIDENTIAL",
+        respondentName: "Owner",
+        mobileNumber: null,
+        submittedAt: null,
+        approvedAt: null,
+        createdAt: new Date("2026-01-01"),
+        assignedTo: null,
+        createdBy: { id: "u1", fullName: "QC" },
+        ward: { id: "w1", wardName: "Ward 17", wardNumber: "17" },
+        ulb: { id: "ulb1", name: "ULB", code: "801262" },
+        district: { id: "d1", name: "District" },
+        coOwners: [],
+      },
+    ] as never)
+    count.mockResolvedValue(1 as never)
+
+    const result = await repo.listRegistry(user, { page: 1, limit: 50, status: "all" })
+
+    expect(ensureFormulaPropertyId).toHaveBeenCalled()
+    expect(result.items[0]?.propertyId).toBe("801262-017-00015-001-R")
   })
 
   it("falls back to respondentName when no co-owners", async () => {

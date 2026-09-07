@@ -40,14 +40,25 @@ describe("QcRepository queue first/neighbors", () => {
 
   beforeEach(() => {
     findFirst = jest.fn()
-    findMany = jest.fn()
+    findMany = jest.fn().mockResolvedValue([] as never)
     const prisma = {
       db: {
         survey: { findFirst, findMany },
+        ward: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: wardId,
+            ulbId: "ulb-1",
+            wardNumber: "1",
+          } as never),
+          findMany: jest.fn().mockResolvedValue([] as never),
+        },
       },
     }
     const wardCatalog = { listScopedWards: jest.fn<() => Promise<unknown[]>>(() => Promise.resolve([])) }
-    repo = new QcRepository(prisma as never, wardCatalog as never)
+    const surveysService = {
+      ensureFormulaPropertyId: jest.fn(<T>(survey: T) => Promise.resolve(survey)),
+    }
+    repo = new QcRepository(prisma as never, wardCatalog as never, surveysService as never)
   })
 
   it("returns first pending parcel ordered by parcelNumber ASC", async () => {
@@ -67,7 +78,7 @@ describe("QcRepository queue first/neighbors", () => {
 
   it("returns neighbors for survey in pending queue", async () => {
     findFirst.mockResolvedValue({ id: "s2", parcelNumber: "00002", wardId } as never)
-    findMany.mockResolvedValue(queue as never)
+    findMany.mockResolvedValueOnce([] as never).mockResolvedValueOnce(queue as never)
 
     await expect(repo.findQueueNeighbors(user, wardId, "s2")).resolves.toEqual({
       prevId: "s1",
@@ -78,7 +89,7 @@ describe("QcRepository queue first/neighbors", () => {
 
   it("returns next after approve when current is no longer pending", async () => {
     findFirst.mockResolvedValue({ id: "s2", parcelNumber: "00002", wardId } as never)
-    findMany.mockResolvedValue([queue[0], queue[2]] as never)
+    findMany.mockResolvedValueOnce([] as never).mockResolvedValueOnce([queue[0], queue[2]] as never)
 
     await expect(repo.findQueueNeighbors(user, wardId, "s2")).resolves.toEqual({
       prevId: "s1",

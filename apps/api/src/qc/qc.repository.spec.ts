@@ -132,7 +132,10 @@ describe("QcRepository.qcCorrectSurvey", () => {
       .mockResolvedValueOnce(null as never)
 
     const wardCatalog = { listScopedWards: jest.fn<() => Promise<unknown[]>>(() => Promise.resolve([])) }
-    return { repo: new QcRepository(prisma as never, wardCatalog as never), tx, prisma }
+    const surveysService = {
+      ensureFormulaPropertyId: jest.fn(<T>(survey: T) => Promise.resolve(survey)),
+    }
+    return { repo: new QcRepository(prisma as never, wardCatalog as never, surveysService as never), tx, prisma }
   }
 
   it("rejects JOINT ownership with empty co-owners", async () => {
@@ -483,7 +486,13 @@ describe("QcRepository.getWards", () => {
         },
       },
     }
-    const repo = new QcRepository(prisma as never, { listScopedWards } as never)
+    const repo = new QcRepository(
+      prisma as never,
+      { listScopedWards } as never,
+      {
+        ensureFormulaPropertyId: jest.fn(<T>(survey: T) => Promise.resolve(survey)),
+      } as never
+    )
     return { repo, listScopedWards, groupBy }
   }
 

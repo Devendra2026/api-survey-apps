@@ -37,6 +37,22 @@ export function buildSurveyViewHref(surveyId: string, ids?: Partial<WardActionId
   return qs ? `/surveys/${surveyId}?${qs}` : `/surveys/${surveyId}`
 }
 
+/** QC Review Registry list URL with optional geographic scope (+ status) query. */
+export function buildQcRegistryHref(ids?: Partial<WardActionIds>, status?: string): string {
+  const params = buildRegistryScopeSearchParams(ids ?? {})
+  const statusValue = status?.trim()
+  if (statusValue) params.set("status", statusValue)
+  const qs = params.toString()
+  return qs ? `/qc/registry?${qs}` : "/qc/registry"
+}
+
+/** QC Review URL preserving Registry scope for Back navigation. */
+export function buildQcReviewHref(surveyId: string, ids?: Partial<WardActionIds>): string {
+  const params = buildRegistryScopeSearchParams(ids ?? {})
+  const qs = params.toString()
+  return qs ? `/qc/review/${surveyId}?${qs}` : `/qc/review/${surveyId}`
+}
+
 /** Build deep-link hrefs for ward card actions (IDs only). */
 export function buildWardActionHref(action: WardAction, ids: WardActionIds): string {
   const params = buildRegistryScopeSearchParams(ids)

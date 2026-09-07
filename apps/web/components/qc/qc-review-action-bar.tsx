@@ -10,6 +10,7 @@ import { useWards } from "@/hooks/use-api"
 import type { QcSurveyDetail } from "@/lib/api/types"
 import { formatParcelDisplay } from "@/lib/format-parcel"
 import { formatWardOptionLabel } from "@/lib/format-ward-label"
+import { buildQcRegistryHref, readScopeFromSearchParams } from "@/lib/ward-action-links"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
@@ -18,6 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@workspace/ui/lib/utils"
 import { ArrowLeft, Check, ChevronLeft, ChevronRight, Pencil, RotateCcw, Save, Trash2, X, XCircle } from "lucide-react"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { useMemo, useState } from "react"
 
 export function QcReviewActionBar({
@@ -73,9 +75,20 @@ export function QcReviewActionBar({
   const canEdit = isPendingQc && !editMode
   const locked = isApproved && !editMode
   const [parcelJump, setParcelJump] = useState("")
+  const searchParams = useSearchParams()
+  const urlScope = useMemo(() => readScopeFromSearchParams(searchParams), [searchParams])
 
   const ulbId = activeUlbId || survey.editable.ulbId
   const { data: wards, isLoading: wardsLoading } = useWards(ulbId || undefined)
+
+  const backHref = useMemo(
+    () =>
+      buildQcRegistryHref({
+        ulbId: urlScope.ulbId || activeUlbId || survey.editable.ulbId || undefined,
+        wardId: urlScope.wardId || activeWardId || survey.editable.wardId || undefined,
+      }),
+    [urlScope.ulbId, urlScope.wardId, activeUlbId, activeWardId, survey.editable.ulbId, survey.editable.wardId]
+  )
 
   const activeWardLabel = useMemo(() => {
     const wardId = activeWardId || survey.editable.wardId
@@ -105,7 +118,7 @@ export function QcReviewActionBar({
             className="w-fit cursor-pointer rounded-full border border-white/40 bg-white/40 px-3 backdrop-blur-md hover:bg-white/60 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10"
             asChild
           >
-            <Link href="/qc/registry">
+            <Link href={backHref}>
               <ArrowLeft className="size-4" />
               Back to QC Review
             </Link>

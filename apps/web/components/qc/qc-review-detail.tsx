@@ -13,6 +13,7 @@ import {
 } from "@/hooks/use-api"
 import { apiGet, getApiErrorMessage } from "@/lib/api/client"
 import type { QcQueueParcel, QcSurveyDetail, QcSurveyEditable } from "@/lib/api/types"
+import { buildQcRegistryHref, buildQcReviewHref, readScopeFromSearchParams } from "@/lib/ward-action-links"
 import { useAuthStore } from "@/stores/app-store"
 import { useQcWorkingContext } from "@/stores/qc-working-context"
 import { useQueryClient } from "@tanstack/react-query"
@@ -27,12 +28,13 @@ import {
 } from "@workspace/ui/components/dialog"
 import { Textarea } from "@workspace/ui/components/textarea"
 import { formatPropertyId, parsePropertyId } from "@workspace/validation"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
 export function QcReviewDetail({ surveyId }: { surveyId: string }) {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const queryClient = useQueryClient()
   const hasPermission = useAuthStore((s) => s.hasPermission)
   const canApprove = hasPermission("survey:approve")
@@ -41,6 +43,16 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
   const activeWardId = useQcWorkingContext((s) => s.activeWardId)
   const activeUlbId = useQcWorkingContext((s) => s.activeUlbId)
   const setActiveWard = useQcWorkingContext((s) => s.setActiveWard)
+
+  const urlScope = useMemo(() => readScopeFromSearchParams(searchParams), [searchParams])
+  const scopeIds = useMemo(
+    () => ({
+      ulbId: urlScope.ulbId || activeUlbId || undefined,
+      wardId: urlScope.wardId || activeWardId || undefined,
+    }),
+    [urlScope.ulbId, urlScope.wardId, activeUlbId, activeWardId]
+  )
+  const registryHref = useMemo(() => buildQcRegistryHref(scopeIds), [scopeIds])
 
   const detailQuery = useQcSurveyDetail(surveyId, Boolean(canApprove))
   const auditQuery = useQcSurveyAuditHistory(surveyId, Boolean(canApprove) && Boolean(surveyId))
@@ -113,8 +125,8 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
   useEffect(() => {
     if (!survey?.id) return
     if (survey.id === surveyId) return
-    router.replace(`/qc/review/${encodeURIComponent(survey.id)}`)
-  }, [router, survey?.id, surveyId])
+    router.replace(buildQcReviewHref(survey.id, scopeIds))
+  }, [router, survey?.id, surveyId, scopeIds])
 
   const previewPropertyId = useMemo(() => {
     if (!editMode || !draft || !survey) return survey?.propertyId ?? ""
@@ -134,7 +146,7 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
 
   const goToNeighbor = (id: string | null | undefined) => {
     if (!id) return
-    router.push(`/qc/review/${encodeURIComponent(id)}`)
+    router.push(buildQcReviewHref(id, scopeIds))
   }
 
   const advanceAfterComplete = async () => {
@@ -144,7 +156,7 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
       return
     }
     toast.message("No more pending parcels in this ward")
-    router.push("/qc/registry")
+    router.push(registryHref)
   }
 
   const confirmWardSwitch = async () => {
@@ -157,10 +169,10 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
       const first = await apiGet<QcQueueParcel | null>(`/qc/queue/first?wardId=${encodeURIComponent(wardSwitchId)}`)
       setWardSwitchId(null)
       if (first?.id) {
-        router.push(`/qc/review/${encodeURIComponent(first.id)}`)
+        router.push(buildQcReviewHref(first.id, { ulbId, wardId: wardSwitchId }))
       } else {
         toast.message(`No pending parcels in ${target ? "the selected ward" : "this ward"}`)
-        router.push("/qc/registry")
+        router.push(buildQcRegistryHref({ ulbId, wardId: wardSwitchId }))
       }
       void queryClient.invalidateQueries({ queryKey: ["qc", "queue"] })
     } catch (error) {
@@ -499,7 +511,7 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
                   await actions.remove.mutateAsync(survey.id)
                   toast.success("Survey deleted")
                   setDeleteOpen(false)
-                  router.push("/qc/registry")
+                  router.push(registryHref)
                 } catch (error) {
                   toast.error(getApiErrorMessage(error))
                 }

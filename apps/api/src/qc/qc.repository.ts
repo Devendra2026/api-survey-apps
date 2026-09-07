@@ -1,6 +1,12 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common"
 import { OwnershipType, type CoOwner, type Prisma } from "@workspace/database"
-import { formatPropertyId, isOpenLandPropertyUse, padParcelNo, sumBuiltUpArea } from "@workspace/validation"
+import {
+  formatPropertyId,
+  isNewPropertyIdFormat,
+  isOpenLandPropertyUse,
+  padParcelNo,
+  sumBuiltUpArea,
+} from "@workspace/validation"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { WardCatalogService } from "../common/services/ward-catalog.service.js"
 import { sqFtToSqMeter } from "../common/utils/decimal.util.js"
@@ -24,6 +30,7 @@ import { buildTenantWhere, resolveTenantScope } from "../common/utils/tenant-sco
 import { resolveWardIdAliases } from "../common/utils/ward-survey-alias.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import { createSurveyAuditRow } from "../surveys/survey-audit-write.js"
+import { SurveysService } from "../surveys/surveys.service.js"
 import type { QcFiltersDto } from "./dto/qc-filters.dto.js"
 import type { QcRegistryQueryDto } from "./dto/qc-registry.dto.js"
 import type { QcCoOwnerInputDto, QcFloorInputDto, QcSurveyCorrectionDto } from "./dto/qc-survey-action.dto.js"
@@ -52,7 +59,8 @@ function displayQcStatus(surveyStatus: string, qcStatus?: string | null) {
 export class QcRepository {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly wardCatalog: WardCatalogService
+    private readonly wardCatalog: WardCatalogService,
+    private readonly surveysService: SurveysService
   ) {}
 
   private resolveFilters(filters: QcFiltersDto) {
@@ -250,7 +258,7 @@ export class QcRepository {
           assignedTo: { select: { id: true, fullName: true } },
           createdBy: { select: { id: true, fullName: true } },
           ward: { select: { id: true, wardName: true, wardNumber: true } },
-          ulb: { select: { id: true, name: true } },
+          ulb: { select: { id: true, name: true, code: true } },
           district: { select: { id: true, name: true } },
           coOwners: { select: { name: true }, orderBy: { ownerIndex: "asc" }, take: 1 },
         },
@@ -261,21 +269,57 @@ export class QcRepository {
       this.resolveRegistryScopeLabel(query),
     ])
 
-    const items = rows.map((row) => ({
-      id: row.id,
-      propertyId: row.propertyId,
-      status: displayQcStatus(row.surveyStatus, row.qcStatus),
-      surveyStatus: row.surveyStatus,
-      qcStatus: row.qcStatus,
-      surveyorName: row.assignedTo?.fullName ?? row.createdBy.fullName,
-      wardNumber: row.ward?.wardNumber ?? row.wardNumber ?? "—",
-      parcelNumber: row.parcelNumber ?? "—",
-      propertyUse: row.propertyUse,
-      ownerName: resolvePrimaryOwnerName(row.coOwners, row.respondentName) ?? "—",
-      mobile: row.mobileNumber?.trim() || "—",
-      date: formatRegistryDate(row.submittedAt ?? row.approvedAt ?? row.createdAt),
-      createdAt: row.createdAt.toISOString(),
-    }))
+    const items = await Promise.all(
+      rows.map(async (row) => {
+        const upgraded = await this.surveysService.ensureFormulaPropertyId({
+          id: row.id,
+          propertyId: row.propertyId,
+          ulbCode: row.ulbCode,
+          wardNumber: row.wardNumber,
+          parcelNumber: row.parcelNumber,
+          unitSubNo: row.unitSubNo,
+          propertyUse: row.propertyUse,
+          ulb: row.ulb,
+          ward: row.ward,
+        })
+
+        let propertyId = upgraded.propertyId
+        if (!isNewPropertyIdFormat(propertyId)) {
+          const ulbCode = (row.ulbCode?.trim() || row.ulb?.code?.trim() || "").trim()
+          const wardNo = (row.ward?.wardNumber?.trim() || row.wardNumber?.trim() || "").trim()
+          const parcelNo = (row.parcelNumber ?? "").trim()
+          const unitNo = (row.unitSubNo ?? "").trim()
+          const propertyUse = (row.propertyUse ?? "").trim()
+          const derived =
+            ulbCode && wardNo && parcelNo && unitNo && propertyUse
+              ? formatPropertyId({
+                  ulbCode,
+                  wardNo,
+                  parcelNo,
+                  unitNo,
+                  propertyUse,
+                })
+              : undefined
+          if (derived) propertyId = derived
+        }
+
+        return {
+          id: row.id,
+          propertyId,
+          status: displayQcStatus(row.surveyStatus, row.qcStatus),
+          surveyStatus: row.surveyStatus,
+          qcStatus: row.qcStatus,
+          surveyorName: row.assignedTo?.fullName ?? row.createdBy.fullName,
+          wardNumber: row.ward?.wardNumber ?? row.wardNumber ?? "—",
+          parcelNumber: row.parcelNumber ?? "—",
+          propertyUse: row.propertyUse,
+          ownerName: resolvePrimaryOwnerName(row.coOwners, row.respondentName) ?? "—",
+          mobile: row.mobileNumber?.trim() || "—",
+          date: formatRegistryDate(row.submittedAt ?? row.approvedAt ?? row.createdAt),
+          createdAt: row.createdAt.toISOString(),
+        }
+      })
+    )
 
     return {
       ...toPaginatedResult(items, total, page, limit),

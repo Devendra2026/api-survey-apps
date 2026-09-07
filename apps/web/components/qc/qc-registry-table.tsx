@@ -4,6 +4,7 @@ import { DataTable } from "@/components/data-table/data-table"
 import { apiGet } from "@/lib/api/client"
 import type { QcRegistryCounts, QcRegistryRecord, QcRegistryTab, QcSurveyDetail } from "@/lib/api/types"
 import { formatParcelDisplay } from "@/lib/format-parcel"
+import { buildQcReviewHref } from "@/lib/ward-action-links"
 import { useQueryClient } from "@tanstack/react-query"
 import type { ColumnDef } from "@tanstack/react-table"
 import { Badge } from "@workspace/ui/components/badge"
@@ -14,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@workspace/ui/lib/utils"
 import { Eye, Loader2, Search, X } from "lucide-react"
 import Link from "next/link"
+import { useMemo } from "react"
 
 export type QcRegistrySearchField = "all" | "owner" | "parcel" | "propertyId"
 
@@ -66,7 +68,15 @@ function propertyUseLabel(value?: string | null) {
   }
 }
 
-function ReviewActionButton({ surveyId }: { surveyId: string }) {
+function ReviewActionButton({
+  surveyId,
+  scopeUlbId,
+  scopeWardId,
+}: {
+  surveyId: string
+  scopeUlbId?: string
+  scopeWardId?: string
+}) {
   const queryClient = useQueryClient()
 
   const prefetch = () => {
@@ -86,7 +96,7 @@ function ReviewActionButton({ surveyId }: { surveyId: string }) {
       onMouseEnter={prefetch}
       onFocus={prefetch}
     >
-      <Link href={`/qc/review/${encodeURIComponent(surveyId)}`}>
+      <Link href={buildQcReviewHref(surveyId, { ulbId: scopeUlbId, wardId: scopeWardId })}>
         <Eye className="size-3.5" />
         Review
       </Link>
@@ -94,7 +104,11 @@ function ReviewActionButton({ surveyId }: { surveyId: string }) {
   )
 }
 
-export function buildQcRegistryColumns(page: number, limit: number): ColumnDef<QcRegistryRecord>[] {
+export function buildQcRegistryColumns(
+  page: number,
+  limit: number,
+  scope?: { ulbId?: string; wardId?: string }
+): ColumnDef<QcRegistryRecord>[] {
   return [
     {
       id: "sno",
@@ -108,7 +122,9 @@ export function buildQcRegistryColumns(page: number, limit: number): ColumnDef<Q
       id: "action",
       header: "Action",
       enableSorting: false,
-      cell: ({ row }) => <ReviewActionButton surveyId={row.original.id} />,
+      cell: ({ row }) => (
+        <ReviewActionButton surveyId={row.original.id} scopeUlbId={scope?.ulbId} scopeWardId={scope?.wardId} />
+      ),
     },
     {
       accessorKey: "status",
@@ -174,6 +190,8 @@ export function QcRegistryTable({
   data,
   isLoading,
   isError,
+  scopeUlbId,
+  scopeWardId,
   search,
   onSearchChange,
   searchField,
@@ -191,6 +209,8 @@ export function QcRegistryTable({
   data: QcRegistryRecord[]
   isLoading?: boolean
   isError?: boolean
+  scopeUlbId?: string
+  scopeWardId?: string
   search: string
   onSearchChange: (value: string) => void
   searchField: QcRegistrySearchField
@@ -205,7 +225,10 @@ export function QcRegistryTable({
   onPageChange: (page: number) => void
   onPageSizeChange: (size: number) => void
 }) {
-  const columns = buildQcRegistryColumns(page, limit)
+  const columns = useMemo(
+    () => buildQcRegistryColumns(page, limit, { ulbId: scopeUlbId, wardId: scopeWardId }),
+    [page, limit, scopeUlbId, scopeWardId]
+  )
 
   return (
     <Card className="border-slate-100/80 bg-card/80 shadow-sm backdrop-blur dark:border-slate-800/80">

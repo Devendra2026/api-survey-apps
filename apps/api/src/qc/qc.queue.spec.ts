@@ -69,11 +69,7 @@ describe("QcRepository queue first/neighbors", () => {
         where: expect.objectContaining({
           wardId,
           surveyStatus: "SUBMITTED",
-          AND: expect.arrayContaining([
-            expect.objectContaining({
-              OR: [{ qcStatus: "PENDING" }, { qcStatus: null }],
-            }),
-          ]),
+          qcStatus: "PENDING",
         }),
         orderBy: [{ parcelNumber: { sort: "asc", nulls: "last" } }, { id: "asc" }],
       })
@@ -122,11 +118,7 @@ describe("QcRepository queue first/neighbors", () => {
             expect.objectContaining({
               wardId,
               surveyStatus: "SUBMITTED",
-              AND: expect.arrayContaining([
-                expect.objectContaining({
-                  OR: [{ qcStatus: "PENDING" }, { qcStatus: null }],
-                }),
-              ]),
+              qcStatus: "PENDING",
             }),
             {
               OR: [{ parcelNumber: { in: expect.arrayContaining(["2", "00002"]) } }, { parcelNumber: "2" }],
@@ -137,17 +129,14 @@ describe("QcRepository queue first/neighbors", () => {
     )
   })
 
-  it("finds pending parcel when qcStatus is null", async () => {
+  it("finds pending parcel with PENDING qcStatus", async () => {
     findFirst.mockResolvedValue(queue[2] as never)
     await expect(repo.findQueueByParcel(user, wardId, "00003")).resolves.toEqual(queue[2])
-    const call = findFirst.mock.calls[0]?.[0] as { where: { AND: unknown[] } }
+    const call = findFirst.mock.calls[0]?.[0] as { where: { AND: Array<Record<string, unknown>> } }
     expect(call.where.AND[0]).toEqual(
       expect.objectContaining({
-        AND: expect.arrayContaining([
-          expect.objectContaining({
-            OR: [{ qcStatus: "PENDING" }, { qcStatus: null }],
-          }),
-        ]),
+        surveyStatus: "SUBMITTED",
+        qcStatus: "PENDING",
       })
     )
   })

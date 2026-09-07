@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common"
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common"
 import { OwnershipType, type CoOwner, type Prisma } from "@workspace/database"
 import {
   formatPropertyId,
@@ -57,6 +57,8 @@ function displayQcStatus(surveyStatus: string, qcStatus?: string | null) {
 
 @Injectable()
 export class QcRepository {
+  private readonly logger = new Logger(QcRepository.name)
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly wardCatalog: WardCatalogService,
@@ -336,12 +338,8 @@ export class QcRepository {
       deletedAt: null,
       wardId: ids.length === 1 ? ids[0] : { in: ids },
       surveyStatus: "SUBMITTED",
-      AND: [
-        {
-          OR: [{ qcStatus: "PENDING" }, { qcStatus: null }],
-        } as Prisma.SurveyWhereInput,
-        ...(tenantWhere ? [tenantWhere] : []),
-      ],
+      qcStatus: "PENDING",
+      ...(tenantWhere ?? {}),
     }
   }
 
@@ -367,6 +365,15 @@ export class QcRepository {
       select: { id: true, parcelNumber: true },
       orderBy: [{ parcelNumber: { sort: "asc", nulls: "last" } }, { id: "asc" }],
     })
+    this.logger.log(
+      JSON.stringify({
+        event: "qc.queue.first",
+        wardId,
+        wardIds,
+        userId: user.id,
+        surveyId: row?.id ?? null,
+      })
+    )
     return row
   }
 

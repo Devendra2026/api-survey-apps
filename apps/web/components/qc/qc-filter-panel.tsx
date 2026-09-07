@@ -12,6 +12,7 @@ import { Label } from "@workspace/ui/components/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@workspace/ui/components/popover"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
 import { cn } from "@workspace/ui/lib/utils"
+import { sortWardsByNumberAsc } from "@workspace/validation"
 import { format, parse } from "date-fns"
 import { CalendarDays, RotateCcw } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -55,7 +56,10 @@ export function QcFilterPanel({
 
   const districtItems = useMemo(() => districts?.items ?? [], [districts?.items])
   const ulbItems = useMemo(() => ulbs?.items ?? [], [ulbs?.items])
-  const wardItems = useMemo(() => wards?.items ?? [], [wards?.items])
+  const wardItems = useMemo(
+    () => sortWardsByNumberAsc((wards?.items ?? []).map((w) => ({ ...w, wardNumber: String(w.wardNumber) }))),
+    [wards?.items]
+  )
   const stateItems = useMemo(() => states?.items ?? [], [states?.items])
 
   const defaultsApplied = useRef({ allotment: false, state: false, district: false, ulb: false })

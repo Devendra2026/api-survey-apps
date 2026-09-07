@@ -6,8 +6,9 @@ import { Badge } from "@workspace/ui/components/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@workspace/ui/components/card"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { cn } from "@workspace/ui/lib/utils"
+import { sortWardsByNumberAsc } from "@workspace/validation"
 import { CheckCircle2, FileEdit, FolderOpen, Home, Send } from "lucide-react"
-import type { ReactNode } from "react"
+import { useMemo, type ReactNode } from "react"
 
 function formatNum(n: number) {
   return new Intl.NumberFormat("en-IN").format(n)
@@ -31,6 +32,11 @@ export function QcWardGrid({
   hasUlbSelected: boolean
   ulbId?: string
 }) {
+  const sortedWards = useMemo(
+    () => sortWardsByNumberAsc(wards.map((w) => ({ ...w, wardNumber: String(w.wardNumber) }))),
+    [wards]
+  )
+
   return (
     <section className="space-y-4">
       <div>
@@ -62,7 +68,7 @@ export function QcWardGrid({
             </Card>
           ))}
         </div>
-      ) : !hasUlbSelected || wards.length === 0 ? (
+      ) : !hasUlbSelected || sortedWards.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-card/80 px-6 py-16 text-center backdrop-blur dark:border-slate-800">
           <span className="relative mb-4 flex size-16 items-center justify-center rounded-2xl bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
             <span className="absolute inset-0 animate-ping rounded-2xl bg-teal-500/10" />
@@ -77,7 +83,7 @@ export function QcWardGrid({
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {wards.map((ward) => (
+          {sortedWards.map((ward) => (
             <Card
               key={ward.wardId}
               className={cn(
@@ -120,7 +126,9 @@ export function QcWardGrid({
                   />
                 </div>
 
-                {ulbId ? <WardCardActions ids={{ wardId: ward.wardId, ulbId }} pendingCount={ward.pending} /> : null}
+                {ulbId ? (
+                  <WardCardActions ids={{ wardId: ward.wardId, ulbId }} pendingCount={ward.pending} mode="startQc" />
+                ) : null}
               </CardContent>
             </Card>
           ))}

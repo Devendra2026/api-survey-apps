@@ -8,9 +8,6 @@ import { useQcMetrics, useQcWards } from "@/hooks/use-api"
 import type { QcCommandCenterFilters } from "@/lib/api/types"
 import { allotmentScopeFromProfile } from "@/lib/qc/allotment-scope"
 import { useAuthStore } from "@/stores/app-store"
-import { Button } from "@workspace/ui/components/button"
-import { ClipboardCheck } from "lucide-react"
-import Link from "next/link"
 import { useCallback, useMemo, useState } from "react"
 
 export default function QcCommandCenterPage() {
@@ -59,15 +56,9 @@ export default function QcCommandCenterPage() {
           </span>
           <h1 className="mt-2 text-2xl font-bold tracking-tight text-foreground md:text-3xl">QC Command Center</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Monitor ward-wise QC pending queues and jump into review, registry, reports, or demand notices.
+            Monitor ward-wise QC pending queues and start QC review from each ward card.
           </p>
         </div>
-        <Button variant="outline" className="cursor-pointer" asChild>
-          <Link href="/qc/registry">
-            <ClipboardCheck className="size-4" />
-            Open QC Review
-          </Link>
-        </Button>
       </header>
 
       <QcFilterPanel

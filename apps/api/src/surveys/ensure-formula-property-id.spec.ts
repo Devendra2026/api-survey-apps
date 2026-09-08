@@ -79,6 +79,37 @@ describe("SurveysService.ensureFormulaPropertyId", () => {
     expect(result.propertyId).toBe("801262-018-00550-001-R")
   })
 
+  it("does not substitute a Zero Ward number into Property ID", async () => {
+    const result = await service.ensureFormulaPropertyId({
+      id: "survey-1",
+      propertyId: "LS_ABC",
+      ulbCode: "801262",
+      wardNumber: "12",
+      parcelNumber: "10",
+      unitSubNo: "1",
+      propertyUse: "RESIDENTIAL",
+      ward: { wardNumber: "12", kind: "ZERO" },
+    })
+    expect(result.propertyId).toBe("LS_ABC")
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it("uses the original ward number when the current ward is Zero Ward", async () => {
+    update.mockResolvedValue({} as never)
+    const result = await service.ensureFormulaPropertyId({
+      id: "survey-1",
+      propertyId: "LS_ABC",
+      ulbCode: "801262",
+      wardNumber: "2",
+      parcelNumber: "10",
+      unitSubNo: "1",
+      propertyUse: "RESIDENTIAL",
+      ward: { wardNumber: "0", kind: "ZERO" },
+      originalWard: { wardNumber: "2" },
+    })
+    expect(result.propertyId).toBe("801262-002-00010-001-R")
+  })
+
   it("keeps stored ID on unique conflict", async () => {
     update.mockRejectedValue(Object.assign(new Error("Unique"), { code: "P2002" }) as never)
     const result = await service.ensureFormulaPropertyId({

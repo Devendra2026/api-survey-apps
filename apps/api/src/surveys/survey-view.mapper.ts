@@ -1,3 +1,4 @@
+import { isZeroWardName, resolvePropertyWardNumber, ZERO_WARD_OPTION_LABEL } from "@workspace/validation"
 import { resolvePrimaryOwnerName } from "../common/utils/primary-owner.util.js"
 import type { OwnerDto, SurveyDetailsDto, SurveyPhotoDto } from "./dto/survey-view.dto.js"
 
@@ -119,7 +120,8 @@ type SurveyForView = {
   qcStatus: string | null
   qcRemarks: string | null
   ulb?: { name: string } | null
-  ward?: { wardNumber: string; wardName: string } | null
+  ward?: { id?: string; wardNumber: string; wardName: string; kind?: string | null } | null
+  originalWard?: { id: string; wardNumber: string; wardName: string; kind?: string | null } | null
   district?: { name: string } | null
   assignedTo?: { fullName: string } | null
   createdBy?: { fullName: string } | null
@@ -186,6 +188,14 @@ export function mapSurveyToDetailsDto(survey: SurveyForView): SurveyDetailsDto {
     objectKey: photo.objectKey ?? null,
   }))
 
+  const currentKind = survey.ward?.kind === "ZERO" || isZeroWardName(survey.ward?.wardName) ? "ZERO" : "GEOGRAPHIC"
+  const propertyWardNo = resolvePropertyWardNumber({
+    currentWard: survey.ward ? { ...survey.ward, kind: currentKind } : null,
+    originalWard: survey.originalWard,
+    storedWardNumber: survey.wardNumber,
+  })
+  const originalSource = survey.originalWard ?? (currentKind === "ZERO" ? null : survey.ward)
+
   const front = photos.find((p) => p.photoType === "FRONT")
   const side = photos.find((p) => p.photoType === "SIDE")
   const fatherHusbandName = owners[0]?.fatherHusband ?? "—"
@@ -198,7 +208,24 @@ export function mapSurveyToDetailsDto(survey: SurveyForView): SurveyDetailsDto {
     id: survey.id,
     propertyId: survey.propertyId,
     ulbName: survey.ulb?.name ?? "—",
-    wardNo: survey.ward?.wardNumber ?? survey.wardNumber ?? "—",
+    wardNo: propertyWardNo || "—",
+    qcLocation: survey.ward?.id
+      ? {
+          id: survey.ward.id,
+          wardNumber: survey.ward.wardNumber,
+          wardName: currentKind === "ZERO" ? "Zero Ward" : survey.ward.wardName,
+          kind: currentKind,
+          label: currentKind === "ZERO" ? ZERO_WARD_OPTION_LABEL : survey.ward.wardName,
+        }
+      : undefined,
+    originalWard: originalSource?.id
+      ? {
+          id: originalSource.id,
+          wardNumber: originalSource.wardNumber,
+          wardName: originalSource.wardName,
+          kind: originalSource.kind ?? "GEOGRAPHIC",
+        }
+      : undefined,
     parcelNo: dash(survey.parcelNumber),
     ownerName: dash(resolvePrimaryOwnerName(survey.coOwners, survey.respondentName)),
     status: displayStatus(survey.surveyStatus, survey.qcStatus),

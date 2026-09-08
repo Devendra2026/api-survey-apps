@@ -86,6 +86,7 @@ export function formatAuditActionLabel(action: string): string {
     SURVEY_ASSIGNED: "Assigned",
     "survey.draft_reassigned": "Reassigned",
     "survey.qc_corrected": "QC Corrected",
+    "qc.quarantined": "Moved to Zero Ward",
     "survey.qc_identity_swapped": "Identity Swapped",
   }
   if (known[normalized]) return known[normalized]

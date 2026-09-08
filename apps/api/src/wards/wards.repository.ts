@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from "@nestjs/common"
 import type { Prisma } from "@workspace/database"
-import { normalizeWardNumber } from "@workspace/validation"
+import { isZeroWardName, normalizeWardNumber } from "@workspace/validation"
+import { ensureZeroWard } from "../common/services/zero-ward.service.js"
 import type { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { buildOrderBy, getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
@@ -72,6 +73,10 @@ export class WardsRepository {
   }
 
   async findAll(query: PaginationQueryDto, user: AuthenticatedUser, ulbId?: string) {
+    if (ulbId) {
+      const ulb = await this.prisma.db.ulb.findUnique({ where: { id: ulbId }, select: { id: true } })
+      if (ulb) await ensureZeroWard(this.prisma.db, ulbId)
+    }
     const { skip, take, page, limit } = getSkipTake(query)
     const where: Prisma.WardWhereInput = {
       AND: [
@@ -116,7 +121,7 @@ export class WardsRepository {
     await this.assertUniqueActiveWardName(data.ulbId, wardName)
     await this.assertUniqueNormalizedWardNumber(data.ulbId, wardNumber)
     try {
-      return await this.prisma.db.ward.create({
+      const created = await this.prisma.db.ward.create({
         data: {
           ulbId: data.ulbId,
           wardNumber,
@@ -124,6 +129,10 @@ export class WardsRepository {
           ...(wardCode ? { wardCode } : {}),
         },
       })
+      if (!isZeroWardName(wardName)) {
+        await ensureZeroWard(this.prisma.db, data.ulbId)
+      }
+      return created
     } catch (error) {
       if (isPrismaUniqueViolation(error)) {
         const target = (error as { meta?: { target?: string[] } }).meta?.target

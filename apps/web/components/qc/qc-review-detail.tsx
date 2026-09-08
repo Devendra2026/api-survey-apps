@@ -12,7 +12,7 @@ import {
   useWards,
 } from "@/hooks/use-api"
 import { apiGet, getApiErrorMessage } from "@/lib/api/client"
-import type { QcQueueParcel, QcSurveyDetail, QcSurveyEditable } from "@/lib/api/types"
+import type { QcQueueParcel, QcQueueParcelMatch, QcSurveyDetail, QcSurveyEditable } from "@/lib/api/types"
 import {
   buildQcQueueSearchParams,
   buildQcRegistryHref,
@@ -92,6 +92,7 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [wardSwitchId, setWardSwitchId] = useState<string | null>(null)
   const [wardSwitchPending, setWardSwitchPending] = useState(false)
+  const [parcelMatches, setParcelMatches] = useState<QcQueueParcelMatch[] | null>(null)
 
   const switchUlbId = activeUlbId || survey?.editable.ulbId
   const { data: switchWards } = useWards(wardSwitchId ? switchUlbId || undefined : undefined)
@@ -102,6 +103,7 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
   if (survey?.editable && (draft === null || draftSurveyId !== survey.id)) {
     setDraft(survey.editable)
     setDraftSurveyId(survey.id)
+    setParcelMatches(null)
     if (editMode) setEditMode(false)
   } else if (!survey && draftSurveyId !== null) {
     setDraft(null)
@@ -156,7 +158,10 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
     const source = editMode && draft ? draft : survey.editable
     const selectedWard = editMode && draft ? (draftWards?.items ?? []).find((w) => w.id === draft.wardId) : undefined
     const ulbCode = parsed?.ulbCode ?? ""
-    const liveWardNo = selectedWard?.wardNumber ?? (survey.wardNo && survey.wardNo !== "—" ? survey.wardNo : "")
+    const selectedIsZero = selectedWard?.kind === "ZERO"
+    const liveWardNo = selectedIsZero
+      ? (survey.originalWard?.wardNumber ?? (survey.wardNo && survey.wardNo !== "—" ? survey.wardNo : ""))
+      : (selectedWard?.wardNumber ?? (survey.wardNo && survey.wardNo !== "—" ? survey.wardNo : ""))
     const wardNo = liveWardNo || parsed?.wardNo || ""
     const formatted = formatPropertyId({
       ulbCode,
@@ -237,6 +242,7 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
     actions.reject.isPending ||
     actions.remove.isPending ||
     actions.correct.isPending ||
+    actions.quarantine.isPending ||
     wardSwitchPending
 
   const startEdit = () => {
@@ -358,8 +364,12 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
         parcelDisplay={editMode ? (draft.parcelNumber ?? survey.parcelNo) : survey.parcelNo}
         wardNoDisplay={
           editMode
-            ? ((draftWards?.items ?? []).find((w) => w.id === draft.wardId)?.wardNumber ?? survey.wardNo)
-            : survey.wardNo
+            ? (() => {
+                const selected = (draftWards?.items ?? []).find((w) => w.id === draft.wardId)
+                if (selected?.kind === "ZERO") return survey.originalWard?.wardNumber ?? survey.wardNo
+                return selected?.wardNumber ?? survey.wardNo
+              })()
+            : (survey.originalWard?.wardNumber ?? survey.wardNo)
         }
         activeWardId={queueWardId}
         activeUlbId={activeUlbId || survey.editable.ulbId}
@@ -398,14 +408,35 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
                 parcelNumber,
               })}`
             )
+            if (found?.matches && found.matches.length > 1) {
+              setParcelMatches(found.matches)
+              return
+            }
             if (!found?.id) {
               toast.error("No parcel found in this ward")
               return
             }
+            setParcelMatches(null)
             goToNeighbor(found.id)
           } catch (error) {
             toast.error(getApiErrorMessage(error))
           }
+        }}
+        onQuarantine={() => {
+          void (async () => {
+            try {
+              const updated = await actions.quarantine.mutateAsync(survey.id)
+              if (updated && typeof updated === "object" && "id" in updated && "editable" in updated) {
+                const detail = updated as QcSurveyDetail
+                queryClient.setQueryData(["qc", "survey", survey.id], detail)
+                setDraft(detail.editable)
+                setDraftSurveyId(detail.id)
+              }
+              toast.success("Moved to Zero Ward")
+            } catch (error) {
+              toast.error(getApiErrorMessage(error))
+            }
+          })()
         }}
         onDelete={() => setDeleteOpen(true)}
         onEdit={startEdit}
@@ -475,6 +506,42 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
               Reopen
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(parcelMatches?.length)} onOpenChange={(open) => !open && setParcelMatches(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Multiple parcels</DialogTitle>
+            <DialogDescription>
+              More than one record matches this parcel in the active ward. Choose the record to open. Original ward is
+              not changed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-72 space-y-2 overflow-y-auto">
+            {(parcelMatches ?? []).map((match) => (
+              <Button
+                key={match.id}
+                type="button"
+                variant="outline"
+                className="h-auto w-full cursor-pointer justify-start px-3 py-2 text-left"
+                onClick={() => {
+                  const id = match.id
+                  setParcelMatches(null)
+                  goToNeighbor(id)
+                }}
+              >
+                <span className="flex flex-col gap-0.5">
+                  <span className="font-mono text-xs">{match.propertyId}</span>
+                  <span className="text-xs text-muted-foreground">
+                    Original Ward {match.originalWardNumber ?? "—"}
+                    {match.originalWardName ? ` · ${match.originalWardName}` : ""} · Unit {match.unitSubNo ?? "—"} ·{" "}
+                    {match.ownerName} · {match.status}
+                  </span>
+                </span>
+              </Button>
+            ))}
+          </div>
         </DialogContent>
       </Dialog>
 

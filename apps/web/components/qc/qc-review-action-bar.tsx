@@ -42,6 +42,7 @@ export function QcReviewActionBar({
   onApprove,
   onReject,
   onParcelJump,
+  onQuarantine,
   onDelete,
   onEdit,
   onSave,
@@ -65,6 +66,7 @@ export function QcReviewActionBar({
   onApprove: () => void
   onReject: () => void
   onParcelJump: (parcelNumber: string) => void | Promise<void>
+  onQuarantine?: () => void
   onDelete: () => void
   onEdit: () => void
   onSave: () => void
@@ -99,14 +101,18 @@ export function QcReviewActionBar({
     const wardId = activeWardId || survey.editable.wardId
     const ward = (wards?.items ?? []).find((w) => w.id === wardId)
     const wardPart = ward
-      ? `Ward ${ward.wardNumber}${ward.wardName ? ` (${ward.wardName})` : ""}`
-      : wardNoDisplay
-        ? `Ward ${wardNoDisplay}`
-        : null
+      ? ward.kind === "ZERO" || survey.qcLocation?.kind === "ZERO"
+        ? "Zero Ward"
+        : `Ward ${ward.wardNumber}${ward.wardName ? ` (${ward.wardName})` : ""}`
+      : survey.qcLocation?.kind === "ZERO"
+        ? "Zero Ward"
+        : wardNoDisplay
+          ? `Ward ${wardNoDisplay}`
+          : null
     const ulbPart = survey.ulbName?.trim() || null
     if (ulbPart && wardPart) return `${ulbPart} – ${wardPart}`
     return ulbPart ?? wardPart
-  }, [activeWardId, survey.editable.wardId, survey.ulbName, wards?.items, wardNoDisplay])
+  }, [activeWardId, survey.editable.wardId, survey.qcLocation?.kind, survey.ulbName, wards?.items, wardNoDisplay])
 
   return (
     <div className="mb-4 space-y-3">
@@ -218,6 +224,11 @@ export function QcReviewActionBar({
               </>
             )}
 
+            {onQuarantine && survey.qcLocation?.kind !== "ZERO" && isPendingQc ? (
+              <Button size="sm" variant="outline" className="cursor-pointer" disabled={pending} onClick={onQuarantine}>
+                Move to Zero Ward
+              </Button>
+            ) : null}
             {canDelete ? (
               <Button
                 size="sm"
@@ -321,8 +332,21 @@ export function QcReviewActionBar({
             <SurveyViewField label="ULB Name" value={survey.ulbName} />
           </div>
           <div className={cn(glassInsetClass, "p-3")}>
-            <SurveyViewField label="Ward No" value={wardNoDisplay ?? survey.wardNo} />
+            <SurveyViewField
+              label={survey.qcLocation?.kind === "ZERO" ? "Original Ward" : "Ward No"}
+              value={wardNoDisplay ?? survey.originalWard?.wardNumber ?? survey.wardNo}
+            />
           </div>
+          {survey.qcLocation?.kind === "ZERO" ? (
+            <>
+              <div className={cn(glassInsetClass, "p-3")}>
+                <SurveyViewField label="QC Location" value="Zero Ward" />
+              </div>
+              <div className={cn(glassInsetClass, "col-span-2 p-3 md:col-span-1")}>
+                <SurveyViewField label="Original Ward Name" value={survey.originalWard?.wardName ?? "—"} />
+              </div>
+            </>
+          ) : null}
           <div className={cn(glassInsetClass, "p-3")}>
             <SurveyViewField
               label="Parcel No"

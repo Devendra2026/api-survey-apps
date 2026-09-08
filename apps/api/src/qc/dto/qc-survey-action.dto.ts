@@ -348,11 +348,11 @@ export class QcSurveyCorrectionDto {
 
 export class QcSurveyActionDto {
   @ApiProperty({
-    enum: ["reopen", "approve", "delete", "correct", "reject"],
+    enum: ["reopen", "approve", "delete", "correct", "reject", "quarantine"],
     description: "QC action to perform on the survey",
   })
-  @IsIn(["reopen", "approve", "delete", "correct", "reject"])
-  action!: "reopen" | "approve" | "delete" | "correct" | "reject"
+  @IsIn(["reopen", "approve", "delete", "correct", "reject", "quarantine"])
+  action!: "reopen" | "approve" | "delete" | "correct" | "reject" | "quarantine"
 
   @ApiPropertyOptional({ description: "Required when action is reject" })
   @IsOptional()

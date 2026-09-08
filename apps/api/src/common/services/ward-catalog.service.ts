@@ -3,11 +3,13 @@ import { sortWardsByNumberAsc } from "@workspace/validation"
 import { PrismaService } from "../../prisma/prisma.service.js"
 import type { AuthenticatedUser } from "../interfaces/authenticated-user.interface.js"
 import { resolveTenantScope } from "../utils/tenant-scope.util.js"
+import { ensureZeroWard } from "./zero-ward.service.js"
 
 export type ScopedWard = {
   id: string
   wardName: string
   wardNumber: string
+  kind: "GEOGRAPHIC" | "ZERO"
 }
 
 @Injectable()
@@ -23,18 +25,20 @@ export class WardCatalogService {
    * Order is numeric ascending (`2` before `10`), not string lexicographic.
    */
   async listScopedWards(user: AuthenticatedUser, ulbId: string): Promise<ScopedWard[]> {
-    const [catalog, ulb] = await Promise.all([
-      this.prisma.db.ward.findMany({
-        where: { ulbId, status: "ACTIVE", deletedAt: null },
-        select: { id: true, wardName: true, wardNumber: true },
-      }),
-      this.prisma.db.ulb.findUnique({
-        where: { id: ulbId },
-        select: { districtId: true, district: { select: { stateId: true } } },
-      }),
-    ])
+    const ulb = await this.prisma.db.ulb.findUnique({
+      where: { id: ulbId },
+      select: { districtId: true, district: { select: { stateId: true } } },
+    })
+    if (!ulb) return []
 
-    if (!ulb || catalog.length === 0) return []
+    await ensureZeroWard(this.prisma.db, ulbId)
+
+    const catalog = await this.prisma.db.ward.findMany({
+      where: { ulbId, status: "ACTIVE", deletedAt: null },
+      select: { id: true, wardName: true, wardNumber: true, kind: true },
+    })
+
+    if (catalog.length === 0) return []
 
     const scope = resolveTenantScope(user.tenantRoles)
     let scoped: ScopedWard[]

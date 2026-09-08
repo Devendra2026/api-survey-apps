@@ -234,6 +234,12 @@ enum GeoEntityStatus {
   ARCHIVED
 }
 
+/// Geographic ward vs ULB-scoped quarantine / reconciliation location.
+enum WardKind {
+  GEOGRAPHIC
+  ZERO
+}
+
 enum ReferenceEntryStatus {
   ACTIVE
   DISABLED
@@ -325,16 +331,19 @@ model Ward {
   /// Mirrors Convex wardCode (e.g. AGR-W01). Optional for legacy rows until catalog sync.
   wardCode   String?
   wardName   String
+  /// ZERO is the ULB quarantine ward. It is not a geographic property ward.
+  kind       WardKind        @default(GEOGRAPHIC)
   status     GeoEntityStatus @default(ACTIVE)
   updatedBy  String?
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
   deletedAt  DateTime?
 
-  ulb             Ulb              @relation(fields: [ulbId], references: [id], onDelete: Restrict)
-  surveys         Survey[]
-  userTenantRoles UserTenantRole[]
-  taxConfigs      TaxConfig[]
+  ulb              Ulb              @relation(fields: [ulbId], references: [id], onDelete: Restrict)
+  surveys          Survey[]         @relation("SurveyCurrentWard")
+  originalSurveys  Survey[]         @relation("SurveyOriginalWard")
+  userTenantRoles  UserTenantRole[]
+  taxConfigs       TaxConfig[]
 
   @@index([ulbId])
   @@index([status])
@@ -620,6 +629,8 @@ model Survey {
   districtId   String
   ulbId        String
   wardId       String
+  /// Geographic ward captured when the survey is quarantined. Null means current wardId is the property ward.
+  originalWardId String?
   createdById  String
   assignedToId String?
   assignedAt   DateTime?
@@ -713,8 +724,9 @@ model Survey {
   state      State    @relation(fields: [stateId], references: [id], onDelete: Restrict)
   district   District @relation(fields: [districtId], references: [id], onDelete: Restrict)
   ulb        Ulb      @relation(fields: [ulbId], references: [id], onDelete: Restrict)
-  ward       Ward     @relation(fields: [wardId], references: [id], onDelete: Restrict)
-  createdBy  User     @relation("SurveyCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  ward         Ward  @relation("SurveyCurrentWard", fields: [wardId], references: [id], onDelete: Restrict)
+  originalWard Ward? @relation("SurveyOriginalWard", fields: [originalWardId], references: [id], onDelete: Restrict)
+  createdBy    User  @relation("SurveyCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   assignedTo User?    @relation("SurveyAssignedTo", fields: [assignedToId], references: [id], onDelete: Restrict)
 
   coOwners       CoOwner[]
@@ -729,6 +741,7 @@ model Survey {
   @@index([stateId, surveyStatus])
   @@index([districtId, surveyStatus])
   @@index([ulbId, surveyStatus])
+  @@index([originalWardId])
   @@index([wardId, surveyStatus])
   @@index([ulbId, qcStatus])
   @@index([wardId, qcStatus])

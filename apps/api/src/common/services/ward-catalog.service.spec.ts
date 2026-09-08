@@ -3,8 +3,8 @@ import type { AuthenticatedUser, TenantRoleAssignment } from "../interfaces/auth
 import { WardCatalogService } from "./ward-catalog.service.js"
 
 const catalog = [
-  { id: "ward-1", wardName: "Kotwali", wardNumber: "01" },
-  { id: "ward-2", wardName: "Civil Lines", wardNumber: "02" },
+  { id: "ward-1", wardName: "Kotwali", wardNumber: "01", kind: "GEOGRAPHIC" as const },
+  { id: "ward-2", wardName: "Civil Lines", wardNumber: "02", kind: "GEOGRAPHIC" as const },
 ]
 
 const role = (overrides: Partial<TenantRoleAssignment>): TenantRoleAssignment => ({
@@ -29,13 +29,23 @@ const userWithRoles = (tenantRoles: TenantRoleAssignment[]): AuthenticatedUser =
 
 describe("WardCatalogService.listScopedWards", () => {
   let findMany: jest.Mock<(args: unknown) => Promise<typeof catalog>>
+  let findFirst: jest.Mock<() => Promise<unknown>>
   let findUnique: jest.Mock<() => Promise<unknown>>
   let service: WardCatalogService
 
   beforeEach(() => {
     findMany = jest.fn(() => Promise.resolve(catalog))
+    findFirst = jest.fn(() =>
+      Promise.resolve({
+        id: "ward-0",
+        ulbId: "ulb-1",
+        wardNumber: "0",
+        wardName: "Zero Ward",
+        kind: "ZERO",
+      })
+    )
     findUnique = jest.fn(() => Promise.resolve({ districtId: "district-1", district: { stateId: "state-1" } }))
-    service = new WardCatalogService({ db: { ward: { findMany }, ulb: { findUnique } } } as never)
+    service = new WardCatalogService({ db: { ward: { findMany, findFirst }, ulb: { findUnique } } } as never)
   })
 
   it("lists only active, non-deleted wards for a global user", async () => {

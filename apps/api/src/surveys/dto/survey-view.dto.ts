@@ -33,11 +33,21 @@ export class QcRemarkItemDto {
   createdAt!: string
 }
 
+export class SurveyWardIdentityDto {
+  id!: string
+  wardNumber!: string
+  wardName!: string
+  kind?: string
+  label?: string
+}
+
 export class SurveyDetailsDto {
   id!: string
   propertyId!: string
   ulbName!: string
   wardNo!: string
+  qcLocation?: SurveyWardIdentityDto
+  originalWard?: SurveyWardIdentityDto
   parcelNo!: string
   ownerName!: string
   status!: string

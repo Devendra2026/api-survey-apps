@@ -6,8 +6,21 @@ function formatWardNumberDisplay(wardNumber: string | number): string {
   return raw
 }
 
+const ZERO_WARD_OPTION_LABEL = "Zero Ward — Duplicate / Reconciliation"
+
+function isZeroWard(ward: { kind?: string | null; wardName?: string | null }): boolean {
+  if (ward.kind === "ZERO") return true
+  const name = (ward.wardName ?? "").trim().toLowerCase().replace(/\s+/g, " ")
+  return name === "zero ward"
+}
+
 /** Standard ward select option label: `{wardNumber} - {wardName}`. */
-export function formatWardOptionLabel(ward: { wardNumber: string | number; wardName?: string | null }): string {
+export function formatWardOptionLabel(ward: {
+  wardNumber: string | number
+  wardName?: string | null
+  kind?: string | null
+}): string {
+  if (isZeroWard(ward)) return ZERO_WARD_OPTION_LABEL
   const number = String(ward.wardNumber ?? "").trim()
   const name = (ward.wardName ?? "").trim()
   if (number && name) return `${number} - ${name}`
@@ -17,7 +30,12 @@ export function formatWardOptionLabel(ward: { wardNumber: string | number; wardN
 }
 
 /** Command Center display label: `Ward No. 01 — Jatav Basti`. */
-export function formatWardDisplayLabel(ward: { wardNumber: string | number; wardName?: string | null }): string {
+export function formatWardDisplayLabel(ward: {
+  wardNumber: string | number
+  wardName?: string | null
+  kind?: string | null
+}): string {
+  if (isZeroWard(ward)) return "Zero Ward"
   const number = formatWardNumberDisplay(ward.wardNumber)
   const name = (ward.wardName ?? "").trim()
   if (number && name) return `Ward No. ${number} — ${name}`

@@ -350,7 +350,11 @@ export function QcReviewSections({
               </SelectContent>
             </Select>
           </EditableField>
-          <EditableField label="Ward Number" editMode={editMode} display={survey.wardNo}>
+          <EditableField
+            label={survey.qcLocation?.kind === "ZERO" ? "Original Ward" : "Ward Number"}
+            editMode={editMode}
+            display={survey.originalWard?.wardNumber ?? survey.wardNo}
+          >
             <Select
               value={draft.wardId || ""}
               onValueChange={(wardId) => setField("wardId", wardId)}

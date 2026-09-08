@@ -84,6 +84,16 @@ export class QcService {
         return this.qcRepository.qcSoftDelete(survey.id, user.id)
       case "reopen":
         return this.qcReopen(survey.id, survey.surveyStatus, user)
+      case "quarantine": {
+        const updated = await this.qcRepository.quarantineToZeroWard(survey.id, user.id)
+        const detail: QcSurveyDetailDto = {
+          ...mapSurveyToDetailsDto(updated),
+          editable: mapQcEditable(updated),
+          stateName: updated.state?.name,
+          warnings: warningsFromSurveyRow(updated),
+        }
+        return refreshSurveyPhotoUrls(this.storageService, detail, updated.photos, this.logger, 14_400)
+      }
       case "correct": {
         if (!dto.patch) {
           throw new BadRequestException("Correction patch is required for correct action")

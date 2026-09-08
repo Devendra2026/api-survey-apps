@@ -8,7 +8,12 @@ import {
 } from "@nestjs/common"
 import { ConfigService } from "@nestjs/config"
 import { ExportFormat, JobStatus, OwnershipType, PhotoType, SurveyStatus } from "@workspace/database"
-import { formatPropertyId, isNewPropertyIdFormat } from "@workspace/validation"
+import {
+  formatPropertyId,
+  isNewPropertyIdFormat,
+  isZeroWardKind,
+  resolvePropertyWardNumber,
+} from "@workspace/validation"
 import { PERMISSIONS } from "../common/constants/permissions.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import {
@@ -98,13 +103,19 @@ export class SurveysService {
       unitSubNo: string | null
       propertyUse: string | null
       ulb?: { code?: string | null } | null
-      ward?: { wardNumber?: string | null } | null
+      ward?: { wardNumber?: string | null; kind?: string | null } | null
+      originalWard?: { wardNumber?: string | null } | null
     },
   >(survey: T): Promise<T> {
     if (isNewPropertyIdFormat(survey.propertyId)) return survey
 
     const ulbCode = (survey.ulbCode?.trim() || survey.ulb?.code?.trim() || "").trim()
-    const wardNo = (survey.ward?.wardNumber?.trim() || survey.wardNumber?.trim() || "").trim()
+    const wardNo = resolvePropertyWardNumber({
+      currentWard: survey.ward,
+      originalWard: survey.originalWard,
+      storedWardNumber: survey.wardNumber,
+    })
+    if (isZeroWardKind(survey.ward?.kind) && !wardNo) return survey
     const parcelNo = (survey.parcelNumber ?? "").trim()
     const unitNo = (survey.unitSubNo ?? "").trim()
     const propertyUse = (survey.propertyUse ?? "").trim()

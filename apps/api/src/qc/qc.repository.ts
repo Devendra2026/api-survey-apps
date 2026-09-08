@@ -4,11 +4,16 @@ import {
   formatPropertyId,
   isNewPropertyIdFormat,
   isOpenLandPropertyUse,
+  isZeroWardKind,
+  isZeroWardName,
   padParcelNo,
+  resolvePropertyWardNumber,
   sumBuiltUpArea,
+  ZERO_WARD_OPTION_LABEL,
 } from "@workspace/validation"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { WardCatalogService } from "../common/services/ward-catalog.service.js"
+import { ensureZeroWard } from "../common/services/zero-ward.service.js"
 import { sqFtToSqMeter } from "../common/utils/decimal.util.js"
 import { getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
 import { parcelNumberVariants } from "../common/utils/parcel-search.util.js"
@@ -45,6 +50,14 @@ function formatRegistryDate(value: Date | null | undefined) {
     year: "numeric",
     timeZone: "UTC",
   })
+}
+
+function asIdentityWard<T extends { kind?: string | null; wardName?: string | null }>(ward: T | null | undefined) {
+  if (!ward) return ward
+  if (isZeroWardKind(ward.kind) || isZeroWardName(ward.wardName)) {
+    return { ...ward, kind: "ZERO" as const }
+  }
+  return ward
 }
 
 function displayQcStatus(surveyStatus: string, qcStatus?: string | null) {
@@ -259,7 +272,8 @@ export class QcRepository {
         include: {
           assignedTo: { select: { id: true, fullName: true } },
           createdBy: { select: { id: true, fullName: true } },
-          ward: { select: { id: true, wardName: true, wardNumber: true } },
+          ward: { select: { id: true, wardName: true, wardNumber: true, kind: true } },
+          originalWard: { select: { id: true, wardName: true, wardNumber: true, kind: true } },
           ulb: { select: { id: true, name: true, code: true } },
           district: { select: { id: true, name: true } },
           coOwners: { select: { name: true }, orderBy: { ownerIndex: "asc" }, take: 1 },
@@ -283,12 +297,17 @@ export class QcRepository {
           propertyUse: row.propertyUse,
           ulb: row.ulb,
           ward: row.ward,
+          originalWard: row.originalWard,
         })
 
         let propertyId = upgraded.propertyId
         if (!isNewPropertyIdFormat(propertyId)) {
           const ulbCode = (row.ulbCode?.trim() || row.ulb?.code?.trim() || "").trim()
-          const wardNo = (row.ward?.wardNumber?.trim() || row.wardNumber?.trim() || "").trim()
+          const wardNo = resolvePropertyWardNumber({
+            currentWard: asIdentityWard(row.ward),
+            originalWard: row.originalWard,
+            storedWardNumber: row.wardNumber,
+          })
           const parcelNo = (row.parcelNumber ?? "").trim()
           const unitNo = (row.unitSubNo ?? "").trim()
           const propertyUse = (row.propertyUse ?? "").trim()
@@ -312,7 +331,12 @@ export class QcRepository {
           surveyStatus: row.surveyStatus,
           qcStatus: row.qcStatus,
           surveyorName: row.assignedTo?.fullName ?? row.createdBy.fullName,
-          wardNumber: row.ward?.wardNumber ?? row.wardNumber ?? "—",
+          wardNumber:
+            resolvePropertyWardNumber({
+              currentWard: asIdentityWard(row.ward),
+              originalWard: row.originalWard,
+              storedWardNumber: row.wardNumber,
+            }) || "—",
           parcelNumber: row.parcelNumber ?? "—",
           propertyUse: row.propertyUse,
           ownerName: resolvePrimaryOwnerName(row.coOwners, row.respondentName) ?? "—",
@@ -453,20 +477,62 @@ export class QcRepository {
       { unitSubNo: { sort: "asc" as const, nulls: "last" as const } },
       { id: "asc" as const },
     ]
-    const select = { id: true, parcelNumber: true }
+    const select = {
+      id: true,
+      parcelNumber: true,
+      propertyId: true,
+      unitSubNo: true,
+      surveyStatus: true,
+      qcStatus: true,
+      respondentName: true,
+      wardNumber: true,
+      ward: { select: { id: true, wardNumber: true, wardName: true, kind: true } },
+      originalWard: { select: { id: true, wardNumber: true, wardName: true } },
+      coOwners: { select: { name: true }, orderBy: { ownerIndex: "asc" as const }, take: 1 },
+    }
 
-    const pending = await this.prisma.db.survey.findFirst({
+    const pending = await this.prisma.db.survey.findMany({
       where: { AND: [this.pendingQueueWhere(user, wardIds), parcelMatch] },
       select,
       orderBy,
     })
-    if (pending) return pending
+    const rows =
+      pending.length > 0
+        ? pending
+        : await this.prisma.db.survey.findMany({
+            where: { AND: [this.wardCensusWhere(user, wardIds), parcelMatch] },
+            select,
+            orderBy,
+          })
 
-    return this.prisma.db.survey.findFirst({
-      where: { AND: [this.wardCensusWhere(user, wardIds), parcelMatch] },
-      select,
-      orderBy,
-    })
+    if (rows.length === 0) return null
+    if (rows.length === 1) {
+      const only = rows[0]
+      return only ? { id: only.id, parcelNumber: only.parcelNumber } : null
+    }
+
+    return {
+      id: null,
+      parcelNumber: normalized,
+      matches: rows.map((row) => {
+        const originalNo = resolvePropertyWardNumber({
+          currentWard: asIdentityWard(row.ward),
+          originalWard: row.originalWard,
+          storedWardNumber: row.wardNumber,
+        })
+        return {
+          id: row.id,
+          parcelNumber: row.parcelNumber,
+          propertyId: row.propertyId,
+          unitSubNo: row.unitSubNo,
+          ownerName: resolvePrimaryOwnerName(row.coOwners, row.respondentName) ?? "—",
+          status: displayQcStatus(row.surveyStatus, row.qcStatus),
+          originalWardNumber: originalNo || null,
+          originalWardName:
+            row.originalWard?.wardName ?? (isZeroWardKind(row.ward?.kind) ? null : row.ward?.wardName) ?? null,
+        }
+      }),
+    }
   }
 
   async getMetrics(user: AuthenticatedUser, filters: QcFiltersDto) {
@@ -555,13 +621,17 @@ export class QcRepository {
 
     return wards.map((ward) => {
       const buckets = bucketsByWard.get(ward.id) ?? emptyBucketTotals()
-      const name = ward.wardName?.trim() || `Ward ${ward.wardNumber}`
+      const zero = isZeroWardKind(ward.kind)
+      const name = zero ? "Zero Ward" : ward.wardName?.trim() || `Ward ${ward.wardNumber}`
       const padded = String(ward.wardNumber).padStart(2, "0")
       return {
         wardId: ward.id,
         wardName: name,
         wardNumber: ward.wardNumber,
-        label: `Ward No. ${padded} — ${name.startsWith("Ward") ? name.replace(/^Ward\s*/i, "").trim() || name : name}`,
+        kind: ward.kind,
+        label: zero
+          ? ZERO_WARD_OPTION_LABEL
+          : `Ward No. ${padded} — ${name.startsWith("Ward") ? name.replace(/^Ward\s*/i, "").trim() || name : name}`,
         totalProperty: buckets.total,
         fieldDrafts: buckets.fieldDraft,
         qcPending: buckets.pendingQc,
@@ -596,13 +666,82 @@ export class QcRepository {
     })
   }
 
+  async quarantineToZeroWard(id: string, changedBy: string) {
+    const existing = await this.prisma.db.survey.findFirst({
+      where: { id, deletedAt: null },
+      include: {
+        ward: { select: { id: true, kind: true, wardNumber: true, wardName: true } },
+        originalWard: { select: { id: true } },
+      },
+    })
+    if (!existing) throw new NotFoundException("Survey not found")
+    if (existing.surveyStatus === "APPROVED") {
+      throw new BadRequestException("Approved surveys cannot be moved to Zero Ward")
+    }
+    const alreadyQuarantineLocation = isZeroWardKind(existing.ward?.kind) || isZeroWardName(existing.ward?.wardName)
+    if (alreadyQuarantineLocation && existing.originalWardId) {
+      throw new BadRequestException("Survey is already quarantined in Zero Ward")
+    }
+    if (alreadyQuarantineLocation && !existing.originalWardId) {
+      throw new BadRequestException("Original ward is unknown; survey was not moved")
+    }
+
+    const zeroWard = await ensureZeroWard(this.prisma.db, existing.ulbId)
+    const propertyId = existing.propertyId
+    const parcelNumber = existing.parcelNumber
+    const unitSubNo = existing.unitSubNo
+    const wardNumber = existing.wardNumber
+    const originalWardId = existing.originalWardId ?? existing.wardId
+
+    return this.prisma.db.$transaction(async (tx) => {
+      await tx.survey.update({
+        where: { id },
+        data: {
+          ward: { connect: { id: zeroWard.id } },
+          originalWard: { connect: { id: originalWardId } },
+        },
+      })
+      await createSurveyAuditRow(tx, {
+        surveyId: id,
+        action: "qc.quarantined",
+        oldValue: { wardId: existing.wardId, originalWardId: existing.originalWardId },
+        newValue: {
+          wardId: zeroWard.id,
+          originalWardId,
+          propertyId,
+          parcelNumber,
+          unitSubNo,
+          wardNumber,
+          reason: "duplicate/quarantine",
+        },
+        changedBy,
+      })
+      return tx.survey.findFirstOrThrow({
+        where: { id },
+        include: {
+          floors: { orderBy: { position: "asc" } },
+          photos: { orderBy: { createdAt: "asc" } },
+          coOwners: { orderBy: { ownerIndex: "asc" } },
+          createdBy: { select: { id: true, fullName: true, email: true } },
+          assignedTo: { select: { id: true, fullName: true, email: true } },
+          ward: { select: { id: true, wardName: true, wardNumber: true, kind: true } },
+          originalWard: { select: { id: true, wardName: true, wardNumber: true, kind: true } },
+          ulb: { select: { id: true, name: true } },
+          district: { select: { id: true, name: true } },
+          state: { select: { id: true, name: true } },
+        },
+      })
+    })
+  }
+
   async qcCorrectSurvey(id: string, patch: QcSurveyCorrectionDto, changedBy: string) {
     const existing = await this.prisma.db.survey.findFirst({
       where: { id, deletedAt: null },
       include: {
         floors: { orderBy: { position: "asc" } },
         coOwners: { orderBy: { ownerIndex: "asc" } },
-        ward: { select: { id: true, wardName: true, wardNumber: true } },
+        ward: { select: { id: true, wardName: true, wardNumber: true, kind: true } },
+        originalWard: { select: { id: true, wardName: true, wardNumber: true, kind: true } },
         ulb: { select: { id: true, name: true, code: true } },
         district: { select: { id: true, name: true } },
         state: { select: { id: true, name: true } },
@@ -631,7 +770,12 @@ export class QcRepository {
     // Live catalog ward/ULB, same priority as QC display — denormalized fields must not
     // encode a different ward into Property ID while the header shows the FK ward.
     let ulbCode = existing.ulb?.code ?? existing.ulbCode ?? ""
-    let wardNo = existing.ward?.wardNumber ?? existing.wardNumber ?? ""
+    let wardNo = resolvePropertyWardNumber({
+      currentWard: asIdentityWard(existing.ward),
+      originalWard: existing.originalWard,
+      storedWardNumber: existing.wardNumber,
+    })
+    let destinationKind = existing.ward?.kind ?? "GEOGRAPHIC"
 
     if (patch.ulbId || patch.wardId) {
       const ward = await this.prisma.db.ward.findUnique({
@@ -640,7 +784,15 @@ export class QcRepository {
       })
       if (!ward) throw new BadRequestException("Invalid wardId")
       ulbCode = ward.ulb.code
-      wardNo = ward.wardNumber
+      destinationKind = ward.kind
+      if (!isZeroWardKind(ward.kind)) {
+        wardNo = ward.wardNumber
+      }
+    }
+
+    const movingToZero = isZeroWardKind(destinationKind)
+    if (movingToZero && existing.surveyStatus === "APPROVED") {
+      throw new BadRequestException("Approved surveys cannot be moved to Zero Ward")
     }
 
     let coOwnersPatch = patch.coOwners
@@ -696,7 +848,7 @@ export class QcRepository {
     const nextAssessmentYear = patch.assessmentYear ?? existing.assessmentYear
 
     let nextPropertyId = existing.propertyId
-    if (ulbCode && wardNo && effectiveParcel && effectiveUnit && effectiveUse) {
+    if (!movingToZero && ulbCode && wardNo && effectiveParcel && effectiveUnit && effectiveUse) {
       const formatted = formatPropertyId({
         ulbCode,
         wardNo,
@@ -756,12 +908,24 @@ export class QcRepository {
       scalarData.ulb = { connect: { id: nextUlbId } }
       scalarData.ward = { connect: { id: nextWardId } }
       if (ulbCode) scalarData.ulbCode = ulbCode
-      if (wardNo) scalarData.wardNumber = wardNo
+      if (movingToZero) {
+        if (
+          !existing.originalWardId &&
+          !isZeroWardKind(existing.ward?.kind) &&
+          !isZeroWardName(existing.ward?.wardName)
+        ) {
+          scalarData.originalWard = { connect: { id: existing.wardId } }
+        }
+      } else if (wardNo) {
+        scalarData.wardNumber = wardNo
+      }
     } else {
       // Geo was not patched, but Property ID uses the live catalog. Persist the same codes
       // so stored wardNumber / ulbCode stay aligned with the written Property ID.
       if (ulbCode && ulbCode !== existing.ulbCode) scalarData.ulbCode = ulbCode
-      if (wardNo && wardNo !== existing.wardNumber) scalarData.wardNumber = wardNo
+      if (!isZeroWardKind(existing.ward?.kind) && wardNo && wardNo !== existing.wardNumber) {
+        scalarData.wardNumber = wardNo
+      }
     }
     if (patch.assignedToId !== undefined) {
       scalarData.assignedTo = patch.assignedToId ? { connect: { id: patch.assignedToId } } : { disconnect: true }
@@ -863,7 +1027,8 @@ export class QcRepository {
       coOwners: { orderBy: { ownerIndex: "asc" as const } },
       createdBy: { select: { id: true, fullName: true, email: true } },
       assignedTo: { select: { id: true, fullName: true, email: true } },
-      ward: { select: { id: true, wardName: true, wardNumber: true } },
+      ward: { select: { id: true, wardName: true, wardNumber: true, kind: true } },
+      originalWard: { select: { id: true, wardName: true, wardNumber: true, kind: true } },
       ulb: { select: { id: true, name: true } },
       district: { select: { id: true, name: true } },
       state: { select: { id: true, name: true } },
@@ -954,6 +1119,23 @@ export class QcRepository {
 
         if (coOwnersPatch !== undefined) {
           await this.syncCoOwners(tx, id, coOwnersPatch)
+        }
+
+        if (movingToZero && nextWardId !== existing.wardId) {
+          await createSurveyAuditRow(tx, {
+            surveyId: id,
+            action: "qc.quarantined",
+            oldValue: {
+              wardId: existing.wardId,
+              originalWardId: existing.originalWardId,
+            },
+            newValue: {
+              wardId: nextWardId,
+              originalWardId: existing.originalWardId ?? existing.wardId,
+              reason: "duplicate/quarantine",
+            },
+            changedBy,
+          })
         }
 
         await createSurveyAuditRow(tx, {

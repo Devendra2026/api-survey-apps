@@ -346,6 +346,10 @@ export function useQcSurveyActions() {
       mutationFn: (id: string) => runAction(id, { action: "delete" }),
       onSuccess: invalidate,
     }),
+    quarantine: useMutation({
+      mutationFn: (id: string) => runAction(id, { action: "quarantine" }),
+      onSuccess: invalidate,
+    }),
     correct: useMutation({
       mutationFn: ({ id, patch }: { id: string; patch: NonNullable<QcSurveyActionPayload["patch"]> }) =>
         runAction(id, { action: "correct", patch }),

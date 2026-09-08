@@ -445,8 +445,20 @@ export interface QcRegistryFilters {
 }
 
 export interface QcQueueParcel {
+  id: string | null
+  parcelNumber: string | null
+  matches?: QcQueueParcelMatch[]
+}
+
+export interface QcQueueParcelMatch {
   id: string
   parcelNumber: string | null
+  propertyId: string
+  unitSubNo: string | null
+  ownerName: string
+  status: string
+  originalWardNumber: string | null
+  originalWardName: string | null
 }
 
 export interface QcQueueNeighbors {
@@ -577,6 +589,19 @@ export interface SurveyDetails {
   propertyId: string
   ulbName: string
   wardNo: string
+  qcLocation?: {
+    id: string
+    wardNumber: string
+    wardName: string
+    kind?: string
+    label?: string
+  }
+  originalWard?: {
+    id: string
+    wardNumber: string
+    wardName: string
+    kind?: string
+  }
   parcelNo: string
   ownerName: string
   status: string
@@ -720,7 +745,7 @@ export interface QcSurveyDetail extends SurveyDetails {
   warnings?: FloorUsageWarning[]
 }
 
-export type QcSurveyAction = "reopen" | "approve" | "delete" | "correct" | "reject"
+export type QcSurveyAction = "reopen" | "approve" | "delete" | "correct" | "reject" | "quarantine"
 
 export interface QcSurveyActionPayload {
   action: QcSurveyAction
@@ -863,6 +888,7 @@ export interface GeoWard {
   wardNumber: string
   wardName: string
   ulbId: string
+  kind?: "GEOGRAPHIC" | "ZERO" | string
 }
 
 export interface NotificationItem {

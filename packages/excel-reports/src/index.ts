@@ -10,6 +10,16 @@ export {
 export { accumulateDashboardStats, createEmptyDashboardStats, type DashboardStats } from "./dashboard-stats.js"
 export { NAGAR_PANCHAYAT_HEADERS, renderNagarPanchayatWorkbook } from "./nagar-panchayat.js"
 export {
+  PARCEL_IMAGE_HEADERS,
+  PARCEL_IMAGES_SHEET_NAME,
+  PHOTO_EXPORT_URL_TTL_SECONDS,
+  parcelImageName,
+  resolveParcelImageUrl,
+  resolveStoredObjectKey,
+  toParcelImageRows,
+  withParcelImageExportUrls,
+} from "./parcel-images.js"
+export {
   COMMON_SURVEY_COLUMNS,
   FLOOR_EXPORT_POSITIONS,
   QC_EXTRA_COLUMNS,

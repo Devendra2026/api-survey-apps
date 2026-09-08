@@ -310,6 +310,33 @@ describe("QcRepository.qcCorrectSurvey", () => {
     expect(tx.floor.upsert).not.toHaveBeenCalled()
   })
 
+  it("builds propertyId from the live ward number when geo is not patched", async () => {
+    const { repo, tx } = makeRepo({
+      wardNumber: "1",
+      ulbCode: "111111",
+      ward: { id: "w1", wardName: "Jatav Basti", wardNumber: "7" },
+      propertyId: "800726-001-00001-001-R",
+    })
+    await repo.qcCorrectSurvey(
+      surveyId,
+      {
+        respondentName: "Updated",
+        coOwners: [{ name: "Co Owner" }],
+      },
+      "user-1"
+    )
+
+    expect(tx.survey.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          propertyId: "800726-007-00001-001-R",
+          wardNumber: "7",
+          ulbCode: "800726",
+        }),
+      })
+    )
+  })
+
   it("rewrites propertyId when parcelNumber changes", async () => {
     const { repo, tx } = makeRepo()
     await repo.qcCorrectSurvey(

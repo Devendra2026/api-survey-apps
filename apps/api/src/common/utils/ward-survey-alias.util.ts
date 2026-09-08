@@ -41,14 +41,20 @@ export async function resolveWardIdAliases(
       deletedAt: null,
       ...(knownIds.length > 0 ? { wardId: { notIn: knownIds } } : {}),
     },
-    select: { wardId: true, wardNumber: true },
+    select: {
+      wardId: true,
+      ward: { select: { wardNumber: true } },
+    },
     distinct: ["wardId"],
   })
   for (const row of strayIds) {
     if (!row.wardId || aliasToActive.has(row.wardId)) continue
-    const fromSurvey = row.wardNumber ? normalizeWardNumber(row.wardNumber) : ""
-    const activeId = fromSurvey ? activeByNorm.get(fromSurvey) : undefined
-    if (activeId) aliasToActive.set(row.wardId, activeId)
+    // Use the live catalog number of the survey's ward FK. Denormalized survey.wardNumber
+    // can disagree with the catalog (Ward 1 row stored as "7") and must not pull that
+    // survey into another ward's queue.
+    const catalogNo = row.ward?.wardNumber ? normalizeWardNumber(row.ward.wardNumber) : ""
+    const activeId = catalogNo ? activeByNorm.get(catalogNo) : undefined
+    if (activeId && activeId !== row.wardId) aliasToActive.set(row.wardId, activeId)
   }
 
   return aliasToActive

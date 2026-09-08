@@ -19,6 +19,15 @@ const MISSING_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor:
 const HEADER_FONT: Partial<ExcelJS.Font> = { bold: true, color: { argb: "FFFFFFFF" } }
 const HEADER_ALIGN: Partial<ExcelJS.Alignment> = { horizontal: "center", vertical: "middle", wrapText: true }
 
+export type EnterpriseExtraSheet = {
+  name: string
+  headers: readonly string[]
+  /** Mutated by the caller while `rows` is consumed. Written after the data sheet. */
+  rows: unknown[][]
+  /** 1-based column indexes that should be https hyperlinks when the cell is an https URL. */
+  hyperlinkColumns?: readonly number[]
+}
+
 export type EnterpriseWorkbookInput = {
   filename: string
   dataSheetName: string
@@ -30,6 +39,7 @@ export type EnterpriseWorkbookInput = {
   exportedAt?: Date
   /** When true, apply AutoFilter on the header row. Default false. */
   enableAutoFilter?: boolean
+  extraSheets?: readonly EnterpriseExtraSheet[]
 }
 
 /** @deprecated Use EnterpriseWorkbookInput */
@@ -173,8 +183,60 @@ export async function streamEnterpriseWorkbookToFile(input: EnterpriseWorkbookIn
     },
   ]
 
+  for (const extra of input.extraSheets ?? []) {
+    writeExtraSheet(workbook, extra)
+  }
+
   await workbook.xlsx.writeFile(input.filename)
   return { rowCount }
+}
+
+function writeExtraSheet(workbook: ExcelJS.Workbook, extra: EnterpriseExtraSheet) {
+  const sheet = workbook.addWorksheet(extra.name, {
+    pageSetup: {
+      paperSize: 9,
+      orientation: "landscape",
+      fitToPage: true,
+      fitToWidth: 1,
+      fitToHeight: 0,
+      printTitlesRow: "1:1",
+    },
+    views: [{ state: "frozen", ySplit: 1, activeCell: "A2" }],
+  })
+
+  const headerRow = sheet.addRow([...extra.headers])
+  headerRow.height = 32
+  extra.headers.forEach((_header, index) => {
+    const cell = headerRow.getCell(index + 1)
+    cell.font = HEADER_FONT
+    cell.fill = HEADER_FILL
+    cell.alignment = HEADER_ALIGN
+    cell.border = THIN_BORDER
+  })
+
+  extra.rows.forEach((values, index) => {
+    const excelRow = sheet.addRow(values)
+    const alt = (index + 1) % 2 === 0
+    excelRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+      applyDataStyle(cell, "text", alt, true)
+      if (extra.hyperlinkColumns?.includes(colNumber)) {
+        applyHttpsHyperlink(cell)
+      }
+    })
+  })
+
+  extra.headers.forEach((header, index) => {
+    const width = Math.min(Math.max(header.length + 2, 12), 48)
+    sheet.getColumn(index + 1).width = header === "Image URL" ? 48 : width
+  })
+}
+
+function applyHttpsHyperlink(cell: ExcelJS.Cell) {
+  const raw = cell.value
+  const text = typeof raw === "string" ? raw.trim() : ""
+  if (!/^https:\/\//i.test(text)) return
+  cell.value = { text, hyperlink: text }
+  cell.font = { color: { argb: "FF0563C1" }, underline: true }
 }
 
 /** @deprecated Prefer streamEnterpriseWorkbookToFile */

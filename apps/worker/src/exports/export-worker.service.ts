@@ -4,6 +4,7 @@ import { JobStatus, Prisma, SurveyStatus } from "@workspace/database"
 import {
   assertExportRowCount,
   buildExportFilename,
+  PHOTO_EXPORT_URL_TTL_SECONDS,
   renderConvexFullWorkbook,
   renderNagarPanchayatWorkbook,
   renderSurveyDataWorkbook,
@@ -11,6 +12,7 @@ import {
   streamQcFinalWideWorkbookToFile,
   streamSurveyDataWorkbookToFile,
   wardSurveyDataZipEntry,
+  withParcelImageExportUrls,
   type SurveyExportBundle,
 } from "@workspace/excel-reports"
 import { computeExportTaxSummary, taxRateKey, toTaxNumber, type ExportTaxRateTable } from "@workspace/validation"
@@ -122,7 +124,19 @@ const SURVEY_EXPORT_SELECT = {
     select: { name: true, fatherOrHusbandName: true, mobile: true, alternateMobile: true },
     orderBy: { ownerIndex: "asc" },
   },
-  photos: { select: { photoType: true, url: true, capturedAt: true, sizeKB: true, width: true, height: true } },
+  photos: {
+    select: {
+      id: true,
+      photoType: true,
+      url: true,
+      sourceUrl: true,
+      objectKey: true,
+      capturedAt: true,
+      sizeKB: true,
+      width: true,
+      height: true,
+    },
+  },
 } satisfies Prisma.SurveySelect
 
 function normalizeFloorPosition(raw: string): string {
@@ -503,6 +517,16 @@ export class ExportWorkerService {
     }
   }
 
+  private signExportPhoto(objectKey: string): Promise<string | null> {
+    return this.storageService.getSignedDownloadUrl(objectKey, PHOTO_EXPORT_URL_TTL_SECONDS)
+  }
+
+  private async *iterateSurveyDataBundles(where: Prisma.SurveyWhereInput): AsyncGenerator<SurveyExportBundle> {
+    for await (const row of this.iterateSurveyBundles(where)) {
+      yield await withParcelImageExportUrls(row, (objectKey) => this.signExportPhoto(objectKey))
+    }
+  }
+
   private async *iterateSurveyBundles(where: Prisma.SurveyWhereInput): AsyncGenerator<SurveyExportBundle> {
     let cursorId: string | undefined
     for (;;) {
@@ -540,7 +564,7 @@ export class ExportWorkerService {
     try {
       const { rowCount, duplicateSurveyIds } = await streamSurveyDataWorkbookToFile(
         filename,
-        this.iterateSurveyBundles(where),
+        this.iterateSurveyDataBundles(where),
         { enableAutoFilter: payload.enableAutoFilter === true }
       )
       if (duplicateSurveyIds.length > 0) {
@@ -666,7 +690,7 @@ export class ExportWorkerService {
           dir,
           `${sanitizeExportPathSegment(ward.ulb.code)}-${sanitizeExportPathSegment(ward.wardNumber)}.xlsx`
         )
-        const { rowCount } = await streamSurveyDataWorkbookToFile(wardFile, this.iterateSurveyBundles(wardWhere))
+        const { rowCount } = await streamSurveyDataWorkbookToFile(wardFile, this.iterateSurveyDataBundles(wardWhere))
         const entryName = wardSurveyDataZipEntry(ward.ulb.code, ward.wardNumber, ward.wardName)
         archive.file(wardFile, { name: entryName })
         wardsWithData += 1
@@ -828,7 +852,12 @@ export class ExportWorkerService {
     const bundles = rows as unknown as SurveyExportBundle[]
     if (reportType === "convex_full") return renderConvexFullWorkbook(bundles)
     if (reportType === "nagar_panchayat") return renderNagarPanchayatWorkbook(bundles)
-    if (reportType === "survey_data") return renderSurveyDataWorkbook(bundles)
+    if (reportType === "survey_data") {
+      const withUrls = await Promise.all(
+        bundles.map((row) => withParcelImageExportUrls(row, (objectKey) => this.signExportPhoto(objectKey)))
+      )
+      return renderSurveyDataWorkbook(withUrls)
+    }
     if (reportType === "qc_final") {
       throw new Error("qc_final Excel requires the ward streaming export path with published tax rates")
     }

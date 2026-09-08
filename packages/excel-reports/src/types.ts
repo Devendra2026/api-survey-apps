@@ -104,4 +104,9 @@ export interface PhotoExportRow {
   sizeKB?: number | null
   width?: number | null
   height?: number | null
+  id?: string | null
+  objectKey?: string | null
+  sourceUrl?: string | null
+  /** Signed or durable https URL for Parcel Images. Do not write cached `url` when this is set. */
+  exportUrl?: string | null
 }

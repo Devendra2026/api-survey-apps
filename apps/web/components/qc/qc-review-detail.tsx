@@ -64,9 +64,17 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
   const actions = useQcSurveyActions()
 
   const survey = detailQuery.data
-  // Prefer Active QC Ward for queue / Go-to-parcel so soft-deleted survey ward aliases resolve correctly.
-  // Fall back to the survey ward when Active Ward is unset.
-  const queueWardId = activeWardId || survey?.editable.wardId || null
+  const contextUlbId = activeUlbId || urlScope.ulbId || survey?.editable.ulbId
+  const { data: contextWards } = useWards(contextUlbId || undefined)
+  const activeWardIds = useMemo(
+    () => new Set((contextWards?.items ?? []).map((ward) => ward.id)),
+    [contextWards?.items]
+  )
+  // Ignore a persisted leftover UUID once the active ward catalog is loaded.
+  const canonicalActiveWardId = activeWardId && contextWards && !activeWardIds.has(activeWardId) ? null : activeWardId
+  // Prefer Active QC Ward, then URL scope, then the open survey. Do not use a leftover
+  // survey wardId as the lookup context when a canonical ward is already selected.
+  const queueWardId = canonicalActiveWardId || urlScope.wardId || survey?.editable.wardId || null
   const queueUlbId = scopeIds.ulbId || survey?.editable.ulbId
   const neighborsQuery = useQcQueueNeighbors(
     queueWardId,
@@ -101,12 +109,15 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
     if (editMode) setEditMode(false)
   }
 
-  // Keep working context aligned with the open survey so ward chrome and queue stay consistent.
+  // Align working context with the open survey only when that ward is in the active catalog.
+  // Leftover Align UUIDs must not replace the user's Active Ward (Ward 7 lookup must stay Ward 7).
   useEffect(() => {
     if (!survey?.editable.wardId || !survey.editable.ulbId) return
+    if (!contextWards) return
+    if (!activeWardIds.has(survey.editable.wardId)) return
     if (activeWardId === survey.editable.wardId) return
     setActiveWard({ wardId: survey.editable.wardId, ulbId: survey.editable.ulbId })
-  }, [survey?.editable.wardId, survey?.editable.ulbId, activeWardId, setActiveWard])
+  }, [survey?.editable.wardId, survey?.editable.ulbId, activeWardId, activeWardIds, contextWards, setActiveWard])
 
   // Keep draft floors in sync when floor CRUD refreshes QC detail during edit.
   useEffect(() => {
@@ -140,17 +151,19 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
   }, [router, survey?.id, surveyId, scopeIds])
 
   const previewPropertyId = useMemo(() => {
-    if (!editMode || !draft || !survey) return survey?.propertyId ?? ""
+    if (!survey) return ""
     const parsed = parsePropertyId(survey.propertyId)
-    const selectedWard = (draftWards?.items ?? []).find((w) => w.id === draft.wardId)
+    const source = editMode && draft ? draft : survey.editable
+    const selectedWard = editMode && draft ? (draftWards?.items ?? []).find((w) => w.id === draft.wardId) : undefined
     const ulbCode = parsed?.ulbCode ?? ""
-    const wardNo = selectedWard?.wardNumber ?? parsed?.wardNo ?? survey.wardNo ?? ""
+    const liveWardNo = selectedWard?.wardNumber ?? (survey.wardNo && survey.wardNo !== "—" ? survey.wardNo : "")
+    const wardNo = liveWardNo || parsed?.wardNo || ""
     const formatted = formatPropertyId({
       ulbCode,
       wardNo,
-      parcelNo: draft.parcelNumber ?? "",
-      unitNo: draft.unitSubNo ?? "",
-      propertyUse: draft.propertyUse ?? "",
+      parcelNo: source.parcelNumber ?? "",
+      unitNo: source.unitSubNo ?? "",
+      propertyUse: source.propertyUse ?? "",
     })
     return formatted ?? survey.propertyId
   }, [draft, draftWards?.items, editMode, survey])

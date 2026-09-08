@@ -183,7 +183,7 @@ describe("Excel report templates", () => {
 
   it("renders 39-column Survey Data with floor narrative in Floors column", async () => {
     const workbook = await loadFromBuffer(await renderSurveyDataWorkbook([bundle]))
-    expect(workbook.worksheets.map((s) => s.name)).toEqual(["Survey Data"])
+    expect(workbook.worksheets.map((s) => s.name)).toEqual(["Survey Data", "Parcel Images"])
     const sheet = workbook.getWorksheet("Survey Data")!
     expect(sheet.autoFilter).toBeFalsy()
     expect(sheet.views?.[0]).toMatchObject({ state: "frozen", ySplit: 1, xSplit: 5 })
@@ -211,6 +211,76 @@ describe("Excel report templates", () => {
     expect(floorsText).toContain("Usage Type - Residential")
     expect(floorsText).toContain("Pakka Building with R.C.C Roof or R.B. Roof")
     expect(sheet.getColumn(floorsCol).width).toBeGreaterThanOrEqual(48)
+  })
+
+  it("adds a Parcel Images sheet mapped to property, ward, parcel, and unit", async () => {
+    const multi = {
+      ...bundle,
+      photos: [
+        {
+          id: "photo-front",
+          photoType: "FRONT",
+          objectKey: "uploads/ulb/ward/survey/front.jpg",
+          url: "uploads/ulb/ward/survey/front.jpg",
+          exportUrl: "https://files.example.test/front.jpg",
+        },
+        {
+          id: "photo-doc",
+          photoType: "DOCUMENT",
+          objectKey: "uploads/ulb/ward/survey/doc.pdf",
+          url: "https://expired.example.test/old",
+          exportUrl: "https://files.example.test/doc.pdf",
+        },
+      ],
+    }
+    const workbook = await loadFromBuffer(await renderSurveyDataWorkbook([multi, { ...bundle, photos: [] }]))
+    const images = workbook.getWorksheet("Parcel Images")!
+    expect(rowValues(images, 1)).toEqual([
+      "Property ID",
+      "Ward Name",
+      "Ward Number",
+      "Parcel No",
+      "Unit No",
+      "Image Type",
+      "Image Name",
+      "Image URL",
+    ])
+    expect(rowValues(images, 2)).toEqual([
+      multi.propertyId,
+      "Ward 1",
+      "001",
+      "00004",
+      "001",
+      "Front View",
+      "front.jpg",
+      "https://files.example.test/front.jpg",
+    ])
+    expect(rowValues(images, 3)).toEqual([
+      multi.propertyId,
+      "Ward 1",
+      "001",
+      "00004",
+      "001",
+      "Document",
+      "doc.pdf",
+      "https://files.example.test/doc.pdf",
+    ])
+    expect(images.rowCount).toBe(3)
+    const urlCell = images.getRow(2).getCell(8).value
+    expect(urlCell).toEqual(
+      expect.objectContaining({
+        text: "https://files.example.test/front.jpg",
+        hyperlink: "https://files.example.test/front.jpg",
+      })
+    )
+  })
+
+  it("writes Parcel Images headers when a survey has no photos", async () => {
+    const workbook = await loadFromBuffer(await renderSurveyDataWorkbook([{ ...bundle, photos: [] }]))
+    const images = workbook.getWorksheet("Parcel Images")!
+    expect(rowValues(images, 1)[0]).toBe("Property ID")
+    expect(images.rowCount).toBe(1)
+    expect(workbook.getWorksheet("Survey Data")!.getRow(2).getCell(5).value).toBe(bundle.propertyId)
   })
 
   it("matches Ward-1-Etah 39-column headers when golden file is available", async () => {

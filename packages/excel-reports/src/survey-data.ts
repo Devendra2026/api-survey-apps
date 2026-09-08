@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { PARCEL_IMAGE_HEADERS, PARCEL_IMAGES_SHEET_NAME, toParcelImageRows } from "./parcel-images.js"
 import { COMMON_SURVEY_COLUMNS, SURVEY_ID_COLUMN_INDEX, toCommonSurveyRow } from "./premium-columns.js"
 import { renderEnterpriseWorkbook, streamEnterpriseWorkbookToFile } from "./premium-workbook.js"
 import type { SurveyExportBundle } from "./types.js"
@@ -20,7 +21,8 @@ export type SurveyPremiumExportOptions = {
 
 async function* mapSurveyRows(
   rows: AsyncIterable<SurveyExportBundle> | Iterable<SurveyExportBundle>,
-  duplicateLog: string[]
+  duplicateLog: string[],
+  parcelImageRows: unknown[][]
 ): AsyncGenerator<unknown[]> {
   const seen = new Set<string>()
   let serial = 0
@@ -32,6 +34,9 @@ async function* mapSurveyRows(
       if (seen.has(surveyId)) duplicateLog.push(surveyId)
       else seen.add(surveyId)
     }
+    for (const imageRow of toParcelImageRows(row)) {
+      parcelImageRows.push(imageRow)
+    }
     yield values
   }
 }
@@ -42,13 +47,22 @@ export async function renderSurveyDataWorkbook(
   options?: SurveyPremiumExportOptions
 ): Promise<Buffer> {
   const duplicates: string[] = []
+  const parcelImageRows: unknown[][] = []
   return renderEnterpriseWorkbook({
     dataSheetName: "Survey Data",
     columns: COMMON_SURVEY_COLUMNS,
     freezeCol: SURVEY_ID_COLUMN_INDEX,
     exportedAt: options?.exportedAt,
     enableAutoFilter: options?.enableAutoFilter,
-    rows: mapSurveyRows(rows, duplicates),
+    rows: mapSurveyRows(rows, duplicates, parcelImageRows),
+    extraSheets: [
+      {
+        name: PARCEL_IMAGES_SHEET_NAME,
+        headers: PARCEL_IMAGE_HEADERS,
+        rows: parcelImageRows,
+        hyperlinkColumns: [8],
+      },
+    ],
   })
 }
 
@@ -58,6 +72,7 @@ export async function streamSurveyDataWorkbookToFile(
   options?: SurveyPremiumExportOptions
 ): Promise<{ rowCount: number; duplicateSurveyIds: string[] }> {
   const duplicates: string[] = []
+  const parcelImageRows: unknown[][] = []
   const { rowCount } = await streamEnterpriseWorkbookToFile({
     filename,
     dataSheetName: "Survey Data",
@@ -65,7 +80,15 @@ export async function streamSurveyDataWorkbookToFile(
     freezeCol: SURVEY_ID_COLUMN_INDEX,
     exportedAt: options?.exportedAt,
     enableAutoFilter: options?.enableAutoFilter,
-    rows: mapSurveyRows(rows, duplicates),
+    rows: mapSurveyRows(rows, duplicates, parcelImageRows),
+    extraSheets: [
+      {
+        name: PARCEL_IMAGES_SHEET_NAME,
+        headers: PARCEL_IMAGE_HEADERS,
+        rows: parcelImageRows,
+        hyperlinkColumns: [8],
+      },
+    ],
   })
   return { rowCount, duplicateSurveyIds: duplicates }
 }

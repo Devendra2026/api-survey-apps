@@ -176,7 +176,19 @@ export class ReportsRepository {
         ulb: { select: { name: true, code: true } },
         district: { select: { name: true } },
         coOwners: { select: { name: true, fatherOrHusbandName: true, mobile: true, alternateMobile: true } },
-        photos: { select: { photoType: true, url: true, capturedAt: true, sizeKB: true, width: true, height: true } },
+        photos: {
+          select: {
+            id: true,
+            photoType: true,
+            url: true,
+            sourceUrl: true,
+            objectKey: true,
+            capturedAt: true,
+            sizeKB: true,
+            width: true,
+            height: true,
+          },
+        },
       },
     })
 

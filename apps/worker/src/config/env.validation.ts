@@ -79,6 +79,12 @@ export class WorkerEnvironmentVariables {
   @IsUrl({ require_tld: false })
   MINIO_ENDPOINT?: string
 
+  /** Browser-reachable host used when signing Parcel Images download URLs. */
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @IsUrl({ require_tld: false })
+  MINIO_PUBLIC_URL?: string
+
   @IsOptional()
   @Transform(emptyToUndefined)
   @IsString()
@@ -98,6 +104,12 @@ export class WorkerEnvironmentVariables {
   @Transform(emptyToUndefined)
   @IsString()
   AWS_S3_BUCKET?: string
+
+  /** Browser-reachable host used when signing Parcel Images download URLs. */
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @IsUrl({ require_tld: false })
+  AWS_S3_PUBLIC_URL?: string
 
   @IsOptional()
   @Transform(emptyToUndefined)

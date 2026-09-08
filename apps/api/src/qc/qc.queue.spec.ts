@@ -139,5 +139,56 @@ describe("QcRepository queue first/neighbors", () => {
         qcStatus: "PENDING",
       })
     )
+    expect(findFirst).toHaveBeenCalledTimes(1)
+  })
+
+  it("prefers a pending survey over a non-pending match in the same ward", async () => {
+    findFirst.mockResolvedValueOnce(queue[1] as never)
+    await expect(repo.findQueueByParcel(user, wardId, "00269")).resolves.toEqual(queue[1])
+    expect(findFirst).toHaveBeenCalledTimes(1)
+    const call = findFirst.mock.calls[0]?.[0] as { where: { AND: Array<Record<string, unknown>> } }
+    expect(call.where.AND[0]).toEqual(
+      expect.objectContaining({
+        wardId,
+        surveyStatus: "SUBMITTED",
+        qcStatus: "PENDING",
+      })
+    )
+  })
+
+  it("returns an approved survey in the active ward when none are pending", async () => {
+    const approved = { id: "s-approved", parcelNumber: "00269" }
+    findFirst.mockResolvedValueOnce(null as never).mockResolvedValueOnce(approved as never)
+
+    await expect(repo.findQueueByParcel(user, wardId, "269")).resolves.toEqual(approved)
+
+    expect(findFirst).toHaveBeenCalledTimes(2)
+    const pendingCall = findFirst.mock.calls[0]?.[0] as { where: { AND: Array<Record<string, unknown>> } }
+    const censusCall = findFirst.mock.calls[1]?.[0] as { where: { AND: Array<Record<string, unknown>> } }
+    expect(pendingCall.where.AND[0]).toEqual(
+      expect.objectContaining({ wardId, surveyStatus: "SUBMITTED", qcStatus: "PENDING" })
+    )
+    expect(censusCall.where.AND[0]).toEqual(
+      expect.objectContaining({
+        deletedAt: null,
+        wardId,
+      })
+    )
+    expect(censusCall.where.AND[0]).not.toEqual(expect.objectContaining({ qcStatus: "PENDING" }))
+    expect(censusCall.where.AND[1]).toEqual(
+      expect.objectContaining({
+        OR: [{ parcelNumber: { in: expect.arrayContaining(["269", "00269"]) } }, { parcelNumber: "269" }],
+      })
+    )
+  })
+
+  it("returns null when the parcel does not exist in the active ward", async () => {
+    findFirst.mockResolvedValue(null as never)
+    await expect(repo.findQueueByParcel(user, "ward-7", "00269")).resolves.toBeNull()
+    expect(findFirst).toHaveBeenCalledTimes(2)
+    for (const call of findFirst.mock.calls) {
+      const where = (call[0] as { where: { AND: Array<Record<string, unknown>> } }).where
+      expect(where.AND[0]).toEqual(expect.objectContaining({ wardId: "ward-7" }))
+    }
   })
 })

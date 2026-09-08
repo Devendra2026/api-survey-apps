@@ -2,9 +2,11 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from "@nes
 import { ExportFormat as DbExportFormat, JobStatus, type Prisma, type SurveyStatus } from "@workspace/database"
 import {
   buildExportFilename,
+  PHOTO_EXPORT_URL_TTL_SECONDS,
   renderConvexFullWorkbook,
   renderNagarPanchayatWorkbook,
   renderSurveyDataWorkbook,
+  withParcelImageExportUrls,
   type SurveyExportBundle,
 } from "@workspace/excel-reports"
 import type { ExportFiltersPayload } from "@workspace/jobs"
@@ -447,7 +449,15 @@ export class ReportsService {
     if (reportType === "convex_full") return renderConvexFullWorkbook(bundles)
     if (reportType === "nagar_panchayat") return renderNagarPanchayatWorkbook(bundles)
     if (reportType === "survey_data") {
-      return renderSurveyDataWorkbook(bundles, { enableAutoFilter: options.enableAutoFilter })
+      const withUrls = await Promise.all(
+        bundles.map((row) =>
+          withParcelImageExportUrls(row, async (objectKey) => {
+            if (!this.storageService.isConfigured()) return null
+            return this.storageService.getPresignedDownloadUrl(objectKey, PHOTO_EXPORT_URL_TTL_SECONDS)
+          })
+        )
+      )
+      return renderSurveyDataWorkbook(withUrls, { enableAutoFilter: options.enableAutoFilter })
     }
     if (reportType === "qc_final") {
       throw new Error("qc_final Excel requires the ward streaming export path with published tax rates")

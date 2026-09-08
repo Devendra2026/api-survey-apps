@@ -425,25 +425,48 @@ export class QcRepository {
     }
   }
 
+  private parcelMatchWhere(parcelNumber: string): Prisma.SurveyWhereInput {
+    const variants = parcelNumberVariants(parcelNumber)
+    return variants.length > 0 ? { OR: [{ parcelNumber: { in: variants } }, { parcelNumber }] } : { parcelNumber }
+  }
+
+  /** Non-deleted surveys in the active ward (and Align leftovers of the same catalog number). */
+  private wardCensusWhere(user: AuthenticatedUser, wardIds: string[]): Prisma.SurveyWhereInput {
+    const scope = resolveTenantScope(user.tenantRoles)
+    const tenantWhere = buildTenantWhere(scope)
+    return {
+      deletedAt: null,
+      wardId: wardIds.length === 1 ? wardIds[0] : { in: wardIds },
+      ...(tenantWhere ?? {}),
+    }
+  }
+
   async findQueueByParcel(user: AuthenticatedUser, wardId: string, parcelNumber: string) {
     const normalized = parcelNumber.trim()
     if (!normalized) {
       throw new BadRequestException("Parcel number is required")
     }
-    const variants = parcelNumberVariants(normalized)
     const wardIds = await this.wardIdsForQueue(wardId)
-    const parcelMatch: Prisma.SurveyWhereInput =
-      variants.length > 0
-        ? { OR: [{ parcelNumber: { in: variants } }, { parcelNumber: normalized }] }
-        : { parcelNumber: normalized }
-    const row = await this.prisma.db.survey.findFirst({
-      where: {
-        AND: [this.pendingQueueWhere(user, wardIds), parcelMatch],
-      },
-      select: { id: true, parcelNumber: true },
-      orderBy: [{ parcelNumber: { sort: "asc", nulls: "last" } }, { id: "asc" }],
+    const parcelMatch = this.parcelMatchWhere(normalized)
+    const orderBy = [
+      { parcelNumber: { sort: "asc" as const, nulls: "last" as const } },
+      { unitSubNo: { sort: "asc" as const, nulls: "last" as const } },
+      { id: "asc" as const },
+    ]
+    const select = { id: true, parcelNumber: true }
+
+    const pending = await this.prisma.db.survey.findFirst({
+      where: { AND: [this.pendingQueueWhere(user, wardIds), parcelMatch] },
+      select,
+      orderBy,
     })
-    return row
+    if (pending) return pending
+
+    return this.prisma.db.survey.findFirst({
+      where: { AND: [this.wardCensusWhere(user, wardIds), parcelMatch] },
+      select,
+      orderBy,
+    })
   }
 
   async getMetrics(user: AuthenticatedUser, filters: QcFiltersDto) {
@@ -605,8 +628,10 @@ export class QcRepository {
     const nextUlbId = patch.ulbId ?? existing.ulbId
     const nextWardId = patch.wardId ?? existing.wardId
 
-    let ulbCode = existing.ulbCode ?? existing.ulb?.code ?? ""
-    let wardNo = existing.wardNumber ?? existing.ward?.wardNumber ?? ""
+    // Live catalog ward/ULB, same priority as QC display — denormalized fields must not
+    // encode a different ward into Property ID while the header shows the FK ward.
+    let ulbCode = existing.ulb?.code ?? existing.ulbCode ?? ""
+    let wardNo = existing.ward?.wardNumber ?? existing.wardNumber ?? ""
 
     if (patch.ulbId || patch.wardId) {
       const ward = await this.prisma.db.ward.findUnique({
@@ -732,6 +757,11 @@ export class QcRepository {
       scalarData.ward = { connect: { id: nextWardId } }
       if (ulbCode) scalarData.ulbCode = ulbCode
       if (wardNo) scalarData.wardNumber = wardNo
+    } else {
+      // Geo was not patched, but Property ID uses the live catalog. Persist the same codes
+      // so stored wardNumber / ulbCode stay aligned with the written Property ID.
+      if (ulbCode && ulbCode !== existing.ulbCode) scalarData.ulbCode = ulbCode
+      if (wardNo && wardNo !== existing.wardNumber) scalarData.wardNumber = wardNo
     }
     if (patch.assignedToId !== undefined) {
       scalarData.assignedTo = patch.assignedToId ? { connect: { id: patch.assignedToId } } : { disconnect: true }

@@ -1,6 +1,6 @@
 "use client"
 
-import { appNav, flattenNav } from "@/lib/navigation"
+import { appNav, flattenNav, navDisplayTitle } from "@/lib/navigation"
 import { useAuthStore, useUiStore } from "@/stores/app-store"
 import {
   CommandDialog,
@@ -67,14 +67,15 @@ export function CommandPalette() {
         <CommandGroup heading="Navigation">
           {navItems.map((item) => {
             const Icon = item.icon
+            const label = navDisplayTitle(item)
             return (
               <CommandItem
                 key={item.href}
-                value={`${item.title} ${item.description ?? ""}`}
+                value={`${label} ${item.title} ${item.groupTitle ?? ""} ${item.description ?? ""} ${item.keywords ?? ""}`}
                 onSelect={() => run(item.href)}
               >
                 <Icon />
-                <span>{item.title}</span>
+                <span>{label}</span>
               </CommandItem>
             )
           })}
@@ -90,7 +91,7 @@ export function CommandPalette() {
             <span>Browse survey registry</span>
           </CommandItem>
           {hasPermission("survey:approve") ? (
-            <CommandItem value="qc review" onSelect={() => run("/qc/registry")}>
+            <CommandItem value="qc review qc registry" onSelect={() => run("/qc/registry")}>
               <ClipboardCheck />
               <span>Open QC Review</span>
             </CommandItem>

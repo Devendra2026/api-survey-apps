@@ -57,6 +57,7 @@ import type {
   UserImportResult,
   WardCommandStat,
 } from "@/lib/api/types"
+import { buildQcQueueSearchParams } from "@/lib/ward-action-links"
 import { useAuthStore } from "@/stores/app-store"
 import { useAuth } from "@clerk/nextjs"
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -257,14 +258,15 @@ export function useQcRegistry(filters: QcRegistryFilters, enabled = true) {
   })
 }
 
-export function useQcQueueFirst(wardId: string | null | undefined, enabled = true) {
+export function useQcQueueFirst(wardId: string | null | undefined, enabled = true, ulbId?: string | null) {
   const { isLoaded, isSignedIn } = useAuth()
   const hasPermission = useAuthStore((s) => s.hasPermission)
   const canApprove = hasPermission("survey:approve")
 
   return useQuery({
-    queryKey: ["qc", "queue", "first", wardId],
-    queryFn: () => apiGet<QcQueueParcel | null>(`/qc/queue/first?wardId=${encodeURIComponent(wardId!)}`),
+    queryKey: ["qc", "queue", "first", wardId, ulbId ?? null],
+    queryFn: () =>
+      apiGet<QcQueueParcel | null>(`/qc/queue/first?${buildQcQueueSearchParams({ wardId: wardId!, ulbId })}`),
     enabled: isLoaded && Boolean(isSignedIn) && canApprove && Boolean(wardId) && enabled,
   })
 }
@@ -272,17 +274,18 @@ export function useQcQueueFirst(wardId: string | null | undefined, enabled = tru
 export function useQcQueueNeighbors(
   wardId: string | null | undefined,
   surveyId: string | null | undefined,
-  enabled = true
+  enabled = true,
+  ulbId?: string | null
 ) {
   const { isLoaded, isSignedIn } = useAuth()
   const hasPermission = useAuthStore((s) => s.hasPermission)
   const canApprove = hasPermission("survey:approve")
 
   return useQuery({
-    queryKey: ["qc", "queue", "neighbors", wardId, surveyId],
+    queryKey: ["qc", "queue", "neighbors", wardId, surveyId, ulbId ?? null],
     queryFn: () =>
       apiGet<QcQueueNeighbors>(
-        `/qc/queue/neighbors?wardId=${encodeURIComponent(wardId!)}&surveyId=${encodeURIComponent(surveyId!)}`
+        `/qc/queue/neighbors?${buildQcQueueSearchParams({ wardId: wardId!, ulbId, surveyId: surveyId! })}`
       ),
     enabled: isLoaded && Boolean(isSignedIn) && canApprove && Boolean(wardId) && Boolean(surveyId) && enabled,
   })

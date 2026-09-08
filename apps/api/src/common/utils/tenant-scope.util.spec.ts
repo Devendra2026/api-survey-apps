@@ -106,6 +106,8 @@ describe("tenant-scope.util", () => {
     expect(buildTenantWhere(scope)).toEqual({ OR: [{ ulbId: { in: ["ulb1"] } }] })
     expect(canAccessTenant(scope, { districtId: "dist1", ulbId: "ulb1" })).toBe(true)
     expect(canAccessTenant(scope, { ulbId: "ulb1", wardId: "any-ward" })).toBe(true)
+    // Start QC must send ulbId; wardId alone cannot satisfy All Wards scope.
+    expect(canAccessTenant(scope, { wardId: "any-ward" })).toBe(false)
     expect(canAccessTenant(scope, { ulbId: "ulb-other" })).toBe(false)
   })
 

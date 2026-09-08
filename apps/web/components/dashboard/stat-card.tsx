@@ -23,9 +23,9 @@ export function StatCard({
   return (
     <div
       className={cn(
-        "rounded-xl border bg-white p-4 shadow-sm transition-all duration-300 dark:bg-slate-900 dark:shadow-xl",
+        "h-full rounded-xl border bg-white p-4 shadow-sm transition-colors duration-200 dark:bg-slate-900",
         accentBorders[accent],
-        hoverLift && "hover:-translate-y-1 hover:shadow-md dark:hover:shadow-2xl",
+        hoverLift && "hover:border-slate-200 hover:shadow-md dark:hover:border-slate-700",
         className
       )}
     >

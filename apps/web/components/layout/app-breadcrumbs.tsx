@@ -18,7 +18,7 @@ const labelMap: Record<string, string> = {
   surveys: "Survey Registry",
   "command-center": "Command Center",
   new: "New Survey",
-  qc: "QC Review",
+  qc: "QC Portal",
   registry: "Registry",
   review: "Review",
   reports: "Reports",

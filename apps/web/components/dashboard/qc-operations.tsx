@@ -9,11 +9,11 @@ export function QcOperations({ cards }: { cards: QcOpsCard[] }) {
   return (
     <section>
       <SectionHeading title="QC Operations" subtitle="Review workload and approval throughput" />
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {cards.map((card) => {
           const isQueue = card.id === "queue-health"
           return (
-            <StatCard key={card.id} accent={card.accent} className="flex flex-col gap-3">
+            <StatCard key={card.id} accent={card.accent} className="flex h-full flex-col gap-3">
               <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{card.label}</p>
               {isQueue && card.badge ? (
                 <Badge className="w-fit border-0 bg-amber-50 text-amber-700 hover:bg-amber-50 dark:bg-amber-950/40 dark:text-amber-400">
@@ -28,7 +28,7 @@ export function QcOperations({ cards }: { cards: QcOpsCard[] }) {
               {card.actionLabel && card.actionHref ? (
                 <Link
                   href={card.actionHref}
-                  className="mt-auto inline-flex cursor-pointer items-center gap-1 text-sm font-medium text-indigo-600 transition-colors hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+                  className="mt-auto inline-flex cursor-pointer items-center gap-1 rounded-sm text-sm font-medium text-indigo-600 transition-colors outline-none hover:text-indigo-700 focus-visible:ring-2 focus-visible:ring-primary/40 dark:text-indigo-400 dark:hover:text-indigo-300"
                 >
                   {card.actionLabel}
                   <ArrowUpRight className="size-3.5" />

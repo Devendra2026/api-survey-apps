@@ -1,13 +1,17 @@
 import {
+  Activity,
   BarChart3,
   ClipboardCheck,
   ClipboardList,
   Database,
   FileUp,
+  Gauge,
   LayoutDashboard,
+  ListChecks,
   RefreshCw,
   Settings,
   Shield,
+  Table2,
   Users,
 } from "lucide-react"
 
@@ -19,31 +23,46 @@ export interface NavItem {
   icon: LucideIcon
   permission?: string
   description?: string
+  /** Extra search terms. Not shown in the sidebar. */
+  keywords?: string
   children?: NavItem[]
 }
 
-/** Flatten nested nav trees for command palette / breadcrumbs. */
-export function flattenNav(items: NavItem[]): NavItem[] {
-  const result: NavItem[] = []
+export interface FlatNavItem extends NavItem {
+  groupTitle?: string
+}
+
+/** Flatten nested nav trees for command palette. Groups are not destinations. */
+export function flattenNav(items: NavItem[], groupTitle?: string): FlatNavItem[] {
+  const result: FlatNavItem[] = []
   for (const item of items) {
     if (item.children?.length) {
-      result.push(...flattenNav(item.children))
+      result.push(...flattenNav(item.children, item.title))
     } else {
-      result.push(item)
+      result.push(groupTitle ? { ...item, groupTitle } : item)
     }
   }
   return result
 }
 
+/** Prefer a matching child so a group href cannot override a leaf label. */
 export function findNavTitle(items: NavItem[], href: string): string | undefined {
   for (const item of items) {
-    if (item.href === href) return item.title
     if (item.children?.length) {
       const nested = findNavTitle(item.children, href)
       if (nested) return nested
     }
+    if (item.href === href) return item.title
   }
   return undefined
+}
+
+/** Disambiguate identical child labels (both groups have Command Center). */
+export function navDisplayTitle(item: Pick<NavItem, "title"> & { groupTitle?: string }): string {
+  if (item.groupTitle && item.title === "Command Center") {
+    return `${item.groupTitle} · ${item.title}`
+  }
+  return item.title
 }
 
 export const appNav: NavItem[] = [
@@ -55,36 +74,44 @@ export const appNav: NavItem[] = [
   },
   {
     title: "Field Surveys",
-    href: "/surveys",
+    href: "#field-surveys",
     icon: ClipboardList,
     children: [
       {
         title: "Command Center",
         href: "/surveys/command-center",
-        icon: ClipboardList,
+        icon: Gauge,
         permission: "survey:view",
         description: "Ward-wise field progress and filters",
       },
       {
         title: "Survey Registry",
         href: "/surveys",
-        icon: ClipboardList,
+        icon: Table2,
         permission: "survey:view",
         description: "Search, filter, and manage surveys",
       },
+    ],
+  },
+  {
+    title: "QC Portal",
+    href: "#qc-portal",
+    icon: ClipboardCheck,
+    children: [
       {
-        title: "QC Command Center",
+        title: "Command Center",
         href: "/qc/command-center",
-        icon: ClipboardCheck,
+        icon: Activity,
         permission: "survey:approve",
         description: "Ward-wise QC queues and quick actions",
       },
       {
-        title: "QC Review",
+        title: "QC Registry",
         href: "/qc/registry",
-        icon: ClipboardCheck,
+        icon: ListChecks,
         permission: "survey:approve",
         description: "Review, correct, and approve submitted surveys",
+        keywords: "QC Review",
       },
     ],
   },

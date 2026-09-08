@@ -1,10 +1,16 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger"
-import { IsString } from "class-validator"
+import { IsOptional, IsString } from "class-validator"
 
 export class QcQueueFirstQueryDto {
   @ApiProperty({ description: "Active ward id" })
   @IsString()
   wardId!: string
+
+  /** Required for All Wards (ULB-scoped) callers; TenantGuard matches ulbId, not wardId alone. */
+  @ApiPropertyOptional({ description: "Active ULB id for tenant scope" })
+  @IsOptional()
+  @IsString()
+  ulbId?: string
 }
 
 export class QcQueueNeighborsQueryDto {
@@ -16,6 +22,12 @@ export class QcQueueNeighborsQueryDto {
   @ApiProperty({ description: "Current survey id" })
   @IsString()
   surveyId!: string
+
+  /** Required for All Wards (ULB-scoped) callers; TenantGuard matches ulbId, not wardId alone. */
+  @ApiPropertyOptional({ description: "Active ULB id for tenant scope" })
+  @IsOptional()
+  @IsString()
+  ulbId?: string
 }
 
 export class QcQueueByParcelQueryDto {
@@ -26,6 +38,12 @@ export class QcQueueByParcelQueryDto {
   @ApiProperty({ description: "Parcel number to jump to" })
   @IsString()
   parcelNumber!: string
+
+  /** Required for All Wards (ULB-scoped) callers; TenantGuard matches ulbId, not wardId alone. */
+  @ApiPropertyOptional({ description: "Active ULB id for tenant scope" })
+  @IsOptional()
+  @IsString()
+  ulbId?: string
 }
 
 export class QcQueueParcelDto {

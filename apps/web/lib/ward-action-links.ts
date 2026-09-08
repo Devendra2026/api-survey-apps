@@ -53,6 +53,27 @@ export function buildQcReviewHref(surveyId: string, ids?: Partial<WardActionIds>
   return qs ? `/qc/review/${surveyId}?${qs}` : `/qc/review/${surveyId}`
 }
 
+/**
+ * Queue endpoints authorize All Wards (ULB) scope via `ulbId`.
+ * Omit the param when the caller has no known ULB — do not invent one.
+ */
+export function buildQcQueueSearchParams(args: {
+  wardId: string
+  ulbId?: string | null
+  surveyId?: string
+  parcelNumber?: string
+}): string {
+  const params = new URLSearchParams()
+  params.set("wardId", args.wardId)
+  const ulbId = args.ulbId?.trim()
+  if (ulbId) params.set("ulbId", ulbId)
+  const surveyId = args.surveyId?.trim()
+  if (surveyId) params.set("surveyId", surveyId)
+  const parcelNumber = args.parcelNumber?.trim()
+  if (parcelNumber) params.set("parcelNumber", parcelNumber)
+  return params.toString()
+}
+
 /** Build deep-link hrefs for ward card actions (IDs only). */
 export function buildWardActionHref(action: WardAction, ids: WardActionIds): string {
   const params = buildRegistryScopeSearchParams(ids)

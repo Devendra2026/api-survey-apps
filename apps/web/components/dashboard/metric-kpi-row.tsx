@@ -27,12 +27,12 @@ const toneStyles: Record<DashboardKpi["tone"], { iconWrap: string; value?: strin
 
 export function MetricKpiRow({ kpis }: { kpis: DashboardKpi[] }) {
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+    <div className="grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-5">
       {kpis.map((kpi) => {
         const Icon = iconMap[kpi.icon]
         const tone = toneStyles[kpi.tone]
         return (
-          <StatCard key={kpi.id} className="flex flex-col gap-3">
+          <StatCard key={kpi.id} className="flex h-full flex-col gap-3">
             <div className="flex items-start justify-between gap-2">
               <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{kpi.label}</p>
               <span className={`flex size-9 items-center justify-center rounded-lg ${tone.iconWrap}`}>

@@ -15,7 +15,7 @@ export function ProductivityAnalytics({
   return (
     <section>
       <SectionHeading title="Productivity Analytics" subtitle="30-day trends and team performance" />
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
         <StatCard hoverLift={false} className="flex min-h-80 flex-col">
           <div className="mb-2">
             <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">Daily Survey & Approval Trend</p>

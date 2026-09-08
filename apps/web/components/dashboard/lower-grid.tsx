@@ -24,7 +24,7 @@ export function LowerGrid({
   activity: ActivityItem[]
 }) {
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+    <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-3">
       <StatCard hoverLift={false} className="flex flex-col">
         <div className="mb-4">
           <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">QC Supervisor Throughput</p>

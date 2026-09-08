@@ -2,6 +2,7 @@
 
 import { EmptyState } from "@/components/shared/page-elements"
 import { apiGet, getApiErrorMessage } from "@/lib/api/client"
+import { buildQcQueueSearchParams } from "@/lib/ward-action-links"
 import type { QcQueueParcel } from "@/lib/api/types"
 import { useAuthStore } from "@/stores/app-store"
 import { useQcWorkingContext } from "@/stores/qc-working-context"
@@ -30,7 +31,9 @@ function QcQueueStartInner() {
     const run = async () => {
       try {
         if (ulbId) setActiveWard({ wardId, ulbId })
-        const first = await apiGet<QcQueueParcel | null>(`/qc/queue/first?wardId=${encodeURIComponent(wardId)}`)
+        const first = await apiGet<QcQueueParcel | null>(
+          `/qc/queue/first?${buildQcQueueSearchParams({ wardId, ulbId })}`
+        )
         if (cancelled) return
         if (first?.id) {
           router.replace(`/qc/review/${encodeURIComponent(first.id)}`)

@@ -13,7 +13,12 @@ import {
 } from "@/hooks/use-api"
 import { apiGet, getApiErrorMessage } from "@/lib/api/client"
 import type { QcQueueParcel, QcSurveyDetail, QcSurveyEditable } from "@/lib/api/types"
-import { buildQcRegistryHref, buildQcReviewHref, readScopeFromSearchParams } from "@/lib/ward-action-links"
+import {
+  buildQcQueueSearchParams,
+  buildQcRegistryHref,
+  buildQcReviewHref,
+  readScopeFromSearchParams,
+} from "@/lib/ward-action-links"
 import { useAuthStore } from "@/stores/app-store"
 import { useQcWorkingContext } from "@/stores/qc-working-context"
 import { useQueryClient } from "@tanstack/react-query"
@@ -62,7 +67,13 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
   // Prefer Active QC Ward for queue / Go-to-parcel so soft-deleted survey ward aliases resolve correctly.
   // Fall back to the survey ward when Active Ward is unset.
   const queueWardId = activeWardId || survey?.editable.wardId || null
-  const neighborsQuery = useQcQueueNeighbors(queueWardId, survey?.id, Boolean(canApprove) && Boolean(survey?.id))
+  const queueUlbId = scopeIds.ulbId || survey?.editable.ulbId
+  const neighborsQuery = useQcQueueNeighbors(
+    queueWardId,
+    survey?.id,
+    Boolean(canApprove) && Boolean(survey?.id),
+    queueUlbId
+  )
 
   const [editMode, setEditMode] = useState(false)
   const [draft, setDraft] = useState<QcSurveyEditable | null>(() => survey?.editable ?? null)
@@ -166,7 +177,9 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
       const target = (switchWards?.items ?? []).find((w) => w.id === wardSwitchId)
       const ulbId = switchUlbId
       setActiveWard({ wardId: wardSwitchId, ulbId })
-      const first = await apiGet<QcQueueParcel | null>(`/qc/queue/first?wardId=${encodeURIComponent(wardSwitchId)}`)
+      const first = await apiGet<QcQueueParcel | null>(
+        `/qc/queue/first?${buildQcQueueSearchParams({ wardId: wardSwitchId, ulbId })}`
+      )
       setWardSwitchId(null)
       if (first?.id) {
         router.push(buildQcReviewHref(first.id, { ulbId, wardId: wardSwitchId }))
@@ -366,7 +379,11 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
           }
           try {
             const found = await apiGet<QcQueueParcel | null>(
-              `/qc/queue/by-parcel?wardId=${encodeURIComponent(queueWardId)}&parcelNumber=${encodeURIComponent(parcelNumber)}`
+              `/qc/queue/by-parcel?${buildQcQueueSearchParams({
+                wardId: queueWardId,
+                ulbId: queueUlbId,
+                parcelNumber,
+              })}`
             )
             if (!found?.id) {
               toast.error("No parcel found in this ward")

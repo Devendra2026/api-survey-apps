@@ -15,13 +15,13 @@ export function OrgOverview({ cards }: { cards: OrgMiniCard[] }) {
   return (
     <section>
       <SectionHeading title="Organization Overview" subtitle="Workforce capacity and geographic scope" />
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {cards.map((card) => {
           const Icon = iconMap[card.icon]
           return (
-            <StatCard key={card.id} className="flex items-center gap-4">
-              <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-400">
-                <Icon className="size-5" />
+            <StatCard key={card.id} className="flex h-full items-center gap-3">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-400">
+                <Icon className="size-4" />
               </span>
               <div className="min-w-0">
                 <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{card.label}</p>

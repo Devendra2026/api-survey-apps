@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
 
 ARG NODE_VERSION=24
-ARG PNPM_VERSION=11.17.0
-ARG TURBO_VERSION=2.10.7
+ARG PNPM_VERSION=11.22.0
+ARG TURBO_VERSION=2.10.12
 
 FROM node:${NODE_VERSION}-bookworm-slim AS base
 # ARG before FROM is not in stage scope — redeclare for corepack.

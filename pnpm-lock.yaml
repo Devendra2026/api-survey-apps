@@ -10,21 +10,12 @@ overrides:
 importers:
   .:
     devDependencies:
-      "@workspace/database":
-        specifier: workspace:*
-        version: link:packages/database
       "@workspace/eslint-config":
         specifier: workspace:*
         version: link:packages/eslint-config
       "@workspace/typescript-config":
         specifier: workspace:*
         version: link:packages/typescript-config
-      "@workspace/ui":
-        specifier: workspace:*
-        version: link:packages/ui
-      "@workspace/validation":
-        specifier: workspace:*
-        version: link:packages/validation
       eslint:
         specifier: ^9.39.5
         version: 9.39.5(jiti@2.7.0)(supports-color@8.1.1)

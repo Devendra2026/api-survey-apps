@@ -12,7 +12,7 @@ Turborepo + pnpm monorepo for **API Survey Apps**. Production deploys with **Doc
 | `turbo prune` slim images         | Root has no app `start` — leaves Swarm `0/1` / Traefik 502 |
 | Traefik labels included           | Multi-process-in-one-image is fragile and hard to scale    |
 
-Node **24+**, pnpm **11.17.0**, turbo **2.10.5**.
+Node **24+**, pnpm **11.22.0**, turbo **2.10.12**.
 
 ---
 
@@ -130,7 +130,7 @@ docker build -f apps/web/Dockerfile -t api-survey-web:prod \
 docker compose -f docker-compose.dokploy.yml config
 ```
 
-- Node **24**, pnpm **11.17.0** (via Corepack in build stages), `HUSKY=0`
+- Node **24**, pnpm **11.22.0** (via Corepack in build stages), `HUSKY=0`
 - Web standalone; api/worker use `pnpm deploy --prod` runners + `node …/dist/main.js` as non-root
 - `prisma` is a dependency of `@workspace/database`
 - Optional observability overlay: [`docker-compose.observability.yml`](docker-compose.observability.yml)
@@ -146,22 +146,23 @@ Matrix: [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md). Local: [`.env.exam
 
 ## Troubleshooting
 
-| Symptom                                                             | Fix                                                                                                                                                                                                                            |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `open Dockerfile: no such file or directory`                        | Dokploy app type is **Docker**, not Compose. Recreate as **Docker Compose** with `docker-compose.dokploy.yml`. See [`docs/ops/dokploy-compose-setup.md`](docs/ops/dokploy-compose-setup.md). **Do not add a root Dockerfile.** |
-| `MINIO_ROOT_USER` / `POSTGRES_PASSWORD` / `REDIS_PASSWORD` missing  | Paste [`deploy/env/dokploy.compose.env.example`](deploy/env/dokploy.compose.env.example) into Dokploy Environment                                                                                                              |
-| Traefik 502 / no healthy process                                    | Use Compose + per-app Dockerfiles; no root Dockerfile / no monorepo-root start                                                                                                                                                 |
-| App missing Clerk / bootstrap                                       | Ensure vars are in Dokploy Environment UI; compose must `env_file: .env`                                                                                                                                                       |
-| Migrate P1000 / password authentication failed                      | Set `POSTGRES_PASSWORD` only; entrypoints build URL. If volume was init'd with an old password, `ALTER USER` or recreate volume — see [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md) § Prisma P1000                      |
-| Migrate fails on `localhost`                                        | Entrypoints use host `postgres`; remove localhost `DATABASE_URL` overrides                                                                                                                                                     |
-| Migrate exits 1 after migrate deploy on seed / `@prisma/adapter-pg` | Rebuild with current image — migrate no longer runs seed. Catalog seed is one-time manual (`pnpm db:seed`)                                                                                                                     |
-| Redis AUTH / WRONGPASS on api/worker                                | Remove static `REDIS_URL` from Dokploy Environment; keep `REDIS_PASSWORD` only (must match Redis requirepass; URL-safe)                                                                                                        |
-| `pull access denied for minio/mc` or `minio/minio`                  | Use Quay pins in compose (`quay.io/minio/minio:RELEASE.…`, `quay.io/minio/mc:RELEASE.…`). Docker Hub no longer serves community MinIO images. Do not switch to `:latest`.                                                      |
-| Prisma generate fails                                               | Ensure dummy/real `DATABASE_URL` at build                                                                                                                                                                                      |
-| Web missing Clerk/API URL                                           | Set `NEXT_PUBLIC_*` at **build** time                                                                                                                                                                                          |
-| Worker Chromium fails                                               | Use `apps/worker/Dockerfile` (Debian + Playwright deps)                                                                                                                                                                        |
-| Wrong workspace packages                                            | Build context = monorepo root                                                                                                                                                                                                  |
-| Engine/lockfile errors                                              | Node >=24, pnpm 11.17.0 via corepack                                                                                                                                                                                           |
+| Symptom                                                             | Fix                                                                                                                                                                                                                                                           |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `open Dockerfile: no such file or directory`                        | Dokploy app type is **Docker**, not Compose. Recreate as **Docker Compose** with `docker-compose.dokploy.yml`. See [`docs/ops/dokploy-compose-setup.md`](docs/ops/dokploy-compose-setup.md). **Do not add a root Dockerfile.**                                |
+| `MINIO_ROOT_USER` / `POSTGRES_PASSWORD` / `REDIS_PASSWORD` missing  | Paste [`deploy/env/dokploy.compose.env.example`](deploy/env/dokploy.compose.env.example) into Dokploy Environment                                                                                                                                             |
+| Traefik 502 / no healthy process                                    | Use Compose + per-app Dockerfiles; no root Dockerfile / no monorepo-root start                                                                                                                                                                                |
+| App missing Clerk / bootstrap                                       | Ensure vars are in Dokploy Environment UI; compose must `env_file: .env`                                                                                                                                                                                      |
+| Migrate P1000 / password authentication failed                      | Set `POSTGRES_PASSWORD` only; entrypoints build URL. If volume was init'd with an old password, `ALTER USER` or recreate volume — see [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md) § Prisma P1000                                                     |
+| Migrate fails on `localhost`                                        | Entrypoints use host `postgres`; remove localhost `DATABASE_URL` overrides                                                                                                                                                                                    |
+| Migrate exits 1 after migrate deploy on seed / `@prisma/adapter-pg` | Rebuild with current image — migrate no longer runs seed. Catalog seed is one-time manual (`pnpm db:seed`)                                                                                                                                                    |
+| Redis AUTH / WRONGPASS on api/worker                                | Remove static `REDIS_URL` from Dokploy Environment; keep `REDIS_PASSWORD` only (must match Redis requirepass; URL-safe)                                                                                                                                       |
+| `pull access denied for minio/mc` or `minio/minio`                  | Use Quay pins in compose (`quay.io/minio/minio:RELEASE.…`, `quay.io/minio/mc:RELEASE.…`). Docker Hub no longer serves community MinIO images. Do not switch to `:latest`.                                                                                     |
+| `pnpm install --frozen-lockfile` exit code **228**                  | **228 = ENOSPC** (build host disk full). Free Docker **build** space only: `docker builder prune` / `docker image prune` — never `volume prune` or `down -v` (protects `survey_*_data_prod`). Pin `PNPM_VERSION` to match `packageManager` in `package.json`. |
+| Prisma generate fails                                               | Ensure dummy/real `DATABASE_URL` at build                                                                                                                                                                                                                     |
+| Web missing Clerk/API URL                                           | Set `NEXT_PUBLIC_*` at **build** time                                                                                                                                                                                                                         |
+| Worker Chromium fails                                               | Use `apps/worker/Dockerfile` (Debian + Playwright deps)                                                                                                                                                                                                       |
+| Wrong workspace packages                                            | Build context = monorepo root                                                                                                                                                                                                                                 |
+| Engine/lockfile errors                                              | Node >=24, pnpm 11.22.0 via corepack                                                                                                                                                                                                                          |
 
 ---
 

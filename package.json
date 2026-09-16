@@ -27,11 +27,8 @@
     "prepare": "node -e \"try{require('fs').accessSync('.git');require('child_process').execSync('husky',{stdio:'inherit'})}catch{}\""
   },
   "devDependencies": {
-    "@workspace/database": "workspace:*",
     "@workspace/eslint-config": "workspace:*",
     "@workspace/typescript-config": "workspace:*",
-    "@workspace/ui": "workspace:*",
-    "@workspace/validation": "workspace:*",
     "eslint": "^9.39.5",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",

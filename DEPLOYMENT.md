@@ -69,16 +69,16 @@ pnpm turbo build --filter=web... --filter=api... --filter=worker...
 
 There is **intentionally no root `Dockerfile`**. Do not create a single multi-process image for web+api+worker. Production is **Docker Compose only**.
 
-| Setting       | Value                                                                                                 |
-| ------------- | ----------------------------------------------------------------------------------------------------- |
-| Build type    | **Docker Compose** (not Dockerfile / Nixpacks / Railpack)                                             |
-| Compose file  | `docker-compose.dokploy.yml`                                                                          |
-| Build context | repository root (`.`)                                                                                 |
-| Dockerfiles   | Per service only: `apps/web/Dockerfile`, `apps/api/Dockerfile`, `apps/worker/Dockerfile`              |
-| Ports         | Traefik-only: web `3000`, api `4000`; worker `4001` remains internal                                  |
-| Health        | web `/healthz`, api/worker `/live`                                                                    |
-| Metrics       | api/worker `/metrics` (optional scrape; see [`docs/ops/observability.md`](docs/ops/observability.md)) |
-| Infra images  | Postgres **17**, Redis **8**, MinIO (pinned RELEASE)                                                  |
+| Setting       | Value                                                                                                                                                                |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Build type    | **Docker Compose** (not Dockerfile / Nixpacks / Railpack)                                                                                                            |
+| Compose file  | `docker-compose.dokploy.yml`                                                                                                                                         |
+| Build context | repository root (`.`)                                                                                                                                                |
+| Dockerfiles   | Per service only: `apps/web/Dockerfile`, `apps/api/Dockerfile`, `apps/worker/Dockerfile`                                                                             |
+| Ports         | Traefik-only: web `3000`, api `4000`; worker `4001` remains internal                                                                                                 |
+| Health        | web `/healthz`, api/worker `/live`                                                                                                                                   |
+| Metrics       | api/worker `/metrics` (optional scrape; see [`docs/ops/observability.md`](docs/ops/observability.md))                                                                |
+| Infra images  | Postgres **17**, Redis **8**, MinIO + `mc` from **Quay** (`quay.io/minio/…`, pinned RELEASE; Docker Hub `minio/*` returns pull access denied — do not use `:latest`) |
 
 1. Create a **Compose** application in Dokploy (build type = Docker Compose). See [`docs/ops/dokploy-compose-setup.md`](docs/ops/dokploy-compose-setup.md).
 2. Compose file: [`docker-compose.dokploy.yml`](docker-compose.dokploy.yml).
@@ -98,6 +98,24 @@ There is **intentionally no root `Dockerfile`**. Do not create a single multi-pr
 Web **build args** (Compose already wires these from the same Dokploy env): `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`.
 
 **Postgres 16 → 17:** existing data volumes are not binary-compatible. Dump/restore or recreate the volume before first PG17 start.
+
+**Pre-redeploy safety (Dokploy host, read-only):**
+
+```bash
+# 1) Confirm Postgres major version BEFORE starting postgres:17-alpine against an existing volume.
+docker volume ls | grep survey_pg_data_prod
+docker run --rm -v <EXISTING_PRODUCTION_PG_VOLUME>:/data:ro alpine \
+  sh -c 'cat /data/PG_VERSION 2>/dev/null || true'
+# If output is 16 → STOP (dump/restore required). If 17 → OK to redeploy.
+# Never: docker compose down -v | volume prune | recreate survey_*_data_prod.
+
+# 2) Env audit in Dokploy UI (remove duplicates / stale overrides):
+# - Remove DATABASE_URL and DIRECT_URL when using in-compose Postgres (POSTGRES_* is source of truth).
+# - Remove static REDIS_URL (compose builds it from REDIS_PASSWORD).
+# - CLERK_PUBLISHABLE_KEY must be pk_live_… (never sk_live_…).
+# - CORS_ORIGIN and CLERK_AUTHORIZED_PARTIES: single comma-separated line each
+#   (e.g. https://admin.sdvedutech.in,https://portal.nppetah.in).
+```
 
 ---
 
@@ -138,6 +156,7 @@ Matrix: [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md). Local: [`.env.exam
 | Migrate fails on `localhost`                                        | Entrypoints use host `postgres`; remove localhost `DATABASE_URL` overrides                                                                                                                                                     |
 | Migrate exits 1 after migrate deploy on seed / `@prisma/adapter-pg` | Rebuild with current image — migrate no longer runs seed. Catalog seed is one-time manual (`pnpm db:seed`)                                                                                                                     |
 | Redis AUTH / WRONGPASS on api/worker                                | Remove static `REDIS_URL` from Dokploy Environment; keep `REDIS_PASSWORD` only (must match Redis requirepass; URL-safe)                                                                                                        |
+| `pull access denied for minio/mc` or `minio/minio`                  | Use Quay pins in compose (`quay.io/minio/minio:RELEASE.…`, `quay.io/minio/mc:RELEASE.…`). Docker Hub no longer serves community MinIO images. Do not switch to `:latest`.                                                      |
 | Prisma generate fails                                               | Ensure dummy/real `DATABASE_URL` at build                                                                                                                                                                                      |
 | Web missing Clerk/API URL                                           | Set `NEXT_PUBLIC_*` at **build** time                                                                                                                                                                                          |
 | Worker Chromium fails                                               | Use `apps/worker/Dockerfile` (Debian + Playwright deps)                                                                                                                                                                        |

@@ -24,6 +24,8 @@ RUN turbo prune worker --docker
 FROM base AS deps
 ENV CI=true
 ENV HUSKY=0
+# Skip Playwright browser download during install — single install in builder.
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 # out/json includes package.json files, pnpm-lock.yaml, pnpm-workspace.yaml
 COPY --from=prepare /app/out/json/ .
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
@@ -33,18 +35,21 @@ FROM deps AS builder
 ENV CI=true
 ENV HUSKY=0
 ENV NODE_ENV=production
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 ENV DATABASE_URL=postgresql://postgres:postgres@localhost:5432/survey?schema=public
 ENV DIRECT_URL=postgresql://postgres:postgres@localhost:5432/survey?schema=public
 COPY --from=prepare /app/out/full/ .
 ENV PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT=180000
+# Install Chromium once here (no --with-deps: runner already has OS libs).
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
   pnpm --filter @workspace/database db:generate \
   && pnpm turbo build --filter=worker... \
-  && pnpm --filter worker exec playwright install --with-deps chromium
+  && pnpm --filter worker exec playwright install chromium
 
 # Portable production tree (prod deps + injected workspace packages).
 FROM builder AS deploy
 ENV HUSKY=0
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 # Root scripts/ are outside turbo prune out/full — copy from prepare (full tree).
 COPY --from=prepare /app/scripts/docker/resolve-database-url.mjs /tmp/resolve-database-url.mjs
 COPY --from=prepare /app/apps/worker/docker-entrypoint.sh /tmp/docker-entrypoint.sh
@@ -60,6 +65,9 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
   && if [ -d /app/packages/database/src/generated ]; then cp -r /app/packages/database/src/generated /deploy/packages/database/src/generated; fi \
   && cp /app/packages/database/package.json /deploy/packages/database/package.json \
   && chmod +x /deploy/apps/worker/docker-entrypoint.sh \
+  && rm -rf /deploy/node_modules/.cache \
+  && find /deploy -type d \( -name 'ms-playwright' -o -name '.local-chromium' \) -print0 2>/dev/null \
+    | xargs -0 -r rm -rf \
   && POSTGRES_PASSWORD=build-check POSTGRES_HOST=localhost \
   node /deploy/scripts/docker/resolve-database-url.mjs >/dev/null
 

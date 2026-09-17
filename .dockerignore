@@ -30,4 +30,14 @@ README.md
 AGENTS.md
 deploy/env/*.env
 !deploy/env/*.env.example
-
+# Build-context junk (do not exclude packages/database/prisma or app src)
+**/.cache
+**/ms-playwright
+**/playwright-report
+**/test-results
+.vscode
+.idea
+**/.vercel
+**/.output
+**/tmp
+**/*.tmp

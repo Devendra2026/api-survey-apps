@@ -14,13 +14,13 @@ alwaysApply: false
 ## Runtime
 
 - Node `>=24` (root `engines`).
-- `packageManager`: `pnpm@11.22.0` (use `corepack enable`).
+- `packageManager`: `pnpm@12.5.1` (use `corepack enable`).
 - All apps/packages: `"type": "module"`.
 
 ## Workspace naming
 
 - Packages: `@workspace/<name>`.
-- Apps: `web`, `api`, `worker` (plain names in `package.json`).
+- Apps: `web`, `api`, `worker`, `mobile` (plain names in `package.json`).
 
 ## Task pipeline (`turbo.json`)
 
@@ -32,19 +32,21 @@ alwaysApply: false
 ## Commands
 
 ```bash
-pnpm dev          # api + web + worker
-pnpm build        # all apps/packages
+pnpm dev             # api + web + worker + mobile (Expo Metro)
+pnpm mobile:android  # Expo + Android emulator/device (not under turbo dev)
+pnpm build           # all apps/packages (mobile has no Turbo build script)
 pnpm lint && pnpm typecheck
-pnpm db:generate  # Prisma client
-pnpm db:migrate   # migrate dev
-pnpm db:deploy    # migrate deploy (CI/prod)
+pnpm db:generate     # Prisma client
+pnpm db:migrate      # migrate dev
+pnpm db:deploy       # migrate deploy (CI/prod)
 ```
 
 ## Env & Turbo cache
 
 - Env files at **repo root** (`.env`, `.env.development`, `.env.local`, `.env.production`).
-- Add new `NEXT_PUBLIC_*` and build-affecting vars to `turbo.json` `build.env` / `globalEnv`.
+- Add new `NEXT_PUBLIC_*`, `EXPO_PUBLIC_*`, and build-affecting vars to `turbo.json` `build.env` / `globalEnv`.
 - `globalDependencies` includes lockfile and env files — keep in sync.
+- Mobile public vars: see `deploy/env/mobile.env.example` (`EXPO_PUBLIC_API_URL`).
 
 ## Rules
 

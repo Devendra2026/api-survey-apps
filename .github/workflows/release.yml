@@ -4,12 +4,16 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Image tag to publish
+        description: Image tag to publish (defaults to short commit SHA; do not use bare "latest")
         required: false
-        default: latest
+        default: ""
   push:
     tags:
       - "v*"
+
+concurrency:
+  group: production-release
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -18,61 +22,103 @@ permissions:
 env:
   AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
   ECR_REPOSITORY_PREFIX: ${{ vars.ECR_REPOSITORY_PREFIX || 'api-survey-prod' }}
+  PNPM_VERSION: "12.5.1"
 
 jobs:
   publish:
-    name: Build, push ECR, migrate, deploy
+    name: Build and push ECR images
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # Expression form: static "production" fails IDE validation until the Environment exists
+    # in repo Settings. Runtime still targets `production` (create it once with admin rights).
+    environment:
+      name: ${{ vars.RELEASE_GITHUB_ENVIRONMENT || 'production' }}
     # Secrets cannot be referenced in `if:` — map to env first, then gate on env.
     env:
       DOKPLOY_WEBHOOK_URL: ${{ secrets.DOKPLOY_WEBHOOK_URL }}
+      NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
 
     steps:
-      - name: Checkout
+      - name: Deploy / Checkout
         uses: actions/checkout@v4
 
-      - name: Set image tag
+      - name: Deploy / Set image tag
         id: meta
         run: |
+          set -euo pipefail
+          SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-12)"
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+            INPUT_TAG="${{ inputs.tag }}"
+            if [ -z "${INPUT_TAG}" ] || [ "${INPUT_TAG}" = "latest" ]; then
+              TAG="${SHORT_SHA}"
+            else
+              TAG="${INPUT_TAG}"
+            fi
           else
-            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          case "${TAG}" in
+            v*)
+              echo "push_latest=true" >> "$GITHUB_OUTPUT"
+              echo "Resolved image tag: ${TAG} (also pushing :latest)"
+              ;;
+            *)
+              echo "push_latest=false" >> "$GITHUB_OUTPUT"
+              echo "Resolved image tag: ${TAG} (immutable only; not updating :latest)"
+              ;;
+          esac
+
+      - name: Deploy / Require web build vars
+        run: |
+          set -euo pipefail
+          if [ -z "${NEXT_PUBLIC_API_URL}" ]; then
+            echo "Missing GitHub variable NEXT_PUBLIC_API_URL (required for web image build)." >&2
+            exit 1
+          fi
+          if [ -z "${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}" ]; then
+            echo "Missing GitHub variable NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY (required for web image build)." >&2
+            exit 1
           fi
 
-      - name: Configure AWS credentials (OIDC)
+      - name: Deploy / Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Login to Amazon ECR
+      - name: Deploy / Login to Amazon ECR
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Setup Docker Buildx
+      - name: Deploy / Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push API image
+      - name: Deploy / Build API image (local)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: apps/api/Dockerfile
-          push: true
+          push: false
+          load: true
+          build-args: |
+            PNPM_VERSION=${{ env.PNPM_VERSION }}
           tags: |
             ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PREFIX }}-api:${{ steps.meta.outputs.tag }}
-            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PREFIX }}-api:latest
+            api-survey-api:release
 
-      - name: Build and push web image
+      - name: Deploy / Build web image (local)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: apps/web/Dockerfile
-          push: true
+          push: false
+          load: true
           build-args: |
-            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }}
-            NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+            PNPM_VERSION=${{ env.PNPM_VERSION }}
+            NEXT_PUBLIC_API_URL=${{ env.NEXT_PUBLIC_API_URL }}
+            NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
             NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
             NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
             NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL=/dashboard
@@ -80,42 +126,84 @@ jobs:
             NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=${{ secrets.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY }}
           tags: |
             ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PREFIX }}-web:${{ steps.meta.outputs.tag }}
-            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PREFIX }}-web:latest
+            api-survey-web:release
 
-      - name: Build and push worker image
+      - name: Deploy / Build worker image (local)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: apps/worker/Dockerfile
-          push: true
+          push: false
+          load: true
+          build-args: |
+            PNPM_VERSION=${{ env.PNPM_VERSION }}
           tags: |
             ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PREFIX }}-worker:${{ steps.meta.outputs.tag }}
-            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PREFIX }}-worker:latest
+            api-survey-worker:release
 
-      - name: Trigger Dokploy webhook
+      - name: Deploy / Tag latest (v* releases only)
+        if: steps.meta.outputs.push_latest == 'true'
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          docker tag "${REGISTRY}/${ECR_REPOSITORY_PREFIX}-api:${TAG}" \
+            "${REGISTRY}/${ECR_REPOSITORY_PREFIX}-api:latest"
+          docker tag "${REGISTRY}/${ECR_REPOSITORY_PREFIX}-web:${TAG}" \
+            "${REGISTRY}/${ECR_REPOSITORY_PREFIX}-web:latest"
+          docker tag "${REGISTRY}/${ECR_REPOSITORY_PREFIX}-worker:${TAG}" \
+            "${REGISTRY}/${ECR_REPOSITORY_PREFIX}-worker:latest"
+
+      - name: Deploy / Push images to ECR
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          PUSH_LATEST: ${{ steps.meta.outputs.push_latest }}
+        run: |
+          set -euo pipefail
+          docker push "${REGISTRY}/${ECR_REPOSITORY_PREFIX}-api:${TAG}"
+          docker push "${REGISTRY}/${ECR_REPOSITORY_PREFIX}-web:${TAG}"
+          docker push "${REGISTRY}/${ECR_REPOSITORY_PREFIX}-worker:${TAG}"
+          if [ "${PUSH_LATEST}" = "true" ]; then
+            docker push "${REGISTRY}/${ECR_REPOSITORY_PREFIX}-api:latest"
+            docker push "${REGISTRY}/${ECR_REPOSITORY_PREFIX}-web:latest"
+            docker push "${REGISTRY}/${ECR_REPOSITORY_PREFIX}-worker:latest"
+          fi
+
+      - name: Deploy / Trigger Dokploy webhook
         if: env.DOKPLOY_WEBHOOK_URL != ''
         run: |
+          set -euo pipefail
           curl -fsSL -X POST "$DOKPLOY_WEBHOOK_URL" \
             -H "Content-Type: application/json" \
             -d "{\"tag\":\"${{ steps.meta.outputs.tag }}\"}"
 
-      - name: Health check (ALB)
+      - name: Deploy / Health check
         if: ${{ vars.HEALTHCHECK_API_URL != '' }}
         env:
           HEALTHCHECK_API_URL: ${{ vars.HEALTHCHECK_API_URL }}
           HEALTHCHECK_WEB_URL: ${{ vars.HEALTHCHECK_WEB_URL }}
         run: |
-          set -e
+          set -euo pipefail
+          API_OK=0
           for i in $(seq 1 30); do
-            if curl -fsS "$HEALTHCHECK_API_URL/health" >/dev/null; then
-              echo "API healthy"
+            if curl -fsS "${HEALTHCHECK_API_URL}/live" >/dev/null; then
+              echo "API /live healthy"
+              API_OK=1
               break
             fi
-            echo "Waiting for API ($i/30)..."
+            echo "Waiting for API /live ($i/30)..."
             sleep 10
           done
-          curl -fsS "$HEALTHCHECK_API_URL/ready" >/dev/null
-          if [ -n "$HEALTHCHECK_WEB_URL" ]; then
-            curl -fsS "$HEALTHCHECK_WEB_URL" >/dev/null
+          if [ "${API_OK}" != "1" ]; then
+            echo "API /live health check failed after retries" >&2
+            exit 1
+          fi
+          curl -fsS "${HEALTHCHECK_API_URL}/ready" >/dev/null
+          echo "API /ready healthy"
+          if [ -n "${HEALTHCHECK_WEB_URL}" ]; then
+            curl -fsS "${HEALTHCHECK_WEB_URL%/}/healthz" >/dev/null
+            echo "Web /healthz healthy"
           fi
           echo "Post-deploy health checks passed"

@@ -5,15 +5,16 @@ alwaysApply: true
 
 # Project Architecture
 
-Municipal Property Tax Survey Management System — **pnpm + Turborepo** monorepo. **No mobile app** in this repo (web admin only).
+Municipal Property Tax Survey Management System — **pnpm + Turborepo** monorepo.
 
 ## Apps
 
-| App           | Tech                                        | Port | Responsibility                                           |
-| ------------- | ------------------------------------------- | ---- | -------------------------------------------------------- |
-| `apps/web`    | Next.js 16, React 19, Clerk, TanStack Query | 3000 | Admin dashboard UI                                       |
-| `apps/api`    | NestJS 11, Clerk JWT, BullMQ producers      | 4000 | HTTP API, business logic, auth, data access              |
-| `apps/worker` | NestJS 11, BullMQ consumers, Playwright PDF | 4001 | Background jobs (ETL, imports, exports, storage cleanup) |
+| App           | Tech                                                 | Port | Responsibility                                           |
+| ------------- | ---------------------------------------------------- | ---- | -------------------------------------------------------- |
+| `apps/web`    | Next.js 16, React 19, Clerk, TanStack Query          | 3000 | Admin dashboard UI                                       |
+| `apps/api`    | NestJS 11, Clerk JWT, BullMQ producers               | 4000 | HTTP API, business logic, auth, data access              |
+| `apps/worker` | NestJS 11, BullMQ consumers, Playwright PDF          | 4001 | Background jobs (ETL, imports, exports, storage cleanup) |
+| `apps/mobile` | Expo SDK 57, RN 0.86, Expo Router, `@expo/ui`, Clerk | —    | Field/surveyor mobile client                             |
 
 ## Packages
 
@@ -21,7 +22,7 @@ Municipal Property Tax Survey Management System — **pnpm + Turborepo** monorep
 | ------------------------------ | ---------------------------------------------------------- |
 | `@workspace/database`          | Prisma 7 client, generated types, enums, RBAC/seed helpers |
 | `@workspace/validation`        | Shared Zod schemas, domain validators                      |
-| `@workspace/ui`                | shadcn/Radix components, Tailwind globals                  |
+| `@workspace/ui`                | shadcn/Radix components, Tailwind globals (web)            |
 | `@workspace/jobs`              | BullMQ queue/job name constants, payload type contracts    |
 | `@workspace/etl-core`          | Convex→Nest survey ETL pure transform logic                |
 | `@workspace/excel-reports`     | ExcelJS workbook builders/parsers                          |
@@ -32,8 +33,9 @@ Municipal Property Tax Survey Management System — **pnpm + Turborepo** monorep
 ## Ownership boundaries
 
 - **web** — UI, client state, browser. Never imports Prisma, NestJS, or server secrets.
-- **api** — HTTP endpoints, business logic, Prisma, auth guards, job enqueuing. Never imports React/Next.js.
+- **api** — HTTP endpoints, business logic, Prisma, auth guards, job enqueuing. Never imports React/Next.js/RN.
 - **worker** — job processing. HTTP is ops-only (`/live`, `/ready`, `/metrics`). Never imports API controllers.
+- **mobile** — Expo/RN client. Never imports Next.js, DOM APIs, Prisma, NestJS, or server secrets.
 - **api portal** — `v1/portal/*` for external ULB integrations (API-key auth, not Clerk JWT).
 - **packages** — domain-independent reusables. Never import from `apps/*`.
 
@@ -43,6 +45,7 @@ Municipal Property Tax Survey Management System — **pnpm + Turborepo** monorep
 apps/web    ──→ @workspace/ui, @workspace/validation
 apps/api    ──→ @workspace/database, @workspace/validation, @workspace/jobs, @workspace/etl-core, @workspace/excel-reports
 apps/worker ──→ @workspace/database, @workspace/jobs, @workspace/etl-core, @workspace/excel-reports, @workspace/audit-etl
+apps/mobile ──→ @workspace/validation (and other RN-safe shared packages as justified)
 ```
 
 Circular dependencies between apps or packages are forbidden.
@@ -53,7 +56,7 @@ Circular dependencies between apps or packages are forbidden.
 2. Data integrity — migrations, transactions, constraints
 3. Architecture boundaries — ownership, dependency direction
 4. API contracts — DTOs, envelope format, error codes
-5. Technology-specific — NestJS, Next.js patterns
+5. Technology-specific — NestJS, Next.js, Expo patterns
 6. Testing
 7. Code style
 
@@ -62,4 +65,5 @@ Circular dependencies between apps or packages are forbidden.
 - Do not create packages for one-off utilities; colocate with the app.
 - Do not add repository/DDD layers beyond existing controller → service → repository.
 - Do not import `apps/api` into `apps/worker` (or vice versa); share via packages.
-- Do not add a mobile app or React Native/Expo without an explicit product decision.
+- Do not import Next.js/DOM/browser-only libraries into `apps/mobile`.
+- Do not put web UI (`@workspace/ui` Radix/DOM) into mobile unless a true RN-safe shared package exists.

@@ -2,7 +2,7 @@
   "$schema": "./node_modules/turbo/schema.json",
   "ui": "tui",
   "globalDependencies": [".env", ".env.development", ".env.production", "pnpm-lock.yaml", "turbo.json"],
-  "globalEnv": ["APP_URL", "NODE_ENV"],
+  "globalEnv": ["APP_URL", "NODE_ENV", "EXPO_PUBLIC_API_URL"],
   "tasks": {
     "db:generate": {
       "cache": false,

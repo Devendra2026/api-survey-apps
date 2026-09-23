@@ -6,9 +6,15 @@ on:
   pull_request:
     branches: [main, master]
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  PNPM_VERSION: "12.5.1"
 
 jobs:
   check:
@@ -61,51 +67,84 @@ jobs:
       TURBO_TELEMETRY_DISABLED: "1"
 
     steps:
-      - name: Checkout
+      - name: CI / Checkout
         uses: actions/checkout@v4
 
-      - name: Setup pnpm
+      - name: CI / Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           run_install: false
 
-      - name: Setup Node.js
+      - name: CI / Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "24"
           cache: pnpm
 
-      - name: Install dependencies
+      - name: CI / Verify toolchain versions
+        run: |
+          set -euo pipefail
+          NODE_VER="$(node --version)"
+          PNPM_VER="$(pnpm --version)"
+          echo "node=${NODE_VER}"
+          echo "pnpm=${PNPM_VER}"
+          case "${NODE_VER}" in
+            v24.*) ;;
+            *)
+              echo "Expected Node.js 24.x, got ${NODE_VER}" >&2
+              exit 1
+              ;;
+          esac
+          case "${PNPM_VER}" in
+            12.5.*) ;;
+            *)
+              echo "Expected pnpm 12.5.x (packageManager), got ${PNPM_VER}" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: CI / Install
         run: pnpm install --frozen-lockfile
 
-      - name: Generate Prisma client
+      - name: CI / Prisma generate
         run: pnpm db:generate
 
-      - name: Build workspace packages
+      - name: CI / Build packages
         run: pnpm turbo build --filter=./packages/*
 
-      - name: Lint
+      - name: CI / Lint
         run: pnpm lint
 
-      - name: Typecheck
+      - name: CI / Typecheck
         run: pnpm typecheck
 
-      - name: Deploy Prisma migrations
+      - name: CI / Mobile lint
+        run: pnpm --filter mobile lint
+
+      - name: CI / Mobile typecheck
+        run: pnpm --filter mobile typecheck
+
+      - name: CI / Prisma migrate deploy
         run: pnpm db:deploy
 
-      - name: Run API tests
+      - name: CI / API tests
         run: pnpm --filter api test:ci
 
-      - name: Build apps
+      - name: CI / Build
         run: pnpm build
 
-      - name: Build API Docker image
-        run: docker build -f apps/api/Dockerfile -t api-survey-api:ci .
+      - name: CI / Docker smoke API
+        run: |
+          docker build \
+            -f apps/api/Dockerfile \
+            --build-arg PNPM_VERSION=${{ env.PNPM_VERSION }} \
+            -t api-survey-api:ci .
 
-      - name: Build web Docker image
+      - name: CI / Docker smoke web
         run: |
           docker build \
             -f apps/web/Dockerfile \
+            --build-arg PNPM_VERSION=${{ env.PNPM_VERSION }} \
             --build-arg NEXT_PUBLIC_API_URL=http://localhost:4000 \
             --build-arg NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_ci \
             --build-arg NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in \
@@ -115,10 +154,14 @@ jobs:
             --build-arg NEXT_PUBLIC_GOOGLE_MAPS_API_KEY= \
             -t api-survey-web:ci .
 
-      - name: Build worker Docker image
-        run: docker build -f apps/worker/Dockerfile -t api-survey-worker:ci .
+      - name: CI / Docker smoke worker
+        run: |
+          docker build \
+            -f apps/worker/Dockerfile \
+            --build-arg PNPM_VERSION=${{ env.PNPM_VERSION }} \
+            -t api-survey-worker:ci .
 
-      - name: Validate Dokploy compose
+      - name: CI / Validate Dokploy compose
         env:
           POSTGRES_PASSWORD: ci-postgres-password
           REDIS_PASSWORD: ci-redis-password

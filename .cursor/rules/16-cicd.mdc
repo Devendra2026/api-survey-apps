@@ -11,31 +11,65 @@ alwaysApply: false
 
 Triggers: push/PR to `main`/`master`.
 
+Permissions: `contents: read` only.
+
 Pipeline:
 
 1. Postgres 17 + Redis 8 services
-2. `pnpm install --frozen-lockfile`
-3. `pnpm db:generate` → `pnpm turbo build --filter=./packages/*`
-4. `pnpm lint` → `pnpm typecheck`
-5. `pnpm db:deploy`
-6. `pnpm --filter api test:ci` (package Jest suites are not in CI — run locally when needed)
-7. `pnpm build`
-8. Docker build smoke test for api, web, worker Dockerfiles
-9. `docker compose -f docker-compose.dokploy.yml config` validation
+2. Assert Node **24.x** + pnpm **12.5.x** (from root `packageManager`)
+3. `pnpm install --frozen-lockfile`
+4. `pnpm db:generate` → `pnpm turbo build --filter=./packages/*`
+5. `pnpm lint` → `pnpm typecheck`
+6. Explicit `pnpm --filter mobile lint` + `typecheck` (no Expo start / emulator / EAS)
+7. `pnpm db:deploy` (ephemeral CI Postgres only)
+8. `pnpm --filter api test:ci` (package Jest suites are not in CI — run locally when needed)
+9. `pnpm build`
+10. Docker smoke build for api, web, worker (`PNPM_VERSION=12.5.1` build-arg)
+11. `docker compose -f docker-compose.dokploy.yml config` validation
 
-Node **24** in CI. Test env uses placeholder Clerk/storage credentials.
+Test env uses placeholder Clerk/storage credentials — never production secrets.
 
 ## Release (`.github/workflows/release.yml`)
 
 Triggers: tag `v*` or manual `workflow_dispatch`.
 
-- OIDC → AWS ECR push for api, web, worker images.
-- Optional Dokploy webhook POST with image tag.
-- Optional post-deploy health check against `HEALTHCHECK_API_URL` / `HEALTHCHECK_WEB_URL`.
+Hardening:
+
+- `concurrency: production-release` with `cancel-in-progress: false`
+- GitHub Environment: **`production`** (create in repo Settings → Environments; optional required reviewers)
+- OIDC → AWS ECR; build all three images locally, then push (reduces partial publish)
+- Immutable tag: version (`v*`) or short SHA; `:latest` only for `v*` tags
+- Web build fails if `NEXT_PUBLIC_API_URL` or `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` vars are empty
+- Optional Dokploy webhook POST with image tag (migrations run in Compose `migrate` service — **not** in GHA)
+- Optional health: API `/live` + `/ready`, web `/healthz`
+
+### GitHub Secrets (names only)
+
+- `AWS_GITHUB_ACTIONS_ROLE_ARN`
+- `DOKPLOY_WEBHOOK_URL` (optional)
+- `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`
+
+### GitHub Variables
+
+- `AWS_REGION` (default `ap-south-1`)
+- `ECR_REPOSITORY_PREFIX` (default `api-survey-prod`)
+- `NEXT_PUBLIC_API_URL` (required for release web image)
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` (required for release web image)
+- `HEALTHCHECK_API_URL` (optional; origin only, e.g. `https://api.example.com`)
+- `HEALTHCHECK_WEB_URL` (optional; origin only, e.g. `https://app.example.com`)
+
+### Rollback
+
+Redeploy previous immutable ECR tag (or prior git SHA Compose build) via Dokploy. Database rollback = backup restore — never blind `migrate down`.
+
+### Not in deploy
+
+ETL (`pnpm etl:*`) is manual/scheduled, not part of release. Mobile store builds are not in this pipeline (no EAS).
 
 ## Rules
 
-- Keep CI green: typecheck + lint + api tests + compose config.
+- Keep CI green: typecheck + lint + mobile lint/typecheck + api tests + compose config.
 - Do not disable CI steps to pass locally broken code.
+- Do not run production `prisma migrate deploy` from GHA against live DB.
 - Image tags and ECR prefix from vars (`ECR_REPOSITORY_PREFIX`, `AWS_REGION`).
 - Ask before changing workflows unless explicitly requested.

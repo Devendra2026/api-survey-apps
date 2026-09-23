@@ -1,23 +1,25 @@
 # API Survey Apps
 
-Turborepo monorepo: Next.js web, NestJS API, BullMQ worker, shared packages — production-ready for **Dokploy** (Docker Compose), **Docker Swarm**, and **Traefik**.
+Turborepo monorepo: Next.js web, NestJS API, BullMQ worker, Expo mobile, shared packages — production-ready for **Dokploy** (Docker Compose), **Docker Swarm**, and **Traefik**.
 
 ## Stack
 
-| Path          | Role                                        |
-| ------------- | ------------------------------------------- |
-| `apps/web`    | Next.js 16 admin UI (port **3000**)         |
-| `apps/api`    | NestJS HTTP API (port **4000**)             |
-| `apps/worker` | BullMQ / PDF / ETL consumer (port **4001**) |
-| `packages/*`  | Shared libraries (not deployed alone)       |
+| Path          | Role                                            |
+| ------------- | ----------------------------------------------- |
+| `apps/web`    | Next.js 16 admin UI (port **3000**)             |
+| `apps/api`    | NestJS HTTP API (port **4000**)                 |
+| `apps/worker` | BullMQ / PDF / ETL consumer (port **4001**)     |
+| `apps/mobile` | Expo SDK 57 / React Native field client (Metro) |
+| `packages/*`  | Shared libraries (not deployed alone)           |
 
 The **repository root** only manages the workspace (`pnpm install`, `pnpm build`, DB scripts). It does **not** start application processes.
 
 ## Prerequisites
 
 - Node.js 24+
-- pnpm 11.22.0 (`corepack enable`)
+- pnpm 12.5.1 (`corepack enable`)
 - Docker (for Postgres / Redis / MinIO and production images)
+- For Android mobile: Android Studio, Android SDK, an AVD/emulator, and `ANDROID_HOME` (or `ANDROID_SDK_ROOT`) set in your shell — Expo discovers devices; do not hardcode emulator names in the repo
 
 ## Quick start (local)
 
@@ -26,12 +28,28 @@ pnpm install
 cp .env.example .env.development
 docker compose up -d                           # Postgres, Redis, MinIO, Mailpit
 pnpm db:migrate
-pnpm dev                                       # api + web + worker
+pnpm dev                                       # api + web + worker + mobile (Expo)
 ```
 
 - Web: http://localhost:3000
 - API live: http://localhost:4000/live
 - Worker live: http://localhost:4001/live
+- Mobile: Expo Metro (QR / press `a` in the Expo terminal, or use `pnpm mobile:android`)
+
+### Mobile / Android
+
+```bash
+pnpm --filter mobile dev       # Expo server only
+pnpm mobile:android            # Wait for booted emulator, then Expo --android
+pnpm mobile:android:boot       # Boot/wait only (then press "a" if Metro already runs)
+pnpm --filter mobile ios       # iOS simulator (macOS)
+```
+
+`pnpm mobile:android` cold-boots an AVD if needed and **waits until ADB is ready** before Expo connects (avoids `TCP port 5554` refused on Windows). Do not press `a` in Expo until the emulator home screen is up, or run `pnpm mobile:android:boot` first.
+
+Android emulator networking: `localhost` on the emulator is not the host machine. Use `http://10.0.2.2:4000` for the Nest API (see [`deploy/env/mobile.env.example`](deploy/env/mobile.env.example) / `EXPO_PUBLIC_API_URL`). iOS simulator and Expo web can use `http://localhost:4000`.
+
+If the emulator is stuck offline: kill `qemu-system-x86_64.exe`, run `adb kill-server && adb start-server`, then `pnpm mobile:android`. See [`apps/mobile/README.md`](apps/mobile/README.md).
 
 ## Production deployment (Dokploy)
 
@@ -83,14 +101,18 @@ See [`deploy/docker-stack.swarm.yml`](deploy/docker-stack.swarm.yml).
 
 ## Scripts
 
-| Command                      | Description                    |
-| ---------------------------- | ------------------------------ |
-| `pnpm dev`                   | Watch mode: web + api + worker |
-| `pnpm build`                 | Turbo build all packages/apps  |
-| `pnpm --filter api start`    | Production API                 |
-| `pnpm --filter web start`    | Production Next.js             |
-| `pnpm --filter worker start` | Production worker              |
-| `pnpm db:deploy`             | Prisma migrate deploy          |
+| Command                      | Description                                     |
+| ---------------------------- | ----------------------------------------------- |
+| `pnpm dev`                   | Watch mode: web + api + worker + mobile (Expo)  |
+| `pnpm dev:mobile`            | Mobile Expo server only                         |
+| `pnpm mobile:android`        | Boot emulator (wait ready) + Expo Android       |
+| `pnpm mobile:android:boot`   | Boot/wait emulator only (Metro already running) |
+| `pnpm mobile:ios`            | Expo + iOS simulator (macOS)                    |
+| `pnpm build`                 | Turbo build all packages/apps                   |
+| `pnpm --filter api start`    | Production API                                  |
+| `pnpm --filter web start`    | Production Next.js                              |
+| `pnpm --filter worker start` | Production worker                               |
+| `pnpm db:deploy`             | Prisma migrate deploy                           |
 
 ## Environment
 
@@ -98,6 +120,7 @@ See [`deploy/docker-stack.swarm.yml`](deploy/docker-stack.swarm.yml).
 - `deploy/env/api.env.example`
 - `deploy/env/web.env.example`
 - `deploy/env/worker.env.example`
+- `deploy/env/mobile.env.example` — public `EXPO_PUBLIC_*` only (no secrets)
 
 ## Ops docs
 

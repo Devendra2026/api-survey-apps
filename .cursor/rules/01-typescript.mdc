@@ -20,7 +20,8 @@ alwaysApply: false
 ## Types
 
 - Avoid `any`. API ESLint allows it — still prefer `unknown` + narrowing.
-- Share types via `@workspace/*` packages; do not duplicate DTO shapes in web and api.
+- Share types via `@workspace/*` packages; do not duplicate DTO shapes across web, api, worker, and mobile.
+- Never use `@ts-ignore` / `@ts-expect-error` without a documented reason; avoid `as any` and `as unknown as T` unless unavoidable.
 - Use `Prisma.*` types and generated enums from `@workspace/database`.
 - Nest apps: `"module": "nodenext"`. Web: `"moduleResolution": "Bundler"` via `@workspace/typescript-config/nextjs.json`.
 

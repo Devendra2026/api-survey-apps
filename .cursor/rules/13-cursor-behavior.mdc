@@ -5,50 +5,56 @@ alwaysApply: true
 
 # Cursor Agent Behavior
 
-## Before changes
+Behave as a senior enterprise engineer: smallest correct change, production-safe, no invented APIs/schema/packages.
 
-1. Read existing code in target files.
-2. Check which `.mdc` rules apply (glob + `alwaysApply`).
-3. Reuse `@workspace/*` and existing module patterns before adding abstractions.
+## Before coding
 
-## While changing
+1. Read existing implementation in target files.
+2. Identify affected domain; check which `.mdc` rules apply.
+3. Trace callers, dependencies, DB relations, API contracts, web/mobile/worker consumers, tests.
+4. Do not assume bug location; do not refactor unrelated code.
+5. Reuse `@workspace/*` and existing module patterns before adding abstractions.
 
-- Minimal, focused diffs. Do not reorganize modules unless asked.
+## During coding
+
+- TypeScript only for application logic. No unnecessary `any`; prefer `unknown` + narrowing.
+- Minimal focused diffs. Do not reorganize modules unless asked.
+- Keep controllers thin; business logic in services/domain; DB access in repositories.
 - Nest relative imports: `.js` extension. Web: `@/` alias.
-- Reuse existing DTOs, repositories, services, guards.
+- Reuse existing DTOs, repositories, services, guards, packages.
+- Validate all external input. Preserve API contracts and production behavior.
+- Do not invent APIs, DB fields, package names, or placeholder/TODO implementations.
 
 ## Production change safety
 
-- Change only what was explicitly requested. Preserve existing functionality.
-- Do not refactor, redesign, or rewrite unrelated business logic.
-- Do not change database schemas, API contracts, or auth/authorization unless explicitly asked.
-- Reuse existing components, hooks, utilities, services, and auth mechanisms — no duplicate systems.
-- UI: preserve the design system; make targeted UI changes only; keep responsive behavior.
-- Do not add unnecessary libraries or dependencies.
-- Local and production: no environment-specific hacks; no hardcoded URLs, user names, IDs, tokens, or credentials; preserve existing env var behavior.
-- Do not hardcode production business data (surveyor names, ward/ULB names, counts, geo IDs).
-- After changes: inspect affected files; run typecheck/lint/tests; fix only issues caused by your changes.
-- Review git diff before finishing; revert unrelated edits.
+- Change only what was explicitly requested.
+- Do not change schemas, API contracts, or auth unless explicitly asked.
+- No hardcoded URLs, IDs, tokens, credentials, or production business data.
+- No unnecessary libraries; check for existing equivalents first.
+- After changes: inspect affected files; fix only issues caused by your changes; revert unrelated edits.
 
-## After changes
+## After coding
 
-- Run `pnpm typecheck` and `pnpm lint`.
-- Run relevant tests (`pnpm --filter api test`, package tests).
-- Report commands that could not run.
+Run (never mark complete with known errors):
+
+```bash
+pnpm lint
+pnpm typecheck
+pnpm test
+```
+
+For affected apps also run `pnpm build` / package filter tests. Report commands that could not run.
 
 ## Never
 
-- Disable strict TS/ESLint or bypass auth guards (Clerk, `UlbApiKeyGuard`, print HMAC tokens) to compile.
+- Disable strict TS/ESLint or bypass auth guards (Clerk, `UlbApiKeyGuard`, print HMAC tokens).
 - Create `middleware.ts` in web (use `proxy.ts`).
 - Import `apps/*` from `packages/*`.
 - Use `new PrismaClient()` — use `PrismaService` / `@workspace/database`.
-- Put Prisma or secrets in `apps/web`.
+- Put Prisma or secrets in `apps/web` or `apps/mobile`.
 - Call `@aws-sdk/*` from feature services — use `StorageService` / worker storage.
 - Invent BullMQ names — use `@workspace/jobs`.
-- Add npm dependencies without justification.
-- Commit `.env` or secrets.
-- Modify Docker/deployment without being asked.
-- Make destructive changes without explicit instruction.
+- Commit `.env` or secrets; modify Docker/deployment without being asked.
 
 ## Ask before
 
@@ -61,3 +67,7 @@ alwaysApply: true
 ## Next.js 16
 
 Read `node_modules/next/dist/docs/` for unfamiliar APIs. Params are async. `proxy.ts` replaces `middleware.ts`.
+
+## Golden rule
+
+Do not just make the code work — make it correct, typed, testable, secure, maintainable, observable, scalable, and production-safe.

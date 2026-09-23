@@ -12,7 +12,7 @@ Turborepo + pnpm monorepo for **API Survey Apps**. Production deploys with **Doc
 | `turbo prune` slim images         | Root has no app `start` — leaves Swarm `0/1` / Traefik 502 |
 | Traefik labels included           | Multi-process-in-one-image is fragile and hard to scale    |
 
-Node **24+**, pnpm **11.22.0**, turbo **2.10.12**.
+Node **24+**, pnpm **12.5.1**, turbo **2.10.12**.
 
 ---
 
@@ -130,7 +130,7 @@ docker build -f apps/web/Dockerfile -t api-survey-web:prod \
 docker compose -f docker-compose.dokploy.yml config
 ```
 
-- Node **24**, pnpm **11.22.0** (via Corepack in build stages), `HUSKY=0`
+- Node **24**, pnpm **12.5.1** (via Corepack in build stages), `HUSKY=0`
 - Web standalone; api/worker use `pnpm deploy --prod` runners + `node …/dist/main.js` as non-root
 - `prisma` is a dependency of `@workspace/database`
 - Optional observability overlay: [`docker-compose.observability.yml`](docker-compose.observability.yml)
@@ -163,7 +163,70 @@ Matrix: [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md). Local: [`.env.exam
 | Web missing Clerk/API URL                                           | Set `NEXT_PUBLIC_*` at **build** time                                                                                                                                                                                                                                                 |
 | Worker Chromium fails                                               | Use `apps/worker/Dockerfile` (Debian + Playwright deps)                                                                                                                                                                                                                               |
 | Wrong workspace packages                                            | Build context = monorepo root                                                                                                                                                                                                                                                         |
-| Engine/lockfile errors                                              | Node >=24, pnpm 11.22.0 via corepack                                                                                                                                                                                                                                                  |
+| Engine/lockfile errors                                              | Node >=24, pnpm 12.5.1 via corepack                                                                                                                                                                                                                                                   |
+
+---
+
+## GitHub Actions CI/CD
+
+### Verify (CI)
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on pull requests and pushes to `main`/`master`:
+
+```text
+PR / push main
+  → install (frozen lockfile)
+  → lint + typecheck (+ explicit mobile lint/typecheck)
+  → db:deploy (ephemeral CI Postgres)
+  → api test:ci
+  → pnpm build
+  → Docker smoke (api, web, worker)
+  → dokploy compose config
+```
+
+Node **24**, pnpm **12.5.1** (asserted in the job). Permissions: `contents: read` only.
+
+### Publish (Release / ECR)
+
+[`.github/workflows/release.yml`](.github/workflows/release.yml) runs on `v*` tags or `workflow_dispatch`:
+
+```text
+tag v* / dispatch
+  → GitHub Environment: production (concurrency: production-release)
+  → build api + web + worker images locally
+  → push immutable tag to ECR (:latest only for v*)
+  → optional Dokploy webhook
+  → optional health: API /live + /ready, web /healthz
+```
+
+**Migrations are not run in GitHub Actions.** Production schema apply is the Dokploy Compose `migrate` service (`prisma migrate deploy`) after images are available.
+
+Create the GitHub Environment named **`production`** under Settings → Environments (optional required reviewers). Actions cannot create that UI resource for you. Until it exists, some editors flag a static `environment: production` as invalid; the workflow uses `vars.RELEASE_GITHUB_ENVIRONMENT || 'production'` so the default remains `production`.
+
+#### Required GitHub Secrets (names only)
+
+| Secret                            | Purpose                                |
+| --------------------------------- | -------------------------------------- |
+| `AWS_GITHUB_ACTIONS_ROLE_ARN`     | OIDC role for ECR push                 |
+| `DOKPLOY_WEBHOOK_URL`             | Optional deploy webhook (omit to skip) |
+| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | Baked into web image at build time     |
+
+#### Required / optional GitHub Variables
+
+| Variable                            | Required                       | Purpose                                                            |
+| ----------------------------------- | ------------------------------ | ------------------------------------------------------------------ |
+| `NEXT_PUBLIC_API_URL`               | Yes (release)                  | Web image build-arg                                                |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Yes (release)                  | Web image build-arg                                                |
+| `AWS_REGION`                        | No (default `ap-south-1`)      | ECR region                                                         |
+| `ECR_REPOSITORY_PREFIX`             | No (default `api-survey-prod`) | Image name prefix                                                  |
+| `HEALTHCHECK_API_URL`               | No                             | API origin for `/live` + `/ready` (e.g. `https://api.example.com`) |
+| `HEALTHCHECK_WEB_URL`               | No                             | Web origin for `/healthz` (e.g. `https://app.example.com`)         |
+
+#### Rollback
+
+1. **Apps:** Redeploy the previous immutable ECR tag (or prior git commit via Dokploy Compose rebuild). Prefer the last known-good `v*` or SHA tag — avoid relying on mutable `:latest` for rollback.
+2. **Database:** Restore from backup. Do **not** run blind `prisma migrate down` against production.
+3. ETL (`pnpm etl:*`) is **not** part of deploy — run manually/on schedule only.
 
 ---
 

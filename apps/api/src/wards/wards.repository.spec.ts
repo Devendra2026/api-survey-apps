@@ -104,8 +104,16 @@ describe("WardsRepository soft delete and duplicate names", () => {
   })
 
   it("allows create when only a soft-deleted ward has the same name", async () => {
-    findFirst.mockResolvedValueOnce(null)
-    findMany.mockResolvedValueOnce([])
+    findFirst
+      .mockResolvedValueOnce(null) // name uniqueness (active only; soft-deleted ignored)
+      .mockResolvedValueOnce({
+        id: "zero",
+        ulbId: "ulb1",
+        wardNumber: "0",
+        wardName: "Zero Ward",
+        kind: "ZERO",
+      }) // ensureZeroWard short-circuit
+    findMany.mockResolvedValueOnce([]) // number uniqueness
     create.mockResolvedValueOnce({ id: "ward-new", ulbId: "ulb1", wardNumber: "10", wardName: "Abhimanyu" })
 
     await expect(repo.create({ ulbId: "ulb1", wardNumber: "10", wardName: "Abhimanyu" })).resolves.toEqual(

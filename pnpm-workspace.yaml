@@ -6,12 +6,17 @@ overrides:
   "@types/react": "19.2.17"
 
 allowBuilds:
+  "@clerk/shared": true
   "@prisma/engines": true
   "@scarf/scarf": true
   aws-sdk: true
+  browser-tabs-lock: true
+  bufferutil: true
+  core-js: true
   esbuild: true
   msgpackr-extract: true
   msw: false
   prisma: true
   sharp: true
   unrs-resolver: true
+  utf-8-validate: true

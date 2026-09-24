@@ -83,7 +83,7 @@ export {
   type BuildExportFilenameInput,
   type SurveyPremiumExportOptions,
 } from "./survey-data.js"
-export type { SurveyExportBundle } from "./types.js"
+export type { SurveyExportBundle, PhotoExportRow } from "./types.js"
 export {
   renderFlatWorkbook,
   streamFlatWorkbookToFile,

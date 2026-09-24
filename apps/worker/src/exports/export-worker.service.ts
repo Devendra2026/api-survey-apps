@@ -8,11 +8,13 @@ import {
   renderConvexFullWorkbook,
   renderNagarPanchayatWorkbook,
   renderSurveyDataWorkbook,
+  resolveStoredObjectKey,
   sanitizeExportPathSegment,
   streamQcFinalWideWorkbookToFile,
   streamSurveyDataWorkbookToFile,
   wardSurveyDataZipEntry,
   withParcelImageExportUrls,
+  type PhotoExportRow,
   type SurveyExportBundle,
 } from "@workspace/excel-reports"
 import { computeExportTaxSummary, taxRateKey, toTaxNumber, type ExportTaxRateTable } from "@workspace/validation"
@@ -25,12 +27,15 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import PDFDocument from "pdfkit"
 import { PrismaService } from "../database/prisma.service.js"
+import { ImageMigrationService } from "../images/image-migration.service.js"
 import { ObjectStorageService } from "../storage/object-storage.service.js"
 import { buildTenantWhere, resolveTenantScope } from "../tenant/tenant-scope.js"
 import { renderWardDemandNoticePdf } from "./demand-notice-pdf.js"
 
 const EXPORT_BATCH_SIZE = 500
 const DEFAULT_EXPORT_MAX_ROWS = 500_000
+/** Bound concurrent Convex→MinIO copies during survey_data export. */
+const PHOTO_ENSURE_CONCURRENCY = 4
 
 type ExportFloorRow = {
   surveyId: string
@@ -150,7 +155,8 @@ export class ExportWorkerService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storageService: ObjectStorageService,
-    private readonly config: ConfigService
+    private readonly config: ConfigService,
+    private readonly imageMigrationService: ImageMigrationService
   ) {}
 
   async process(payload: ExportJobPayload, updateProgress: (progress: number) => Promise<void>): Promise<void> {
@@ -521,9 +527,89 @@ export class ExportWorkerService {
     return this.storageService.getSignedDownloadUrl(objectKey, PHOTO_EXPORT_URL_TTL_SECONDS)
   }
 
+  /**
+   * Ensure Convex-only photos are copied to MinIO before Parcel Images signing.
+   * Reuses existing objectKey; never fabricates MinIO URLs. Failures leave objectKey unset.
+   */
+  private async ensureSurveyPhotosForExport(
+    row: SurveyExportBundle,
+    cache: Map<string, string | null>
+  ): Promise<SurveyExportBundle> {
+    if (!row.photos.length) return row
+
+    const photos = [...row.photos]
+    let nextIndex = 0
+
+    const worker = async () => {
+      for (;;) {
+        const index = nextIndex++
+        if (index >= photos.length) return
+        const photo = photos[index]
+        if (!photo) continue
+        photos[index] = await this.ensurePhotoObjectKey(row.id, photo, cache)
+      }
+    }
+
+    const pool = Math.min(PHOTO_ENSURE_CONCURRENCY, photos.length)
+    await Promise.all(Array.from({ length: pool }, () => worker()))
+    return { ...row, photos }
+  }
+
+  private async ensurePhotoObjectKey(
+    surveyId: string,
+    photo: PhotoExportRow,
+    cache: Map<string, string | null>
+  ): Promise<PhotoExportRow> {
+    const existingKey = resolveStoredObjectKey(photo)
+    if (existingKey) {
+      return { ...photo, objectKey: existingKey }
+    }
+
+    const photoId = photo.id?.trim()
+    if (!photoId) return photo
+
+    if (cache.has(photoId)) {
+      const cached = cache.get(photoId)
+      return cached ? { ...photo, objectKey: cached } : photo
+    }
+
+    const sourceUrl = [photo.sourceUrl, photo.url].find((value) => /^https?:\/\//i.test((value ?? "").trim()))
+    if (!sourceUrl) {
+      cache.set(photoId, null)
+      return photo
+    }
+
+    try {
+      const result = await this.imageMigrationService.process({
+        surveyId,
+        photoId,
+        sourceUrl: sourceUrl.trim(),
+        photoType: photo.photoType,
+      })
+      if (result.ok && result.objectKey) {
+        cache.set(photoId, result.objectKey)
+        return {
+          ...photo,
+          objectKey: result.objectKey,
+          url: result.objectKey,
+          sourceUrl: photo.sourceUrl ?? sourceUrl.trim(),
+        }
+      }
+      this.logger.warn(`Export photo ensure failed photo=${photoId} reason=${result.reason ?? "unknown"}`)
+      cache.set(photoId, null)
+      return photo
+    } catch (err) {
+      this.logger.warn(`Export photo ensure error photo=${photoId}: ${String(err)}`)
+      cache.set(photoId, null)
+      return photo
+    }
+  }
+
   private async *iterateSurveyDataBundles(where: Prisma.SurveyWhereInput): AsyncGenerator<SurveyExportBundle> {
+    const cache = new Map<string, string | null>()
     for await (const row of this.iterateSurveyBundles(where)) {
-      yield await withParcelImageExportUrls(row, (objectKey) => this.signExportPhoto(objectKey))
+      const withKeys = await this.ensureSurveyPhotosForExport(row, cache)
+      yield await withParcelImageExportUrls(withKeys, (objectKey) => this.signExportPhoto(objectKey))
     }
   }
 
@@ -853,8 +939,10 @@ export class ExportWorkerService {
     if (reportType === "convex_full") return renderConvexFullWorkbook(bundles)
     if (reportType === "nagar_panchayat") return renderNagarPanchayatWorkbook(bundles)
     if (reportType === "survey_data") {
+      const cache = new Map<string, string | null>()
+      const withKeys = await Promise.all(bundles.map((row) => this.ensureSurveyPhotosForExport(row, cache)))
       const withUrls = await Promise.all(
-        bundles.map((row) => withParcelImageExportUrls(row, (objectKey) => this.signExportPhoto(objectKey)))
+        withKeys.map((row) => withParcelImageExportUrls(row, (objectKey) => this.signExportPhoto(objectKey)))
       )
       return renderSurveyDataWorkbook(withUrls)
     }

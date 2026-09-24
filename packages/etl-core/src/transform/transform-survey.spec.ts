@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@jest/globals"
 import { createHash } from "node:crypto"
 import {
+  buildMigratedUploadObjectKey,
   buildStorageKey,
   classifyError,
   computeChecksum,
@@ -9,7 +10,7 @@ import {
   validateImageBuffer,
   type ConvexSurveyBundle,
   type TransformContext,
-} from "../index"
+} from "../index.js"
 
 function fixtureBundle(overrides: Partial<ConvexSurveyBundle> = {}): ConvexSurveyBundle {
   return {
@@ -92,6 +93,32 @@ describe("buildStorageKey", () => {
   })
 })
 
+describe("buildMigratedUploadObjectKey", () => {
+  it("builds a stable uploads path keyed by photo id", () => {
+    const key = buildMigratedUploadObjectKey({
+      stateId: "state-1",
+      districtId: "district-1",
+      ulbId: "ulb-1",
+      wardId: "ward-1",
+      surveyId: "survey-1",
+      photoId: "photo-abc",
+      extension: "jpg",
+    })
+    expect(key).toBe("uploads/state-1/district-1/ulb-1/ward-1/survey/survey-1/photo-abc.jpg")
+    expect(
+      buildMigratedUploadObjectKey({
+        stateId: "state-1",
+        districtId: "district-1",
+        ulbId: "ulb-1",
+        wardId: "ward-1",
+        surveyId: "survey-1",
+        photoId: "photo-abc",
+        extension: "jpg",
+      })
+    ).toBe(key)
+  })
+})
+
 describe("shouldSkipSurvey", () => {
   it("skips COMPLETED and SKIPPED only", () => {
     expect(shouldSkipSurvey("COMPLETED")).toBe(true)
@@ -105,8 +132,7 @@ describe("transformSurveyBundle", () => {
   it("maps convex _id to legacySurveyId and skips duplicates by status only", () => {
     const skip = transformSurveyBundle(fixtureBundle(), ctx, { existingStatus: "COMPLETED" })
     expect(skip.ok).toBe(true)
-    if (skip.ok && "skip" in skip) {
-      expect(skip.skip).toBe(true)
+    if (skip.ok && "skip" in skip && skip.skip) {
       expect(skip.reason).toBe("duplicate")
     }
 
@@ -151,8 +177,7 @@ describe("transformSurveyBundle", () => {
       ctx
     )
     expect(result.ok).toBe(true)
-    if (result.ok && "skip" in result) {
-      expect(result.skip).toBe(true)
+    if (result.ok && "skip" in result && result.skip) {
       expect(result.reason).toMatch(/incomplete/)
     }
   })

@@ -1,10 +1,17 @@
 import { Injectable, Logger } from "@nestjs/common"
+import { buildMigratedUploadObjectKey } from "@workspace/etl-core"
 import type { ImageMigrationPayload } from "@workspace/jobs"
 import { PrismaService } from "../database/prisma.service.js"
 import { ObjectStorageService } from "../storage/object-storage.service.js"
 
 const MAX_ATTEMPTS = 3
 const RETRY_DELAY_MS = 750
+
+export type ImageMigrationResult = {
+  ok: boolean
+  reason?: string
+  objectKey?: string
+}
 
 @Injectable()
 export class ImageMigrationService {
@@ -15,7 +22,7 @@ export class ImageMigrationService {
     private readonly storageService: ObjectStorageService
   ) {}
 
-  async process(payload: ImageMigrationPayload): Promise<{ ok: boolean; reason?: string }> {
+  async process(payload: ImageMigrationPayload): Promise<ImageMigrationResult> {
     const photo = await this.prisma.db.photo.findUnique({
       where: { id: payload.photoId },
       include: {
@@ -35,16 +42,19 @@ export class ImageMigrationService {
       return { ok: false, reason: "Photo not found" }
     }
 
-    if (photo.objectKey && photo.importStatus === "SUCCEEDED") {
-      return { ok: true, reason: "Already migrated" }
+    if (photo.objectKey?.trim()) {
+      return { ok: true, reason: "Already migrated", objectKey: photo.objectKey.trim() }
     }
 
-    const sourceUrl = payload.sourceUrl || photo.sourceUrl || ""
+    const sourceUrl = (payload.sourceUrl || photo.sourceUrl || photo.url || "").trim()
     if (!sourceUrl.startsWith("http://") && !sourceUrl.startsWith("https://")) {
-      await this.markBroken(photo.id, "Invalid or missing source URL")
+      if (payload.importJobId) {
+        await this.markBroken(photo.id, "Invalid or missing source URL")
+      }
       return { ok: false, reason: "Invalid source URL" }
     }
 
+    const previousStatus = photo.importStatus
     await this.prisma.db.photo.update({
       where: { id: photo.id },
       data: { importStatus: "PROCESSING" },
@@ -52,16 +62,15 @@ export class ImageMigrationService {
 
     try {
       const downloaded = await this.downloadWithRetry(sourceUrl)
-      const key = [
-        "uploads",
-        photo.survey.stateId,
-        photo.survey.districtId,
-        photo.survey.ulbId,
-        photo.survey.wardId,
-        "survey",
-        photo.surveyId,
-        `${photo.id}-${Date.now()}.${downloaded.ext}`,
-      ].join("/")
+      const key = buildMigratedUploadObjectKey({
+        stateId: photo.survey.stateId,
+        districtId: photo.survey.districtId,
+        ulbId: photo.survey.ulbId,
+        wardId: photo.survey.wardId,
+        surveyId: photo.surveyId,
+        photoId: photo.id,
+        extension: downloaded.ext,
+      })
 
       const uploaded = await this.storageService.putObject({
         key,
@@ -70,7 +79,7 @@ export class ImageMigrationService {
         metadata: {
           surveyId: photo.surveyId,
           photoId: photo.id,
-          importJobId: payload.importJobId,
+          ...(payload.importJobId ? { importJobId: payload.importJobId } : {}),
           sourceUrl: sourceUrl.slice(0, 500),
         },
       })
@@ -98,15 +107,21 @@ export class ImageMigrationService {
         })
       }
 
-      return { ok: true }
+      return { ok: true, objectKey: uploaded.key }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       this.logger.warn(`Image migration failed photo=${photo.id}: ${message}`)
-      await this.markBroken(photo.id, message)
       if (payload.importJobId) {
+        await this.markBroken(photo.id, message)
         await this.prisma.db.importJob.update({
           where: { id: payload.importJobId },
           data: { photoFailureCount: { increment: 1 } },
+        })
+      } else {
+        // Export-time ensure: restore prior status so a transient failure does not mark FAILED.
+        await this.prisma.db.photo.update({
+          where: { id: photo.id },
+          data: { importStatus: previousStatus ?? "PENDING" },
         })
       }
       return { ok: false, reason: message }

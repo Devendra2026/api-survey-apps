@@ -110,12 +110,13 @@ export interface StorageCleanupPayload {
 }
 
 export interface ImageMigrationPayload {
-  importJobId: string
+  /** When set, increments import job photo success/failure counters. Omit for export-time ensure. */
+  importJobId?: string
   surveyId: string
   photoId: string
   sourceUrl: string
   photoType: string
-  createdById: string
+  createdById?: string
 }
 
 export type EtlJobType = "FULL" | "INCREMENTAL" | "RETRY_FAILED" | "VALIDATE" | "REFRESH_PENDING"

@@ -50,3 +50,33 @@ export function extensionFromMime(mimeType: string): string {
       return "bin"
   }
 }
+
+export interface MigratedUploadObjectKeyInput {
+  stateId: string
+  districtId: string
+  ulbId: string
+  wardId: string
+  surveyId: string
+  photoId: string
+  /** File extension without dot, e.g. jpg | png | webp */
+  extension: string
+}
+
+/**
+ * Stable MinIO key for Convex/Excel → object-storage copies.
+ * Same photoId always maps to the same key so exports do not create duplicates.
+ * Path layout matches ImageMigrationService / StorageService uploads prefix.
+ */
+export function buildMigratedUploadObjectKey(input: MigratedUploadObjectKeyInput): string {
+  const ext = sanitizeExtension(input.extension)
+  return [
+    "uploads",
+    input.stateId,
+    input.districtId,
+    input.ulbId,
+    input.wardId,
+    "survey",
+    input.surveyId,
+    `${input.photoId}.${ext}`,
+  ].join("/")
+}

@@ -7,6 +7,7 @@ import {
   COMMON_SURVEY_COLUMNS,
   FIXED_HEADERS,
   formatWardNumberAndName,
+  isConvexHostedUrl,
   QC_FINAL_COLUMNS,
   QC_FINAL_HEADERS,
   QC_PREMIUM_COLUMNS,
@@ -16,6 +17,7 @@ import {
   renderQcFinalWideWorkbook,
   renderSurveyDataWorkbook,
   renderSurveyDataWorkbookStreaming,
+  resolveStoredObjectKey,
   sanitizeExportPathSegment,
   SURVEY_CAPTURE_HEADERS,
   SURVEY_PREMIUM_COLUMNS,
@@ -25,7 +27,6 @@ import {
   toSurveyPremiumRow,
   wardSurveyDataZipEntry,
   withParcelImageExportUrls,
-  isConvexHostedUrl,
   type SurveyExportBundle,
 } from "@workspace/excel-reports"
 import { taxRateKey, type ExportTaxRateTable } from "@workspace/validation"
@@ -339,6 +340,27 @@ describe("Excel report templates", () => {
     expect(rowValues(workbook.getWorksheet("Parcel Images")!, 2)[7]).toBe(minioUrl)
   })
 
+  it("keeps http MinIO signed exportUrl (path-style local MinIO)", async () => {
+    const minioHttp = "http://minio.example.test:9000/api-survey-app/uploads/a/front.jpg?X-Amz-Signature=local"
+    const withUrls = await withParcelImageExportUrls(
+      {
+        ...bundle,
+        photos: [
+          {
+            id: "photo-front",
+            photoType: "FRONT",
+            objectKey: "uploads/a/front.jpg",
+            url: "uploads/a/front.jpg",
+            sourceUrl: "https://api.sdvedutech.in/api/storage/abc",
+          },
+        ],
+      },
+      () => Promise.resolve(minioHttp)
+    )
+    const workbook = await loadFromBuffer(await renderSurveyDataWorkbook([withUrls]))
+    expect(rowValues(workbook.getWorksheet("Parcel Images")!, 2)[7]).toBe(minioHttp)
+  })
+
   it("writes empty Image URL for null photo url without objectKey", async () => {
     const workbook = await loadFromBuffer(
       await renderSurveyDataWorkbook([
@@ -370,6 +392,30 @@ describe("Excel report templates", () => {
     )
     const workbook = await loadFromBuffer(await renderSurveyDataWorkbook([withUrls]))
     expect(rowValues(workbook.getWorksheet("Parcel Images")!, 2)[7]).toBe("")
+  })
+
+  it("resolveStoredObjectKey prefers objectKey and ignores Convex https urls", () => {
+    expect(
+      resolveStoredObjectKey({
+        objectKey: "uploads/a/b/c/photo.jpg",
+        url: "https://api.sdvedutech.in/api/storage/abc",
+        sourceUrl: "https://api.sdvedutech.in/api/storage/abc",
+      })
+    ).toBe("uploads/a/b/c/photo.jpg")
+    expect(
+      resolveStoredObjectKey({
+        objectKey: null,
+        url: "https://api.sdvedutech.in/api/storage/abc",
+        sourceUrl: "https://api.sdvedutech.in/api/storage/abc",
+      })
+    ).toBeNull()
+    expect(
+      resolveStoredObjectKey({
+        objectKey: null,
+        url: "etah-images/district-ETA/ward-1/s1/front.jpg",
+        sourceUrl: null,
+      })
+    ).toBe("etah-images/district-ETA/ward-1/s1/front.jpg")
   })
 
   it("exports MinIO URLs for multiple photos and leaves Survey Data business cells unchanged", async () => {

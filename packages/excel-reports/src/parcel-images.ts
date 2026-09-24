@@ -29,9 +29,10 @@ export function labelPhotoType(photoType: string): string {
   return PHOTO_TYPE_LABELS[key] ?? photoType
 }
 
-function isHttpsUrl(value: string | null | undefined): boolean {
+/** Accept http(s) so MinIO path-style signed URLs (often http locally) are not dropped. */
+function isHttpUrl(value: string | null | undefined): boolean {
   if (!value) return false
-  return /^https:\/\//i.test(value.trim())
+  return /^https?:\/\//i.test(value.trim())
 }
 
 /** Convex getUrl path: /api/storage/{storageId} (any host, including custom domains). */
@@ -78,17 +79,17 @@ export function resolveStoredObjectKey(photo: {
   if (photo.objectKey?.trim() && looksLikeStorageKey(photo.objectKey)) return photo.objectKey.trim()
   if (looksLikeStorageKey(photo.url)) return photo.url!.trim()
   if (looksLikeStorageKey(photo.sourceUrl)) return photo.sourceUrl!.trim()
-  if (photo.objectKey?.trim() && !isHttpsUrl(photo.objectKey) && !/^https?:\/\//i.test(photo.objectKey.trim())) {
+  if (photo.objectKey?.trim() && !isHttpUrl(photo.objectKey)) {
     return photo.objectKey.trim()
   }
   return null
 }
 
-function durableHttps(photo: PhotoExportRow): string | null {
+function durableHttp(photo: PhotoExportRow): string | null {
   for (const candidate of [photo.sourceUrl, photo.url]) {
     if (!candidate) continue
     const trimmed = candidate.trim()
-    if (!isHttpsUrl(trimmed)) continue
+    if (!isHttpUrl(trimmed)) continue
     if (isConvexHostedUrl(trimmed)) continue
     if (looksLikeStorageKey(trimmed)) continue
     return trimmed
@@ -110,8 +111,8 @@ export function parcelImageName(photo: PhotoExportRow): string {
 /** Prefer a pre-resolved signed URL. Never emit Convex hosts, storage keys, or secrets. */
 export function resolveParcelImageUrl(photo: PhotoExportRow): string {
   const signed = photo.exportUrl?.trim()
-  if (signed && isHttpsUrl(signed) && !isConvexHostedUrl(signed)) return signed
-  return durableHttps(photo) ?? ""
+  if (signed && isHttpUrl(signed) && !isConvexHostedUrl(signed)) return signed
+  return durableHttp(photo) ?? ""
 }
 
 export function toParcelImageRows(row: SurveyExportBundle): string[][] {
@@ -152,8 +153,8 @@ export async function withParcelImageExportUrls<T extends { photos: PhotoExportR
           exportUrl = null
         }
       }
-      if (!exportUrl || !isHttpsUrl(exportUrl) || isConvexHostedUrl(exportUrl)) {
-        exportUrl = durableHttps(photo)
+      if (!exportUrl || !isHttpUrl(exportUrl) || isConvexHostedUrl(exportUrl)) {
+        exportUrl = durableHttp(photo)
       }
       return { ...photo, objectKey: objectKey ?? photo.objectKey ?? null, exportUrl }
     })

@@ -13,6 +13,7 @@ export {
   PARCEL_IMAGE_HEADERS,
   PARCEL_IMAGES_SHEET_NAME,
   PHOTO_EXPORT_URL_TTL_SECONDS,
+  buildPublicStorageUrl,
   isConvexHostedUrl,
   parcelImageName,
   resolveParcelImageUrl,

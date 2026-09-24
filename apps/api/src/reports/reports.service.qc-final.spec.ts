@@ -16,7 +16,8 @@ describe("ReportsService qc_final / survey_data enqueue", () => {
     },
   }
   const jobsService = { enqueueExport: jest.fn() }
-  const storageService = { getPresignedDownloadUrl: jest.fn() }
+  const storageService = { getPresignedDownloadUrl: jest.fn(), isConfigured: () => true }
+  const config = { get: jest.fn(() => "http://backend.sdvedutech.in") }
 
   const user = {
     id: "user-1",
@@ -31,7 +32,8 @@ describe("ReportsService qc_final / survey_data enqueue", () => {
       reportsRepository as never,
       prisma as never,
       jobsService as never,
-      storageService as never
+      storageService as never,
+      config as never
     )
     prisma.db.exportJob.create.mockResolvedValue({ id: "job-1", status: JobStatus.QUEUED })
     jobsService.enqueueExport.mockResolvedValue(undefined)

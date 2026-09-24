@@ -1,8 +1,9 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common"
+import { ConfigService } from "@nestjs/config"
 import { ExportFormat as DbExportFormat, JobStatus, type Prisma, type SurveyStatus } from "@workspace/database"
 import {
   buildExportFilename,
-  PHOTO_EXPORT_URL_TTL_SECONDS,
+  buildPublicStorageUrl,
   renderConvexFullWorkbook,
   renderNagarPanchayatWorkbook,
   renderSurveyDataWorkbook,
@@ -44,7 +45,8 @@ export class ReportsService {
     private readonly reportsRepository: ReportsRepository,
     private readonly prisma: PrismaService,
     private readonly jobsService: JobsService,
-    private readonly storageService: StorageService
+    private readonly storageService: StorageService,
+    private readonly config: ConfigService
   ) {}
 
   surveyReport(user: AuthenticatedUser, query: PaginationQueryDto & { surveyStatus?: SurveyStatus; ulbId?: string }) {
@@ -451,9 +453,12 @@ export class ReportsService {
     if (reportType === "survey_data") {
       const withUrls = await Promise.all(
         bundles.map((row) =>
-          withParcelImageExportUrls(row, async (objectKey) => {
-            if (!this.storageService.isConfigured()) return null
-            return this.storageService.getPresignedDownloadUrl(objectKey, PHOTO_EXPORT_URL_TTL_SECONDS)
+          withParcelImageExportUrls(row, (objectKey) => {
+            if (!this.storageService.isConfigured()) return Promise.resolve(null)
+            const base =
+              this.config.get<string>("API_URL")?.trim() || this.config.get<string>("NEXT_PUBLIC_API_URL")?.trim() || ""
+            if (!base) return Promise.resolve(null)
+            return Promise.resolve(buildPublicStorageUrl(base, objectKey) || null)
           })
         )
       )

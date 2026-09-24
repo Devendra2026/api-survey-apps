@@ -18,6 +18,7 @@ import {
   renderSurveyDataWorkbook,
   renderSurveyDataWorkbookStreaming,
   resolveStoredObjectKey,
+  buildPublicStorageUrl,
   sanitizeExportPathSegment,
   SURVEY_CAPTURE_HEADERS,
   SURVEY_PREMIUM_COLUMNS,
@@ -291,12 +292,24 @@ describe("Excel report templates", () => {
     expect(isConvexHostedUrl("https://api.sdvedutech.in/api/storage/f7d6f101-12d7-4a39-b802-e1a02f9b0870")).toBe(true)
     expect(isConvexHostedUrl("https://files.example.test/etah-images/ward/front.jpg?X-Amz-Signature=abc")).toBe(false)
     expect(isConvexHostedUrl("https://cdn.example/photos/front.jpg")).toBe(false)
+    // Nested MinIO object paths behind Nest /api/storage are not Convex single-id URLs
+    expect(
+      isConvexHostedUrl("http://backend.sdvedutech.in/api/storage/etah-images/district-ETA/ward-01/s1/front.jpg")
+    ).toBe(false)
   })
 
-  it("exports MinIO signed URL when objectKey exists beside Convex custom-domain sourceUrl", async () => {
+  it("buildPublicStorageUrl uses Nest /api/storage path without bucket or X-Amz query", () => {
+    const url = buildPublicStorageUrl("http://backend.sdvedutech.in", "etah-images/district-ETA/ward-01/k97/front.jpg")
+    expect(url).toBe("http://backend.sdvedutech.in/api/storage/etah-images/district-ETA/ward-01/k97/front.jpg")
+    expect(url).not.toContain("minio:9000")
+    expect(url).not.toContain("X-Amz-")
+    expect(url).not.toContain("api-survey-app/")
+  })
+
+  it("exports public Nest storage URL when objectKey exists beside Convex sourceUrl", async () => {
     const convexUrl = "https://api.sdvedutech.in/api/storage/f7d6f101-12d7-4a39-b802-e1a02f9b0870"
-    const signed =
-      "https://minio.example.test/api-survey-app/etah-images/district-ETA/ward-1/s1/front.jpg?X-Amz-Signature=x"
+    const objectKey = "etah-images/district-ETA/ward-1/s1/front.jpg"
+    const publicUrl = buildPublicStorageUrl("http://backend.sdvedutech.in", objectKey)
     const withUrls = await withParcelImageExportUrls(
       {
         ...bundle,
@@ -304,23 +317,26 @@ describe("Excel report templates", () => {
           {
             id: "photo-front",
             photoType: "FRONT",
-            objectKey: "etah-images/district-ETA/ward-1/s1/front.jpg",
-            url: "etah-images/district-ETA/ward-1/s1/front.jpg",
+            objectKey,
+            url: objectKey,
             sourceUrl: convexUrl,
           },
         ],
       },
-      (objectKey) => Promise.resolve(`https://minio.example.test/api-survey-app/${objectKey}?X-Amz-Signature=x`)
+      (key) => Promise.resolve(buildPublicStorageUrl("http://backend.sdvedutech.in", key))
     )
     const workbook = await loadFromBuffer(await renderSurveyDataWorkbook([withUrls]))
     const images = workbook.getWorksheet("Parcel Images")!
-    expect(rowValues(images, 2)[7]).toBe(signed)
-    expect(String(rowValues(images, 2)[7])).not.toContain("/api/storage/")
+    expect(rowValues(images, 2)[7]).toBe(publicUrl)
+    expect(String(rowValues(images, 2)[7])).not.toContain("minio:9000")
+    expect(String(rowValues(images, 2)[7])).not.toContain("X-Amz-")
+    const urlCell = images.getRow(2).getCell(8).value
+    expect(urlCell).toEqual(expect.objectContaining({ text: publicUrl, hyperlink: publicUrl }))
     expect(workbook.getWorksheet("Survey Data")!.getRow(2).getCell(5).value).toBe(bundle.propertyId)
   })
 
-  it("keeps an existing MinIO exportUrl unchanged", async () => {
-    const minioUrl = "https://minio.example.test/bucket/uploads/a/front.jpg?X-Amz-Signature=keep"
+  it("keeps an existing public storage exportUrl unchanged", async () => {
+    const publicUrl = "http://backend.sdvedutech.in/api/storage/uploads/a/front.jpg"
     const workbook = await loadFromBuffer(
       await renderSurveyDataWorkbook([
         {
@@ -331,34 +347,13 @@ describe("Excel report templates", () => {
               photoType: "FRONT",
               objectKey: "uploads/a/front.jpg",
               url: "uploads/a/front.jpg",
-              exportUrl: minioUrl,
+              exportUrl: publicUrl,
             },
           ],
         },
       ])
     )
-    expect(rowValues(workbook.getWorksheet("Parcel Images")!, 2)[7]).toBe(minioUrl)
-  })
-
-  it("keeps http MinIO signed exportUrl (path-style local MinIO)", async () => {
-    const minioHttp = "http://minio.example.test:9000/api-survey-app/uploads/a/front.jpg?X-Amz-Signature=local"
-    const withUrls = await withParcelImageExportUrls(
-      {
-        ...bundle,
-        photos: [
-          {
-            id: "photo-front",
-            photoType: "FRONT",
-            objectKey: "uploads/a/front.jpg",
-            url: "uploads/a/front.jpg",
-            sourceUrl: "https://api.sdvedutech.in/api/storage/abc",
-          },
-        ],
-      },
-      () => Promise.resolve(minioHttp)
-    )
-    const workbook = await loadFromBuffer(await renderSurveyDataWorkbook([withUrls]))
-    expect(rowValues(workbook.getWorksheet("Parcel Images")!, 2)[7]).toBe(minioHttp)
+    expect(rowValues(workbook.getWorksheet("Parcel Images")!, 2)[7]).toBe(publicUrl)
   })
 
   it("writes empty Image URL for null photo url without objectKey", async () => {
@@ -373,7 +368,7 @@ describe("Excel report templates", () => {
     expect(rowValues(workbook.getWorksheet("Parcel Images")!, 2)[7]).toBe("")
   })
 
-  it("does not fabricate a MinIO URL when only Convex /api/storage source exists", async () => {
+  it("does not fabricate a storage URL when only Convex /api/storage source exists", async () => {
     const convexUrl = "https://api.sdvedutech.in/api/storage/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
     const withUrls = await withParcelImageExportUrls(
       {
@@ -418,7 +413,7 @@ describe("Excel report templates", () => {
     ).toBe("etah-images/district-ETA/ward-1/s1/front.jpg")
   })
 
-  it("exports MinIO URLs for multiple photos and leaves Survey Data business cells unchanged", async () => {
+  it("exports public storage URLs for multiple photos and leaves Survey Data business cells unchanged", async () => {
     const withUrls = await withParcelImageExportUrls(
       {
         ...bundle,
@@ -439,12 +434,13 @@ describe("Excel report templates", () => {
           },
         ],
       },
-      (objectKey) => Promise.resolve(`https://files.example.test/${objectKey}`)
+      (objectKey) => Promise.resolve(buildPublicStorageUrl("http://backend.sdvedutech.in", objectKey))
     )
     const workbook = await loadFromBuffer(await renderSurveyDataWorkbook([withUrls]))
     const images = workbook.getWorksheet("Parcel Images")!
-    expect(rowValues(images, 2)[7]).toBe("https://files.example.test/uploads/ulb/ward/survey/front.jpg")
-    expect(rowValues(images, 3)[7]).toBe("https://files.example.test/uploads/ulb/ward/survey/side.jpg")
+    expect(rowValues(images, 2)[7]).toBe("http://backend.sdvedutech.in/api/storage/uploads/ulb/ward/survey/front.jpg")
+    expect(rowValues(images, 3)[7]).toBe("http://backend.sdvedutech.in/api/storage/uploads/ulb/ward/survey/side.jpg")
+    expect(String(rowValues(images, 2)[7])).not.toMatch(/X-Amz-|minio:9000/)
     const survey = workbook.getWorksheet("Survey Data")!
     const headerRow = rowValues(survey, 1)
     expect(survey.getRow(2).getCell(headerRow.indexOf("Property Id") + 1).value).toBe(bundle.propertyId)

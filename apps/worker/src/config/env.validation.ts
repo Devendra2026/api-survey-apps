@@ -85,6 +85,17 @@ export class WorkerEnvironmentVariables {
   @IsUrl({ require_tld: false })
   MINIO_PUBLIC_URL?: string
 
+  /** Public Nest API base for Parcel Images Excel links (`{API_URL}/api/storage/{objectKey}`). */
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @IsUrl({ require_tld: false })
+  API_URL?: string
+
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @IsUrl({ require_tld: false })
+  NEXT_PUBLIC_API_URL?: string
+
   @IsOptional()
   @Transform(emptyToUndefined)
   @IsString()

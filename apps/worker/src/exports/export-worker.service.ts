@@ -4,7 +4,7 @@ import { JobStatus, Prisma, SurveyStatus } from "@workspace/database"
 import {
   assertExportRowCount,
   buildExportFilename,
-  PHOTO_EXPORT_URL_TTL_SECONDS,
+  buildPublicStorageUrl,
   renderConvexFullWorkbook,
   renderNagarPanchayatWorkbook,
   renderSurveyDataWorkbook,
@@ -523,8 +523,20 @@ export class ExportWorkerService {
     }
   }
 
+  /** Public Nest proxy URL for Excel — never expose internal minio:9000 or X-Amz-* signatures. */
+  private publicStorageUrlForObjectKey(objectKey: string): string | null {
+    const base =
+      this.config.get<string>("API_URL")?.trim() || this.config.get<string>("NEXT_PUBLIC_API_URL")?.trim() || ""
+    if (!base) {
+      this.logger.warn("API_URL / NEXT_PUBLIC_API_URL unset; Parcel Images URL left empty")
+      return null
+    }
+    const url = buildPublicStorageUrl(base, objectKey)
+    return url || null
+  }
+
   private signExportPhoto(objectKey: string): Promise<string | null> {
-    return this.storageService.getSignedDownloadUrl(objectKey, PHOTO_EXPORT_URL_TTL_SECONDS)
+    return Promise.resolve(this.publicStorageUrlForObjectKey(objectKey))
   }
 
   /**

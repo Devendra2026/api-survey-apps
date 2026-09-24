@@ -17,6 +17,23 @@ export const PARCEL_IMAGE_HEADERS = [
   "Image URL",
 ] as const
 
+/**
+ * Public Excel/image URL: `{apiBase}/api/storage/{objectKey}`.
+ * Does not include the bucket name; Nest streams the object from the configured bucket.
+ */
+export function buildPublicStorageUrl(apiBaseUrl: string, objectKey: string): string {
+  const base = apiBaseUrl.trim().replace(/\/+$/, "")
+  const key = objectKey
+    .trim()
+    .replace(/^\/+/, "")
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment))
+    .join("/")
+  if (!base || !key) return ""
+  return `${base}/api/storage/${key}`
+}
+
 const PHOTO_TYPE_LABELS: Record<string, string> = {
   FRONT: "Front View",
   SIDE: "Side View",

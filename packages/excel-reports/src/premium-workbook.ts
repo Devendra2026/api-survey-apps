@@ -24,7 +24,7 @@ export type EnterpriseExtraSheet = {
   headers: readonly string[]
   /** Mutated by the caller while `rows` is consumed. Written after the data sheet. */
   rows: unknown[][]
-  /** 1-based column indexes that should be https hyperlinks when the cell is an https URL. */
+  /** 1-based column indexes that should be http(s) hyperlinks when the cell is a URL. */
   hyperlinkColumns?: readonly number[]
 }
 
@@ -234,7 +234,8 @@ function writeExtraSheet(workbook: ExcelJS.Workbook, extra: EnterpriseExtraSheet
 function applyHttpsHyperlink(cell: ExcelJS.Cell) {
   const raw = cell.value
   const text = typeof raw === "string" ? raw.trim() : ""
-  if (!/^https:\/\//i.test(text)) return
+  // Accept http(s) so public API storage links and local backends become clickable.
+  if (!/^https?:\/\//i.test(text)) return
   cell.value = { text, hyperlink: text }
   cell.font = { color: { argb: "FF0563C1" }, underline: true }
 }

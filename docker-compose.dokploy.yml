@@ -281,6 +281,9 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       MINIO_BUCKET: ${MINIO_BUCKET:-api-survey-app}
       STORAGE_BUCKET: ${STORAGE_BUCKET:-api-survey-app}
+      # Parcel Images Excel: {API_URL}/api/storage/{objectKey} (never expose minio:9000)
+      API_URL: ${API_URL:-${NEXT_PUBLIC_API_URL:-https://backend.sdvedutech.in}}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://backend.sdvedutech.in}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4001/live"]
       interval: 20s

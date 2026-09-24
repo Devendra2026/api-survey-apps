@@ -34,19 +34,27 @@ function isHttpsUrl(value: string | null | undefined): boolean {
   return /^https:\/\//i.test(value.trim())
 }
 
+/** Convex getUrl path: /api/storage/{storageId} (any host, including custom domains). */
+const CONVEX_STORAGE_PATH = /^\/api\/storage\/[^/]+\/?$/i
+
 export function isConvexHostedUrl(value: string | null | undefined): boolean {
   if (!value) return false
   const trimmed = value.trim()
   try {
-    const host = new URL(trimmed).hostname.toLowerCase()
-    return (
+    const parsed = new URL(trimmed)
+    const host = parsed.hostname.toLowerCase()
+    if (
       host === "convex.cloud" ||
       host === "convex.site" ||
       host.endsWith(".convex.cloud") ||
       host.endsWith(".convex.site")
-    )
+    ) {
+      return true
+    }
+    // Custom Convex HTTP domain (e.g. api.sdvedutech.in/api/storage/{id})
+    return CONVEX_STORAGE_PATH.test(parsed.pathname)
   } catch {
-    return /convex\.(cloud|site)/i.test(trimmed)
+    return /convex\.(cloud|site)/i.test(trimmed) || /\/api\/storage\/[^/?#]+/i.test(trimmed)
   }
 }
 

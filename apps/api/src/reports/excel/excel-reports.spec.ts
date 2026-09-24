@@ -24,6 +24,8 @@ import {
   toSurveyCaptureRow,
   toSurveyPremiumRow,
   wardSurveyDataZipEntry,
+  withParcelImageExportUrls,
+  isConvexHostedUrl,
   type SurveyExportBundle,
 } from "@workspace/excel-reports"
 import { taxRateKey, type ExportTaxRateTable } from "@workspace/validation"
@@ -281,6 +283,127 @@ describe("Excel report templates", () => {
     expect(rowValues(images, 1)[0]).toBe("Property ID")
     expect(images.rowCount).toBe(1)
     expect(workbook.getWorksheet("Survey Data")!.getRow(2).getCell(5).value).toBe(bundle.propertyId)
+  })
+
+  it("classifies Convex getUrl hosts and custom-domain /api/storage paths", () => {
+    expect(isConvexHostedUrl("https://happy-animal-123.convex.cloud/api/storage/abc")).toBe(true)
+    expect(isConvexHostedUrl("https://api.sdvedutech.in/api/storage/f7d6f101-12d7-4a39-b802-e1a02f9b0870")).toBe(true)
+    expect(isConvexHostedUrl("https://files.example.test/etah-images/ward/front.jpg?X-Amz-Signature=abc")).toBe(false)
+    expect(isConvexHostedUrl("https://cdn.example/photos/front.jpg")).toBe(false)
+  })
+
+  it("exports MinIO signed URL when objectKey exists beside Convex custom-domain sourceUrl", async () => {
+    const convexUrl = "https://api.sdvedutech.in/api/storage/f7d6f101-12d7-4a39-b802-e1a02f9b0870"
+    const signed =
+      "https://minio.example.test/api-survey-app/etah-images/district-ETA/ward-1/s1/front.jpg?X-Amz-Signature=x"
+    const withUrls = await withParcelImageExportUrls(
+      {
+        ...bundle,
+        photos: [
+          {
+            id: "photo-front",
+            photoType: "FRONT",
+            objectKey: "etah-images/district-ETA/ward-1/s1/front.jpg",
+            url: "etah-images/district-ETA/ward-1/s1/front.jpg",
+            sourceUrl: convexUrl,
+          },
+        ],
+      },
+      (objectKey) => Promise.resolve(`https://minio.example.test/api-survey-app/${objectKey}?X-Amz-Signature=x`)
+    )
+    const workbook = await loadFromBuffer(await renderSurveyDataWorkbook([withUrls]))
+    const images = workbook.getWorksheet("Parcel Images")!
+    expect(rowValues(images, 2)[7]).toBe(signed)
+    expect(String(rowValues(images, 2)[7])).not.toContain("/api/storage/")
+    expect(workbook.getWorksheet("Survey Data")!.getRow(2).getCell(5).value).toBe(bundle.propertyId)
+  })
+
+  it("keeps an existing MinIO exportUrl unchanged", async () => {
+    const minioUrl = "https://minio.example.test/bucket/uploads/a/front.jpg?X-Amz-Signature=keep"
+    const workbook = await loadFromBuffer(
+      await renderSurveyDataWorkbook([
+        {
+          ...bundle,
+          photos: [
+            {
+              id: "photo-front",
+              photoType: "FRONT",
+              objectKey: "uploads/a/front.jpg",
+              url: "uploads/a/front.jpg",
+              exportUrl: minioUrl,
+            },
+          ],
+        },
+      ])
+    )
+    expect(rowValues(workbook.getWorksheet("Parcel Images")!, 2)[7]).toBe(minioUrl)
+  })
+
+  it("writes empty Image URL for null photo url without objectKey", async () => {
+    const workbook = await loadFromBuffer(
+      await renderSurveyDataWorkbook([
+        {
+          ...bundle,
+          photos: [{ id: "photo-empty", photoType: "FRONT", url: "", sourceUrl: null, objectKey: null }],
+        },
+      ])
+    )
+    expect(rowValues(workbook.getWorksheet("Parcel Images")!, 2)[7]).toBe("")
+  })
+
+  it("does not fabricate a MinIO URL when only Convex /api/storage source exists", async () => {
+    const convexUrl = "https://api.sdvedutech.in/api/storage/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    const withUrls = await withParcelImageExportUrls(
+      {
+        ...bundle,
+        photos: [
+          {
+            id: "photo-pending",
+            photoType: "FRONT",
+            url: convexUrl,
+            sourceUrl: convexUrl,
+            objectKey: null,
+          },
+        ],
+      },
+      () => Promise.resolve(null)
+    )
+    const workbook = await loadFromBuffer(await renderSurveyDataWorkbook([withUrls]))
+    expect(rowValues(workbook.getWorksheet("Parcel Images")!, 2)[7]).toBe("")
+  })
+
+  it("exports MinIO URLs for multiple photos and leaves Survey Data business cells unchanged", async () => {
+    const withUrls = await withParcelImageExportUrls(
+      {
+        ...bundle,
+        photos: [
+          {
+            id: "photo-front",
+            photoType: "FRONT",
+            objectKey: "uploads/ulb/ward/survey/front.jpg",
+            url: "uploads/ulb/ward/survey/front.jpg",
+            sourceUrl: "https://api.sdvedutech.in/api/storage/front-id",
+          },
+          {
+            id: "photo-side",
+            photoType: "SIDE",
+            objectKey: "uploads/ulb/ward/survey/side.jpg",
+            url: "uploads/ulb/ward/survey/side.jpg",
+            sourceUrl: "https://api.sdvedutech.in/api/storage/side-id",
+          },
+        ],
+      },
+      (objectKey) => Promise.resolve(`https://files.example.test/${objectKey}`)
+    )
+    const workbook = await loadFromBuffer(await renderSurveyDataWorkbook([withUrls]))
+    const images = workbook.getWorksheet("Parcel Images")!
+    expect(rowValues(images, 2)[7]).toBe("https://files.example.test/uploads/ulb/ward/survey/front.jpg")
+    expect(rowValues(images, 3)[7]).toBe("https://files.example.test/uploads/ulb/ward/survey/side.jpg")
+    const survey = workbook.getWorksheet("Survey Data")!
+    const headerRow = rowValues(survey, 1)
+    expect(survey.getRow(2).getCell(headerRow.indexOf("Property Id") + 1).value).toBe(bundle.propertyId)
+    expect(survey.getRow(2).getCell(headerRow.indexOf("Ward Name") + 1).value).toBe("001 - Ward 1")
+    expect(survey.getRow(2).getCell(headerRow.indexOf("Parcel No") + 1).value).toBe("00004")
   })
 
   it("matches Ward-1-Etah 39-column headers when golden file is available", async () => {

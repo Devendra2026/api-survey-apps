@@ -1,55 +1,44 @@
-import { useSignIn } from "@clerk/clerk-expo";
-import { Link, useRouter } from "expo-router";
+import { Button, Screen, Text, TextField } from "@/components/ui";
+import { useGoogleAuth } from "@/features/auth/hooks/use-google-auth";
+import { useSignInForm } from "@/features/auth/hooks/use-sign-in-form";
+import { AuthScreenShell } from "@/features/auth/ui/AuthScreenShell";
+import { colors, spacing } from "@/theme";
+import { Link } from "expo-router";
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
-import { Button, Screen, Text, TextField, cardStyle } from "@/components/ui";
-import { getClerkErrorMessage } from "@/features/auth/clerk-errors";
-import { spacing } from "@/theme";
 
 export default function SignInScreen() {
-  const { isLoaded, signIn, setActive } = useSignIn();
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const { isLoaded, error, loading, submit, setError } = useSignInForm();
+  const {
+    error: googleError,
+    loading: googleLoading,
+    signInWithGoogle,
+    setError: setGoogleError,
+  } = useGoogleAuth();
 
-  async function onSubmit() {
-    if (!isLoaded || !signIn) {
-      return;
-    }
-    setError(null);
-    setLoading(true);
-    try {
-      const result = await signIn.create({
-        identifier: email.trim(),
-        password,
-      });
-
-      if (result.status === "complete" && result.createdSessionId) {
-        await setActive({ session: result.createdSessionId });
-        router.replace("/");
-        return;
-      }
-
-      setError("Additional verification is required. Please complete sign-in on the web, or contact support.");
-    } catch (err) {
-      setError(getClerkErrorMessage(err, "Sign in failed"));
-    } finally {
-      setLoading(false);
-    }
-  }
+  const busy = loading || googleLoading;
+  const displayError = googleError ?? error;
 
   return (
     <Screen scroll keyboard>
-      <View style={styles.header}>
-        <Text variant="title">Welcome back</Text>
-        <Text variant="body" tone="secondary">
-          Sign in with your municipal survey account.
-        </Text>
-      </View>
-
-      <View style={[cardStyle, styles.form]}>
+      <AuthScreenShell
+        title="Sign in"
+        caption="Municipal survey field access — use your assigned account."
+        footer={
+          <View style={styles.footerRow}>
+            <Text variant="body" tone="secondary">
+              Need an account?{" "}
+            </Text>
+            <Link href="/(auth)/sign-up">
+              <Text variant="bodyStrong" tone="primary">
+                Sign up
+              </Text>
+            </Link>
+          </View>
+        }
+      >
         <TextField
           label="Email"
           value={email}
@@ -58,7 +47,7 @@ export default function SignInScreen() {
           textContentType="emailAddress"
           autoComplete="email"
           placeholder="you@example.com"
-          editable={!loading}
+          editable={!busy}
         />
         <TextField
           label="Password"
@@ -68,51 +57,77 @@ export default function SignInScreen() {
           textContentType="password"
           autoComplete="password"
           placeholder="••••••••"
-          editable={!loading}
+          editable={!busy}
         />
-        {error ? (
+
+        <View style={styles.forgotRow}>
+          <Link href="/(auth)/forgot-password">
+            <Text variant="bodyStrong" tone="primary" style={styles.forgotLink}>
+              Forgot password?
+            </Text>
+          </Link>
+        </View>
+
+        {displayError ? (
           <Text variant="caption" tone="danger">
-            {error}
+            {displayError}
           </Text>
         ) : null}
+
         <Button
           title="Sign in"
           loading={loading}
-          disabled={!email.trim() || !password || !isLoaded}
+          disabled={!email.trim() || !password || !isLoaded || googleLoading}
           onPress={() => {
-            void onSubmit();
+            setGoogleError(null);
+            void submit(email, password);
           }}
         />
-      </View>
 
-      <View style={styles.footer}>
-        <Text variant="body" tone="secondary">
-          Need an account?{" "}
-        </Text>
-        <Link href="/(auth)/sign-up">
-          <Text variant="bodyStrong" tone="primary">
-            Sign up
+        <View style={styles.dividerRow}>
+          <View style={styles.dividerLine} />
+          <Text variant="caption" tone="secondary">
+            or
           </Text>
-        </Link>
-      </View>
+          <View style={styles.dividerLine} />
+        </View>
+
+        <Button
+          title="Continue with Google"
+          variant="secondary"
+          loading={googleLoading}
+          disabled={!isLoaded || loading}
+          onPress={() => {
+            setError(null);
+            void signInWithGoogle();
+          }}
+        />
+      </AuthScreenShell>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  header: {
-    gap: spacing.sm,
-    marginBottom: spacing.xl,
-    marginTop: spacing.xxl,
-  },
-  form: {
-    gap: spacing.lg,
-  },
-  footer: {
+  footerRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "center",
-    marginTop: spacing.xl,
-    paddingBottom: spacing.xl,
+  },
+  forgotRow: {
+    alignItems: "flex-end",
+    marginTop: -spacing.sm,
+  },
+  forgotLink: {
+    fontSize: 14,
+  },
+  dividerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  dividerLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
   },
 });

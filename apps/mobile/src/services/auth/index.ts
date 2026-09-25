@@ -1,10 +1,6 @@
-/**
- * Central auth surface for the mobile app.
- * Session state lives in AppSessionProvider; Clerk owns identity.
- */
-
-export { AppSessionProvider, useAppSession } from "@/features/auth/AppSessionProvider";
-export type { AppSessionState } from "@/features/auth/AppSessionProvider";
-export { AuthTokenBridge } from "@/features/auth/AuthTokenBridge";
-export { getClerkErrorMessage } from "@/features/auth/clerk-errors";
-export { tokenCache } from "@clerk/clerk-expo/token-cache";
+export { getClerkErrorMessage } from "@/features/auth/lib/clerk-errors"
+export { AppSessionProvider, useAppSession } from "@/features/auth/session/AppSessionProvider"
+export type { AppSessionState } from "@/features/auth/session/AppSessionProvider"
+export { tokenCache } from "@clerk/expo/token-cache"
+export { ClerkProvider } from "./clerk-provider"
+export type { AppClerkProviderProps } from "./clerk-provider"

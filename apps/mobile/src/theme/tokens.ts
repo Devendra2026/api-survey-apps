@@ -1,13 +1,16 @@
 export const colors = {
-  background: "#F4F7FB",
+  background: "#FAFBFC",
   surface: "#FFFFFF",
-  surfaceMuted: "#EEF2F7",
+  surfaceMuted: "#F0F3F8",
   border: "#D8E0EA",
   text: "#0F172A",
   textSecondary: "#64748B",
   textInverse: "#FFFFFF",
-  primary: "#208AEF",
-  primaryPressed: "#1A73C9",
+  /** SDV navy — logo primary */
+  primary: "#002366",
+  primaryPressed: "#001A4D",
+  /** SDV red — logo accent */
+  accent: "#C01D1A",
   danger: "#DC2626",
   dangerMuted: "#FEE2E2",
   success: "#059669",
@@ -15,7 +18,7 @@ export const colors = {
   warning: "#D97706",
   warningMuted: "#FEF3C7",
   overlay: "rgba(15, 23, 42, 0.4)",
-} as const;
+} as const
 
 export const spacing = {
   xs: 4,
@@ -25,7 +28,7 @@ export const spacing = {
   xl: 24,
   xxl: 32,
   xxxl: 40,
-} as const;
+} as const
 
 export const radius = {
   sm: 8,
@@ -33,7 +36,7 @@ export const radius = {
   lg: 16,
   xl: 20,
   full: 999,
-} as const;
+} as const
 
 export const typography = {
   title: {
@@ -67,4 +70,4 @@ export const typography = {
     fontWeight: "500" as const,
     lineHeight: 20,
   },
-} as const;
+} as const

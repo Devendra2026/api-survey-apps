@@ -2,6 +2,8 @@ packages:
   - "apps/*"
   - "packages/*"
 
+autoInstallPeers: true
+
 overrides:
   "@types/react": "19.2.17"
 
@@ -20,3 +22,7 @@ allowBuilds:
   sharp: true
   unrs-resolver: true
   utf-8-validate: true
+
+minimumReleaseAgeExclude:
+  - expo-auth-session@57.0.13
+  - expo-linking@57.0.11

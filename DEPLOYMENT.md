@@ -222,6 +222,16 @@ Create the GitHub Environment named **`production`** under Settings → Environm
 | `HEALTHCHECK_API_URL`               | No                             | API origin for `/live` + `/ready` (e.g. `https://api.example.com`) |
 | `HEALTHCHECK_WEB_URL`               | No                             | Web origin for `/healthz` (e.g. `https://app.example.com`)         |
 
+### Mobile (Expo) release Clerk keys
+
+Dokploy / ECR release covers **web**, **api**, and **worker** only. Mobile store or other release binaries are built separately (EAS / local release). Before bundling:
+
+- Bake `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_live_…` (same Clerk production publishable key as web `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`)
+- Bake `EXPO_PUBLIC_API_URL` to the production HTTPS API origin
+- Never put `CLERK_SECRET_KEY` in the mobile app; Nest must use the matching production Clerk secret
+
+See [`apps/mobile/README.md`](apps/mobile/README.md) (Clerk keys: development vs production). Non-dev builds reject `pk_test_` keys.
+
 #### Rollback
 
 1. **Apps:** Redeploy the previous immutable ECR tag (or prior git commit via Dokploy Compose rebuild). Prefer the last known-good `v*` or SHA tag — avoid relying on mutable `:latest` for rollback.
@@ -251,4 +261,5 @@ Create the GitHub Environment named **`production`** under Settings → Environm
 - [`docs/ops/dokploy-env.md`](docs/ops/dokploy-env.md)
 - [`docs/ops/observability.md`](docs/ops/observability.md)
 - [`docs/ops/go-live.md`](docs/ops/go-live.md)
+- [`apps/mobile/README.md`](apps/mobile/README.md) — Expo env, Clerk `pk_test_` vs `pk_live_`
 - [`docs/superpowers/specs/2026-07-28-docker-dokploy-nixpacks-removal-design.md`](docs/superpowers/specs/2026-07-28-docker-dokploy-nixpacks-removal-design.md)

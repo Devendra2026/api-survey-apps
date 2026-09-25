@@ -1,6 +1,6 @@
-import { Redirect } from "expo-router";
 import { Screen, StatusView } from "@/components/ui";
-import { useAppSession } from "@/features/auth/AppSessionProvider";
+import { useAppSession } from "@/features/auth/session/AppSessionProvider";
+import { Redirect } from "expo-router";
 
 export default function DisabledScreen() {
   const { state, signOut } = useAppSession();
@@ -9,7 +9,7 @@ export default function DisabledScreen() {
     return <Redirect href="/(auth)/sign-in" />;
   }
   if (state.status === "ready") {
-    return <Redirect href="/(app)/index" />;
+    return <Redirect href="/" />;
   }
   if (state.status === "pending") {
     return <Redirect href="/(app)/pending" />;

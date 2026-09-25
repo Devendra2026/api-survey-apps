@@ -1,6 +1,7 @@
-import { Redirect } from "expo-router";
 import { Screen, StatusView } from "@/components/ui";
-import { useAppSession } from "@/features/auth/AppSessionProvider";
+import { useAppSession } from "@/features/auth/session/AppSessionProvider";
+import { resolveAppHomeHref } from "@/types/user";
+import { Redirect } from "expo-router";
 
 export default function Index() {
   const { state, refresh, signOut } = useAppSession();
@@ -8,7 +9,11 @@ export default function Index() {
   if (state.status === "booting" || state.status === "loading_profile") {
     return (
       <Screen>
-        <StatusView variant="loading" title="Loading…" description="Checking your session." />
+        <StatusView
+          variant="loading"
+          title="Signing you in…"
+          description="Verifying your session with the API."
+        />
       </Screen>
     );
   }
@@ -26,7 +31,7 @@ export default function Index() {
   }
 
   if (state.status === "ready") {
-    return <Redirect href="/(app)/index" />;
+    return <Redirect href={resolveAppHomeHref(state.profile)} />;
   }
 
   return (

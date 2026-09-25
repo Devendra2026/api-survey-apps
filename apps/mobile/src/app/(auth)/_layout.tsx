@@ -1,12 +1,17 @@
-import { Redirect, Stack } from "expo-router";
 import { Screen, StatusView } from "@/components/ui";
-import { useAppSession } from "@/features/auth/AppSessionProvider";
+import { useAppSession } from "@/features/auth/session/AppSessionProvider";
 import { colors } from "@/theme";
+import { Redirect, Stack } from "expo-router";
 
+/**
+ * Keep the auth Stack mounted only while signed out.
+ * After sign-in, redirect to `/` immediately so forms unmount cleanly
+ * and the root index owns the session loading UI (avoids Expo Go crashes).
+ */
 export default function AuthLayout() {
   const { state } = useAppSession();
 
-  if (state.status === "booting" || state.status === "loading_profile") {
+  if (state.status === "booting") {
     return (
       <Screen>
         <StatusView variant="loading" title="Loading…" />
@@ -14,14 +19,8 @@ export default function AuthLayout() {
     );
   }
 
-  if (state.status === "ready") {
-    return <Redirect href="/(app)/index" />;
-  }
-  if (state.status === "pending") {
-    return <Redirect href="/(app)/pending" />;
-  }
-  if (state.status === "disabled") {
-    return <Redirect href="/(app)/disabled" />;
+  if (state.status !== "signed_out") {
+    return <Redirect href="/" />;
   }
 
   return (

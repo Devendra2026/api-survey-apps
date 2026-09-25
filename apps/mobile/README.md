@@ -24,6 +24,24 @@ EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_…
 | `EXPO_PUBLIC_API_URL`               | Nest API base URL (no trailing slash). Required for production HTTPS. |
 | `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk **publishable** key only. Never put `CLERK_SECRET_KEY` here.    |
 
+### Clerk keys: development vs production
+
+Local Expo / Metro should use a Clerk **development** publishable key (`pk_test_…`). The LogBox warning _“Clerk has been loaded with development keys”_ is **expected** in that setup — Clerk limits development instances and reminds you not to ship them to production.
+
+#### Production / release builds
+
+Before bundling a store or other release binary, set release env (EAS secrets, CI, or a local release `.env`) so Expo inlines the production values at build time:
+
+```bash
+EXPO_PUBLIC_API_URL=https://your-api.example.com
+EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_live_…
+```
+
+- Use the same Clerk **production** instance publishable key as web (`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` / `pk_live_…` from the Clerk Dashboard).
+- Never put `CLERK_SECRET_KEY` in the mobile app.
+- Nest API must use the matching production Clerk secret so session JWTs validate.
+- Non-dev builds reject `pk_test_` keys (see `getClerkPublishableKey` in `src/lib/env.ts`).
+
 ### Local API URL by device
 
 | Client                   | URL when env unset / typical local value                                                                                           |
@@ -38,10 +56,47 @@ Never put API secrets, Clerk secret keys, database URLs, or AWS credentials in t
 
 ## Auth & onboarding
 
-1. Sign up / sign in with Clerk (email + password; email verification on sign-up).
+1. Sign up / sign in with Clerk (email + password with email verification, or **Continue with Google** browser OAuth). Use **Forgot password?** on the sign-in screen to reset via email code.
 2. Nest upserts the user on the first authenticated API call and assigns `PENDING_APPROVAL` (or bootstrap `ADMIN`).
-3. Until an admin assigns a working role (web **User onboard**), the app shows **Access pending**.
+3. Until an admin assigns a working role (web **User onboard**), the app shows **Access pending**. Use **Refresh status** after onboarding.
 4. Disabled accounts (`isActive: false`) show **Account disabled** and must sign out.
+
+### Surveyor vs admin
+
+| Who                                                                                                                     | After first mobile login                                                                                                                               |
+| ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Bootstrap admin (Clerk ID in `BOOTSTRAP_ADMIN_CLERK_USER_IDS`, or first signed-in user when no admin has logged in yet) | Nest promotes to **ADMIN** → **ready** → **Admin dashboard** (`/(app)/admin`)                                                                          |
+| Surveyor / Field supervisor / QC supervisor (after web onboarding)                                                      | Nest assigns working role + permissions → **ready** → **Survey dashboard** (`/(app)/survey`)                                                           |
+| Typical new user                                                                                                        | Nest assigns **PENDING_APPROVAL** (no permissions) → **Access pending** until a web admin assigns **SURVEYOR** (with ULB/ward) or another working role |
+
+Mobile never auto-assigns SURVEYOR. Role and geography are granted only via the web admin.
+
+### Session verification errors (“Unable to continue”)
+
+After Clerk sign-in the app calls Nest `GET /users/me` with the session JWT. A **401** shows **Unable to continue** / session could not be verified.
+
+Checklist:
+
+1. Nest API is running (`pnpm --filter api dev`) and reachable — Android emulator: `EXPO_PUBLIC_API_URL=http://10.0.2.2:4000`.
+2. Mobile `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` and API `CLERK_SECRET_KEY` are from the **same** Clerk instance (`pk_test_` with `sk_test_`).
+3. Local API: leave `CLERK_AUTHORIZED_PARTIES` **empty**. A web-only value such as `http://localhost:3000` will 401 mobile after Clerk login with **Invalid or expired token**.
+4. Production: if you set `CLERK_AUTHORIZED_PARTIES`, include the mobile JWT `azp` (decode a session token) in addition to web origins — web-only lists break native clients.
+5. In `__DEV__`, the error screen includes the Nest message and API base URL to speed up diagnosis.
+
+The Clerk LogBox toast about **development keys** is expected for local Expo and is not this error.
+
+### Google OAuth (Clerk Dashboard)
+
+1. Enable the **Google** social connection on the same Clerk instance as `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY`.
+2. Under Clerk redirect / native allowlist, add the Expo redirect URI for this app scheme, e.g. `mobile://sso-callback` (and any Expo AuthSession URI shown in logs for your build).
+3. Ensure **Email + password** and **Email verification code** are enabled for email flows.
+4. If custom mobile sign-up/sign-in fail with captcha errors, disable or reconfigure **Bot protection** for that Clerk instance so custom Expo flows are allowed.
+
+### Nest API auth notes
+
+- Nest validates the Clerk session JWT with `CLERK_SECRET_KEY` from the **same** Clerk instance as the mobile publishable key (test with test, live with live).
+- If `CLERK_AUTHORIZED_PARTIES` is set on the API, the JWT `azp` from mobile sessions must be included—or leave the variable empty (web-only party lists will 401 mobile with **Invalid or expired token** after an otherwise successful Clerk login).
+- CORS (`CORS_ORIGIN`) applies to browsers (Expo web / Next). Native Android/iOS clients do not use CORS.
 
 ## Commands (run from repo root)
 
@@ -95,14 +150,21 @@ If it keeps failing: Android Studio → Device Manager → **Cold Boot Now** or 
 ## Layout
 
 ```
-src/app/              # Expo Router (thin routes)
-src/features/auth/    # session gate, Clerk token bridge
-src/components/ui/    # Screen, Button, TextField, StatusView
-src/theme/            # colors, spacing, typography
-src/lib/              # env helpers
-src/services/api/     # centralized fetch client + users
-src/services/auth/    # auth surface re-exports
-src/types/            # profile / role helpers
+src/app/                 # Expo Router only (thin screens)
+src/features/auth/
+  session/               # AppSessionProvider + profile gate
+  hooks/                 # sign-in / sign-up / forgot / Google
+  ui/                    # AuthBrandHeader, AuthScreenShell
+  lib/                   # clerk-errors
+src/features/home/       # Admin / survey role home shells
+src/components/ui/       # Screen, Button, TextField, StatusView
+src/theme/               # colors, spacing, typography
+src/lib/                 # env helpers
+src/services/api/        # Nest HTTP client + resources
+src/services/auth/       # ClerkProvider + token cache
+src/types/               # profile / role helpers
 ```
+
+Auth uses `@clerk/expo` (Core 3). Custom email flows use `@clerk/expo/legacy` hooks for stable `create` / `setActive` APIs.
 
 Business logic belongs in features/services/hooks — not in route files.

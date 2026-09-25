@@ -1,4 +1,11 @@
-import { useAuth, useUser } from "@clerk/clerk-expo";
+import { getApiBaseUrl } from "@/lib/env";
+import { ApiClientError, isApiClientError, setApiTokenGetter } from "@/services/api/client";
+import { getMe, syncUser } from "@/services/api/users";
+import {
+  hasAppAccess,
+  type AuthenticatedProfile,
+} from "@/types/user";
+import { useAuth, useUser } from "@clerk/expo";
 import {
   createContext,
   useCallback,
@@ -9,12 +16,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ApiClientError, isApiClientError } from "@/services/api/client";
-import { getMe, syncUser } from "@/services/api/users";
-import {
-  hasAppAccess,
-  type AuthenticatedProfile,
-} from "@/types/user";
 
 export type AppSessionState =
   | { status: "booting" }
@@ -33,11 +34,28 @@ type AppSessionContextValue = {
 
 const AppSessionContext = createContext<AppSessionContextValue | null>(null);
 
+const MISSING_BEARER_RETRY_MS = 250;
+
 function isDisabledAccountError(error: unknown): boolean {
   if (!isApiClientError(error) || error.statusCode !== 401) {
     return false;
   }
   return /disabled/i.test(error.message);
+}
+
+function isMissingBearerError(error: unknown): boolean {
+  if (!isApiClientError(error) || error.statusCode !== 401) {
+    return false;
+  }
+  return /missing bearer token/i.test(error.message);
+}
+
+function sessionVerificationMessage(error: unknown): string {
+  if (__DEV__ && isApiClientError(error)) {
+    const server = error.message?.trim() || "Unauthorized";
+    return `${server} (API: ${getApiBaseUrl()})`;
+  }
+  return "Your session could not be verified. Please sign in again.";
 }
 
 function clerkPhone(user: {
@@ -73,6 +91,12 @@ async function maybeSyncProfile(
   }
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 type ProfileGate =
   | { status: "idle" }
   | { status: "loading" }
@@ -82,60 +106,105 @@ type ProfileGate =
   | { status: "error"; message: string };
 
 export function AppSessionProvider({ children }: { children: ReactNode }) {
-  const { isLoaded, isSignedIn, signOut: clerkSignOut } = useAuth();
+  const { isLoaded, isSignedIn, getToken, signOut: clerkSignOut } = useAuth();
   const { user } = useUser();
   const [profileGate, setProfileGate] = useState<ProfileGate>({ status: "idle" });
   const requestIdRef = useRef(0);
+  const getTokenRef = useRef(getToken);
   const userId = user?.id;
   const userFullName = user?.fullName;
   const userPhone = clerkPhone(user);
+
+  useEffect(() => {
+    getTokenRef.current = getToken;
+  }, [getToken]);
+
+  // Register the token getter as soon as Clerk is loaded so API calls never race.
+  useEffect(() => {
+    if (!isLoaded) {
+      return;
+    }
+    setApiTokenGetter(async () => {
+      try {
+        return await getTokenRef.current();
+      } catch {
+        return null;
+      }
+    });
+  }, [isLoaded]);
 
   const fetchProfile = useCallback(async () => {
     const requestId = ++requestIdRef.current;
     setProfileGate({ status: "loading" });
 
-    try {
-      let profile = await getMe();
-      profile = await maybeSyncProfile(profile, userFullName, userPhone);
+    const load = async (allowMissingBearerRetry: boolean): Promise<void> => {
+      try {
+        const token = await getTokenRef.current();
+        if (requestId !== requestIdRef.current) {
+          return;
+        }
+        if (!token) {
+          setProfileGate({
+            status: "error",
+            message: __DEV__
+              ? `No Clerk session token yet (API: ${getApiBaseUrl()}). Retry or sign in again.`
+              : "Your session could not be verified. Please sign in again.",
+          });
+          return;
+        }
 
-      if (requestId !== requestIdRef.current) {
-        return;
-      }
+        let profile = await getMe();
+        profile = await maybeSyncProfile(profile, userFullName, userPhone);
 
-      if (hasAppAccess(profile)) {
-        setProfileGate({ status: "ready", profile });
-      } else {
-        setProfileGate({ status: "pending", profile });
-      }
-    } catch (error) {
-      if (requestId !== requestIdRef.current) {
-        return;
-      }
-      if (isDisabledAccountError(error)) {
-        setProfileGate({
-          status: "disabled",
-          message:
-            error instanceof ApiClientError
-              ? error.message
-              : "Your account has been disabled. Please contact the system administrator.",
-        });
-        return;
-      }
-      if (isApiClientError(error) && error.statusCode === 401) {
+        if (requestId !== requestIdRef.current) {
+          return;
+        }
+
+        if (hasAppAccess(profile)) {
+          setProfileGate({ status: "ready", profile });
+        } else {
+          setProfileGate({ status: "pending", profile });
+        }
+      } catch (error) {
+        if (requestId !== requestIdRef.current) {
+          return;
+        }
+        if (isDisabledAccountError(error)) {
+          setProfileGate({
+            status: "disabled",
+            message:
+              error instanceof ApiClientError
+                ? error.message
+                : "Your account has been disabled. Please contact the system administrator.",
+          });
+          return;
+        }
+        if (allowMissingBearerRetry && isMissingBearerError(error)) {
+          await delay(MISSING_BEARER_RETRY_MS);
+          if (requestId !== requestIdRef.current) {
+            return;
+          }
+          await load(false);
+          return;
+        }
+        if (isApiClientError(error) && error.statusCode === 401) {
+          setProfileGate({
+            status: "error",
+            message: sessionVerificationMessage(error),
+          });
+          return;
+        }
         setProfileGate({
           status: "error",
-          message: "Your session could not be verified. Please sign in again.",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Unable to load your profile. Please try again.",
         });
-        return;
       }
-      setProfileGate({
-        status: "error",
-        message:
-          error instanceof Error
-            ? error.message
-            : "Unable to load your profile. Please try again.",
-      });
-    }
+    };
+
+    await load(true);
   }, [userFullName, userPhone]);
 
   useEffect(() => {

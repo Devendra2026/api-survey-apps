@@ -1,12 +1,12 @@
-import { Redirect } from "expo-router";
 import { Screen, StatusView } from "@/components/ui";
-import { useAppSession } from "@/features/auth/AppSessionProvider";
+import { useAppSession } from "@/features/auth/session/AppSessionProvider";
+import { Redirect } from "expo-router";
 
 export default function PendingScreen() {
   const { state, refresh, signOut } = useAppSession();
 
   if (state.status === "ready") {
-    return <Redirect href="/(app)/index" />;
+    return <Redirect href="/" />;
   }
   if (state.status === "disabled") {
     return <Redirect href="/(app)/disabled" />;
@@ -32,7 +32,7 @@ export default function PendingScreen() {
         title="Access pending"
         description={
           email
-            ? `You are signed in as ${email}, but an administrator has not assigned a working role yet. Pull to refresh after they onboard you, or sign out.`
+            ? `You are signed in as ${email}, but an administrator has not assigned a working role yet. Tap Refresh status after they onboard you, or sign out.`
             : "Your account is signed in but has no working role yet. Ask an administrator to complete onboarding."
         }
         actionLabel="Refresh status"

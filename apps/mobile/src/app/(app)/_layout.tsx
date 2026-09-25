@@ -1,7 +1,7 @@
-import { Redirect, Stack } from "expo-router";
 import { Screen, StatusView } from "@/components/ui";
-import { useAppSession } from "@/features/auth/AppSessionProvider";
+import { useAppSession } from "@/features/auth/session/AppSessionProvider";
 import { colors } from "@/theme";
+import { Redirect, Stack } from "expo-router";
 
 export default function AppLayout() {
   const { state, refresh, signOut } = useAppSession();
@@ -46,6 +46,8 @@ export default function AppLayout() {
       }}
     >
       <Stack.Screen name="index" />
+      <Stack.Screen name="admin" />
+      <Stack.Screen name="survey" />
       <Stack.Screen name="pending" />
       <Stack.Screen name="disabled" />
     </Stack>

@@ -1,88 +1,60 @@
-import { useSignUp } from "@clerk/clerk-expo";
-import { Link, useRouter } from "expo-router";
+import { Button, Screen, Text, TextField } from "@/components/ui";
+import { useGoogleAuth } from "@/features/auth/hooks/use-google-auth";
+import { useSignUpForm } from "@/features/auth/hooks/use-sign-up-form";
+import { AuthScreenShell } from "@/features/auth/ui/AuthScreenShell";
+import { colors, spacing } from "@/theme";
+import { Link } from "expo-router";
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
-import { Button, Screen, Text, TextField, cardStyle } from "@/components/ui";
-import { getClerkErrorMessage } from "@/features/auth/clerk-errors";
-import { spacing } from "@/theme";
 
 export default function SignUpScreen() {
-  const { isLoaded, signUp, setActive } = useSignUp();
-  const router = useRouter();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
-  const [pendingVerification, setPendingVerification] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const {
+    isLoaded,
+    pendingVerification,
+    error,
+    loading,
+    resending,
+    signUpWithDetails,
+    verifyCode,
+    resendCode,
+    setError,
+  } = useSignUpForm();
+  const {
+    error: googleError,
+    loading: googleLoading,
+    signInWithGoogle,
+    setError: setGoogleError,
+  } = useGoogleAuth();
 
-  async function onSignUp() {
-    if (!isLoaded || !signUp) {
-      return;
-    }
-    setError(null);
-    setLoading(true);
-    try {
-      const nameParts = fullName.trim().split(/\s+/).filter(Boolean);
-      const firstName = nameParts[0];
-      const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : undefined;
-
-      await signUp.create({
-        emailAddress: email.trim(),
-        password,
-        ...(firstName ? { firstName } : {}),
-        ...(lastName ? { lastName } : {}),
-      });
-
-      await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
-      setPendingVerification(true);
-    } catch (err) {
-      setError(getClerkErrorMessage(err, "Sign up failed"));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function onVerify() {
-    if (!isLoaded || !signUp) {
-      return;
-    }
-    setError(null);
-    setLoading(true);
-    try {
-      const result = await signUp.attemptEmailAddressVerification({
-        code: code.trim(),
-      });
-
-      if (result.status === "complete" && result.createdSessionId) {
-        await setActive({ session: result.createdSessionId });
-        router.replace("/");
-        return;
-      }
-
-      setError("Verification is incomplete. Please try again or contact support.");
-    } catch (err) {
-      setError(getClerkErrorMessage(err, "Verification failed"));
-    } finally {
-      setLoading(false);
-    }
-  }
+  const busy = loading || resending || googleLoading;
+  const displayError = googleError ?? error;
 
   return (
     <Screen scroll keyboard>
-      <View style={styles.header}>
-        <Text variant="title">
-          {pendingVerification ? "Verify email" : "Create account"}
-        </Text>
-        <Text variant="body" tone="secondary">
-          {pendingVerification
-            ? "Enter the code we sent to your email. An admin must assign your role before you can work in the field."
-            : "Sign up to request access. After email verification, wait for an administrator to assign your role."}
-        </Text>
-      </View>
-
-      <View style={[cardStyle, styles.form]}>
+      <AuthScreenShell
+        title={pendingVerification ? "Verify email" : "Create account"}
+        caption={
+          pendingVerification
+            ? "Enter the code we sent to your email to finish registration."
+            : "Request field access. An administrator must approve your role before surveys unlock."
+        }
+        footer={
+          <View style={styles.footerRow}>
+            <Text variant="body" tone="secondary">
+              Already have an account?{" "}
+            </Text>
+            <Link href="/(auth)/sign-in">
+              <Text variant="bodyStrong" tone="primary">
+                Sign in
+              </Text>
+            </Link>
+          </View>
+        }
+      >
         {pendingVerification ? (
           <TextField
             label="Verification code"
@@ -91,7 +63,7 @@ export default function SignUpScreen() {
             keyboardType="number-pad"
             textContentType="oneTimeCode"
             placeholder="123456"
-            editable={!loading}
+            editable={!busy}
           />
         ) : (
           <>
@@ -103,7 +75,7 @@ export default function SignUpScreen() {
               textContentType="name"
               autoComplete="name"
               placeholder="Your name"
-              editable={!loading}
+              editable={!busy}
             />
             <TextField
               label="Email"
@@ -113,7 +85,7 @@ export default function SignUpScreen() {
               textContentType="emailAddress"
               autoComplete="email"
               placeholder="you@example.com"
-              editable={!loading}
+              editable={!busy}
             />
             <TextField
               label="Password"
@@ -123,14 +95,14 @@ export default function SignUpScreen() {
               textContentType="newPassword"
               autoComplete="new-password"
               placeholder="At least 8 characters"
-              editable={!loading}
+              editable={!busy}
             />
           </>
         )}
 
-        {error ? (
+        {displayError ? (
           <Text variant="caption" tone="danger">
-            {error}
+            {displayError}
           </Text>
         ) : null}
 
@@ -139,44 +111,74 @@ export default function SignUpScreen() {
           loading={loading}
           disabled={
             !isLoaded ||
+            googleLoading ||
+            resending ||
             (pendingVerification
               ? !code.trim()
               : !email.trim() || !password || !fullName.trim())
           }
           onPress={() => {
-            void (pendingVerification ? onVerify() : onSignUp());
+            if (pendingVerification) {
+              setGoogleError(null);
+              void verifyCode(code);
+              return;
+            }
+            setGoogleError(null);
+            void signUpWithDetails(fullName, email, password);
           }}
         />
-      </View>
 
-      <View style={styles.footer}>
-        <Text variant="body" tone="secondary">
-          Already have an account?{" "}
-        </Text>
-        <Link href="/(auth)/sign-in">
-          <Text variant="bodyStrong" tone="primary">
-            Sign in
-          </Text>
-        </Link>
-      </View>
+        {pendingVerification ? (
+          <Button
+            title="Resend code"
+            variant="ghost"
+            loading={resending}
+            disabled={!isLoaded || loading || googleLoading}
+            onPress={() => {
+              setGoogleError(null);
+              void resendCode();
+            }}
+          />
+        ) : (
+          <>
+            <View style={styles.dividerRow}>
+              <View style={styles.dividerLine} />
+              <Text variant="caption" tone="secondary">
+                or
+              </Text>
+              <View style={styles.dividerLine} />
+            </View>
+            <Button
+              title="Continue with Google"
+              variant="secondary"
+              loading={googleLoading}
+              disabled={!isLoaded || loading}
+              onPress={() => {
+                setError(null);
+                void signInWithGoogle();
+              }}
+            />
+          </>
+        )}
+      </AuthScreenShell>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  header: {
-    gap: spacing.sm,
-    marginBottom: spacing.xl,
-    marginTop: spacing.xxl,
-  },
-  form: {
-    gap: spacing.lg,
-  },
-  footer: {
+  footerRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "center",
-    marginTop: spacing.xl,
-    paddingBottom: spacing.xl,
+  },
+  dividerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  dividerLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
   },
 });

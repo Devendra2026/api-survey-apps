@@ -1,19 +1,19 @@
-import type { ConfigContext, ExpoConfig } from "expo/config";
+import type { ConfigContext, ExpoConfig } from "expo/config"
 
 /**
  * Cleartext HTTP is only for local Nest (`http://…`).
  * Production must use HTTPS via EXPO_PUBLIC_API_URL.
  */
 function allowCleartextTraffic(): boolean {
-  const apiUrl = process.env.EXPO_PUBLIC_API_URL?.trim() ?? "";
+  const apiUrl = process.env.EXPO_PUBLIC_API_URL?.trim() ?? ""
   if (!apiUrl) {
-    return true;
+    return true
   }
-  return apiUrl.startsWith("http://");
+  return apiUrl.startsWith("http://")
 }
 
 export default ({ config }: ConfigContext): ExpoConfig => {
-  const cleartext = allowCleartextTraffic();
+  const cleartext = allowCleartextTraffic()
 
   return {
     ...config,
@@ -51,6 +51,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     },
     plugins: [
       "expo-router",
+      "@clerk/expo",
       [
         "expo-splash-screen",
         {
@@ -73,5 +74,5 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       typedRoutes: true,
       reactCompiler: true,
     },
-  };
-};
+  }
+}

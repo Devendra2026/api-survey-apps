@@ -1,10 +1,15 @@
 import { useSignIn } from "@clerk/expo/legacy"
 import { useState } from "react"
 import { getClerkErrorMessage, incompleteAuthMessage, validateSignInInput } from "../lib/clerk-errors"
+import { hasPasswordFactor, passwordUnavailableMessage, type SignInFactorLike } from "../lib/sign-in-factors"
 
 /**
  * Email/password sign-in. Session navigation is owned by root/index redirects
  * after Clerk `setActive` — do not `router.replace` here (avoids double nav races).
+ *
+ * Creates the sign-in with the identifier first, then attempts password only when
+ * Clerk lists `password` in `supportedFirstFactors`. Google-only accounts are
+ * directed to Continue with Google instead of a password attempt.
  */
 export function useSignInForm() {
   const { isLoaded, signIn, setActive } = useSignIn()
@@ -25,8 +30,19 @@ export function useSignInForm() {
     setError(null)
     setLoading(true)
     try {
-      const result = await signIn.create({
+      const created = await signIn.create({
         identifier: email.trim(),
+      })
+
+      const factors = (created.supportedFirstFactors ?? []) as SignInFactorLike[]
+
+      if (!hasPasswordFactor(factors)) {
+        setError(passwordUnavailableMessage(factors))
+        return
+      }
+
+      const result = await signIn.attemptFirstFactor({
+        strategy: "password",
         password,
       })
 

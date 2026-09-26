@@ -32,8 +32,8 @@ export default function PendingScreen() {
         title="Access pending"
         description={
           email
-            ? `You are signed in as ${email}. Your account has not been assigned an application role. Please contact your administrator.`
-            : "Your account has not been assigned an application role. Please contact your administrator."
+            ? `You are signed in as ${email}. Your account has been created successfully. An administrator must approve your account before you can access the survey portal.`
+            : "Your account has been created successfully. An administrator must approve your account before you can access the survey portal."
         }
         actionLabel="Refresh status"
         onAction={() => {

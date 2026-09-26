@@ -1,4 +1,5 @@
 import { isClerkAPIResponseError } from "@clerk/expo"
+import { PASSWORD_UNAVAILABLE_GOOGLE_MESSAGE } from "./sign-in-factors"
 
 const CODE_MESSAGES: Record<string, string> = {
   form_identifier_not_found: "Invalid email or password.",
@@ -14,6 +15,8 @@ const CODE_MESSAGES: Record<string, string> = {
   captcha_invalid: "Bot protection blocked this request. Ask an admin to check Clerk captcha settings for mobile.",
   captcha_missing_token:
     "Bot protection blocked this request. Ask an admin to check Clerk captcha settings for mobile.",
+  /** Password (or other) strategy not valid for this Clerk user — typically Google-only accounts. */
+  strategy_for_user_invalid: PASSWORD_UNAVAILABLE_GOOGLE_MESSAGE,
 }
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -40,9 +43,17 @@ function isNetworkLikeMessage(message: string): boolean {
 export function getClerkErrorMessage(error: unknown, fallback = "Authentication failed"): string {
   if (isClerkAPIResponseError(error)) {
     const first = error.errors[0]
+    if (__DEV__ && first?.code) {
+      console.warn("[clerk-auth]", first.code, first.longMessage ?? first.message)
+    }
     const fromCode = messageForCode(first?.code)
     if (fromCode) {
       return fromCode
+    }
+    // Clerk's human-readable copy for an invalid strategy — map without treating as wrong password.
+    const strategyCopy = `${first?.longMessage ?? ""} ${first?.message ?? ""}`.toLowerCase()
+    if (strategyCopy.includes("verification strategy is not valid")) {
+      return PASSWORD_UNAVAILABLE_GOOGLE_MESSAGE
     }
     if (first?.longMessage) {
       return first.longMessage

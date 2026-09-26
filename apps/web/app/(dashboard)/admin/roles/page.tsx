@@ -54,7 +54,6 @@ import {
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu"
 import { Input } from "@workspace/ui/components/input"
-import { Tabs, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
 import { motion, useReducedMotion } from "framer-motion"
 import { ClipboardList, Download, FileUp, Plus, Upload } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
@@ -102,18 +101,11 @@ function AdminRolesPage() {
   const cloneRole = useCloneRole()
   const deleteRole = useDeleteRole()
 
-  const [familyTab, setFamilyTab] = useState<"platform" | "department">(actorIsDeptOnly ? "department" : "platform")
-
   const allRoles = data?.items ?? []
+  // Platform roles only — Department template tab removed; legacy DEPT_* rows stay in DB.
   const roles = useMemo(() => {
-    if (actorIsDeptOnly) {
-      return allRoles.filter((r) => isDepartmentRole(r.name) || r.family === "DEPARTMENT")
-    }
-    if (familyTab === "department") {
-      return allRoles.filter((r) => isDepartmentRole(r.name) || r.family === "DEPARTMENT")
-    }
     return allRoles.filter((r) => !isDepartmentRole(r.name) && r.family !== "DEPARTMENT")
-  }, [allRoles, familyTab, actorIsDeptOnly])
+  }, [allRoles])
   const catalog = permissions?.items ?? []
 
   const roleFromUrl = searchParams.get("role")
@@ -160,15 +152,9 @@ function AdminRolesPage() {
     return map
   }, [userStats?.byRole, roles])
 
-  // When switching family tab, select first role in that family
+  // Prefer URL role, else first custom, else first platform role
   useEffect(() => {
-    if (!roles.length) return
     if (selectedId && roles.some((r) => r.id === selectedId)) return
-    setSelectedId(roles[0]?.id ?? null)
-  }, [familyTab, roles, selectedId])
-
-  useEffect(() => {
-    if (selectedId) return
     if (roleFromUrl && roles.some((r) => r.id === roleFromUrl)) {
       setSelectedId(roleFromUrl)
       return
@@ -317,12 +303,8 @@ function AdminRolesPage() {
       transition={{ duration: 0.15 }}
     >
       <PageHeader
-        title="Roles"
-        description={
-          actorIsDeptOnly
-            ? "Department roles for your municipal ULB — view what Admin, Clerk, and Operator can do"
-            : "Platform RBAC and municipal department permission template"
-        }
+        title="Platform Roles"
+        description="Surveyor, Supervisor, QC Supervisor, and Admin — permissions control what each role can do"
         breadcrumbs={[{ label: "Administration", href: "/admin/users" }, { label: "Roles" }]}
         actions={
           <div className="flex flex-wrap items-center justify-end gap-1.5">
@@ -411,26 +393,11 @@ function AdminRolesPage() {
         />
       </div>
 
-      {!actorIsDeptOnly ? (
-        <Tabs
-          value={familyTab}
-          onValueChange={(v) => setFamilyTab(v as "platform" | "department")}
-          className="shrink-0"
-        >
-          <TabsList className="h-9 rounded-lg bg-muted/60 p-0.5">
-            <TabsTrigger value="platform" className="h-8 cursor-pointer rounded-md px-3 text-xs">
-              Platform roles
-            </TabsTrigger>
-            <TabsTrigger value="department" className="h-8 cursor-pointer rounded-md px-3 text-xs">
-              Department template
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-      ) : (
+      {actorIsDeptOnly ? (
         <p className="shrink-0 text-sm text-muted-foreground">
-          Permissions are managed by SDV Edutech. You can view each role&apos;s access below.
+          Platform role permissions are managed by SDV Edutech. Contact an administrator to change access.
         </p>
-      )}
+      ) : null}
 
       <div className="hidden min-h-0 flex-1 grid-cols-[minmax(260px,28%)_minmax(0,1fr)] gap-2 lg:grid">
         <RoleListPanel
@@ -439,7 +406,7 @@ function AdminRolesPage() {
           userCounts={userCounts}
           isLoading={isLoading}
           onSelect={selectRole}
-          canCreate={canManage && !actorIsDeptOnly && familyTab === "platform"}
+          canCreate={canManage && !actorIsDeptOnly}
           onCreateRole={() => {
             setName("")
             setDescription("")
@@ -466,7 +433,7 @@ function AdminRolesPage() {
           userCounts={userCounts}
           isLoading={isLoading}
           onSelect={selectRole}
-          canCreate={canManage && !actorIsDeptOnly && familyTab === "platform"}
+          canCreate={canManage && !actorIsDeptOnly}
           onCreateRole={() => {
             setName("")
             setDescription("")

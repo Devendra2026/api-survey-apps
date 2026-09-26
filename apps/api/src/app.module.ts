@@ -43,6 +43,7 @@ import { TaxConfigsModule } from "./tax-configs/tax-configs.module.js"
 import { UlbsModule } from "./ulbs/ulbs.module.js"
 import { UsersModule } from "./users/users.module.js"
 import { WardsModule } from "./wards/wards.module.js"
+import { ClerkWebhookModule } from "./webhooks/clerk-webhook.module.js"
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { WardsModule } from "./wards/wards.module.js"
     JobsModule,
     AuthModule,
     UsersModule,
+    ClerkWebhookModule,
     RolesModule,
     PermissionsModule,
     StatesModule,

@@ -31,7 +31,7 @@ export type AuthenticatedProfile = {
 export const ROLE_LABELS: Record<string, string> = {
   PENDING_APPROVAL: "Pending approval",
   SURVEYOR: "Surveyor",
-  FIELD_SUPERVISOR: "Field supervisor",
+  FIELD_SUPERVISOR: "Supervisor",
   QC_SUPERVISOR: "QC supervisor",
   ADMIN: "Admin",
   DEPT_ADMIN: "Department admin",

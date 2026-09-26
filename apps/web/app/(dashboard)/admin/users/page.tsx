@@ -239,6 +239,9 @@ function AdminUsersPage() {
   const kpiActiveId = useMemo(() => {
     if (filters.roleName === "QC_SUPERVISOR" && filters.isActive === "true") return "qc" as const
     if (filters.roleName === "SURVEYOR" && filters.isActive === "true") return "surveyors" as const
+    if (filters.roleName === "FIELD_SUPERVISOR" && filters.isActive === "true") return "supervisors" as const
+    if (filters.roleName === "ADMIN") return "admins" as const
+    if (filters.roleName === "PENDING_APPROVAL") return "pending" as const
     if (!filters.roleName && !filters.isActive) return "total" as const
     return null
   }, [filters.isActive, filters.roleName])
@@ -371,14 +374,16 @@ function AdminUsersPage() {
           const pending =
             primaryAssignment(row.original.tenantRoles)?.role?.name === "PENDING_APPROVAL" ||
             primaryAssignment(row.original.tenantRoles)?.roleName === "PENDING_APPROVAL"
-          if (pending) {
-            return (
-              <span className="inline-flex items-center rounded-md border border-amber-300/60 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-200">
-                Pending approval
-              </span>
-            )
-          }
-          return <StatusBadge isActive={row.original.isActive} />
+          return (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <StatusBadge isActive={row.original.isActive} />
+              {pending ? (
+                <span className="inline-flex items-center rounded-md border border-amber-300/60 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-200">
+                  Pending approval
+                </span>
+              ) : null}
+            </div>
+          )
         },
       },
       {
@@ -586,7 +591,7 @@ function AdminUsersPage() {
     >
       <PageHeader
         title="Users"
-        description={`${data?.meta.total ?? stats?.total ?? "—"} people in the directory · approvals, roles, geography, and lifecycle`}
+        description="Manage users, access, roles, locations and account lifecycle."
         breadcrumbs={[{ label: "Administration", href: "/admin/users" }, { label: "Users" }]}
         actions={
           <div className="flex flex-wrap gap-2">
@@ -671,6 +676,9 @@ function AdminUsersPage() {
             if (id === "total") setFilterPreset({})
             if (id === "qc") setFilterPreset({ roleName: "QC_SUPERVISOR", isActive: "true" })
             if (id === "surveyors") setFilterPreset({ roleName: "SURVEYOR", isActive: "true" })
+            if (id === "supervisors") setFilterPreset({ roleName: "FIELD_SUPERVISOR", isActive: "true" })
+            if (id === "admins") setFilterPreset({ roleName: "ADMIN" })
+            if (id === "pending") setFilterPreset({ roleName: "PENDING_APPROVAL" })
             if (id === "locations") setFilterPreset({})
           }}
         />

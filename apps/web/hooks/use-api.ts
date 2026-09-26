@@ -63,11 +63,12 @@ import { useAuth } from "@clerk/nextjs"
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 export function useCurrentUser() {
-  const { isLoaded, isSignedIn, getToken } = useAuth()
+  const { isLoaded, isSignedIn, userId, getToken } = useAuth()
 
   return useQuery({
-    queryKey: ["users", "me"],
-    enabled: isLoaded && Boolean(isSignedIn),
+    queryKey: ["users", "me", userId ?? "anonymous"],
+    enabled: isLoaded && Boolean(isSignedIn) && Boolean(userId),
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       const token = await getToken()
       if (!token) throw new Error("Missing auth token")
@@ -579,7 +580,7 @@ export function useUlbs(districtId?: string) {
 export function useWards(ulbId?: string) {
   return useQuery({
     queryKey: ["wards", ulbId],
-    queryFn: () => apiGetPaginated<GeoWard>(`/wards?ulbId=${ulbId}&limit=100`),
+    queryFn: ({ signal }) => apiGetPaginated<GeoWard>(`/wards?ulbId=${ulbId}&limit=100`, { signal }),
     enabled: Boolean(ulbId),
   })
 }
@@ -626,6 +627,17 @@ export function useUsers(params: Record<string, string | number | boolean | unde
     queryFn: () => apiGetPaginated<AuthenticatedProfile>(`/users?${searchParams}`),
     enabled,
     placeholderData: keepPreviousData,
+  })
+}
+
+export function useUserDetail(userId: string | undefined, enabled = true) {
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canView = hasPermission("user:view")
+
+  return useQuery({
+    queryKey: ["users", "detail", userId],
+    queryFn: () => apiGet<AuthenticatedProfile>(`/users/${userId}`),
+    enabled: canView && Boolean(userId) && enabled,
   })
 }
 
@@ -715,7 +727,14 @@ export function useUpdateUser() {
 export function useDeleteUser() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => apiDelete(`/users/${id}`),
+    mutationFn: (id: string) =>
+      apiDelete<{
+        id: string
+        deleted: boolean
+        deactivated?: boolean
+        historyRetained?: boolean
+        reasons?: string[]
+      }>(`/users/${id}`),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["users"] })
       void queryClient.invalidateQueries({ queryKey: ["users", "stats"] })

@@ -16,7 +16,6 @@ import { useAssignTenantRole, useDistricts, useRoles, useStates, useUlbs } from 
 import { getApiErrorMessage } from "@/lib/api/client"
 import {
   ASSIGNABLE_ROLES,
-  DEPARTMENT_ASSIGNABLE_ROLES,
   isDepartmentRoleName,
   roleDisplayName,
   tenantRoleCode,
@@ -88,7 +87,7 @@ export function UserAssignRoleDialog({
   }, [profile?.tenantRoles])
 
   const assignableRoles = useMemo(() => {
-    if (actorIsDeptOnly) return [...DEPARTMENT_ASSIGNABLE_ROLES].filter((r) => r !== "DEPT_ADMIN")
+    if (actorIsDeptOnly) return [] as string[]
     return [...ASSIGNABLE_ROLES]
   }, [actorIsDeptOnly])
 
@@ -103,13 +102,10 @@ export function UserAssignRoleDialog({
   useEffect(() => {
     if (!user || !open) return
     const current = primaryAssignment(user.tenantRoles)
-    const preferred =
-      defaultRoleName && assignableRoles.includes(defaultRoleName as (typeof assignableRoles)[number])
-        ? defaultRoleName
-        : null
-    const fallback = actorIsDeptOnly ? "DEPT_CLERK" : "SURVEYOR"
+    const preferred = defaultRoleName && assignableRoles.includes(defaultRoleName) ? defaultRoleName : null
+    const fallback = "SURVEYOR"
     const code = preferred ?? (current ? tenantRoleCode(current) : fallback)
-    const nextRole = assignableRoles.includes(code as (typeof assignableRoles)[number]) ? code : fallback
+    const nextRole = assignableRoles.includes(code) ? code : fallback
     const drafts = draftsFromUser(user)
     setRoleName(nextRole)
     setBaselineRoleName(nextRole)
@@ -118,7 +114,7 @@ export function UserAssignRoleDialog({
     setStateId(current?.stateId ?? "")
     setDistrictId(current?.districtId ?? "")
     setUlbId(current?.ulbId ?? "")
-  }, [user, open, defaultRoleName, assignableRoles, actorIsDeptOnly])
+  }, [user, open, defaultRoleName, assignableRoles])
 
   const needsFullGeo = GEO_REQUIRED_FULL.has(roleName)
   const needsUlbOnly = GEO_ULB_ONLY.has(roleName)
@@ -203,7 +199,7 @@ export function UserAssignRoleDialog({
                   setAllotments([emptyAllotment()])
                 }
               }}
-              disabled={mode === "location"}
+              disabled={mode === "location" || assignableRoles.length === 0}
             >
               <SelectTrigger className="h-10 rounded-xl">
                 <SelectValue />
@@ -217,6 +213,11 @@ export function UserAssignRoleDialog({
               </SelectContent>
             </Select>
           </FormField>
+          {actorIsDeptOnly ? (
+            <p className="rounded-xl border border-amber-300/50 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-900 dark:text-amber-100">
+              Platform role assignment is managed by SDV administrators. Department role grants are no longer available.
+            </p>
+          ) : null}
 
           {forbidGeo ? (
             <p className="rounded-xl border bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground">

@@ -4,9 +4,13 @@ import {
   type MatrixActionId,
   type MatrixModuleDef,
 } from "@/components/admin/roles/matrix-config"
-import { DEPARTMENT_ROLE_CODES, SYSTEM_ROLE_CODES } from "@/components/admin/roles/system-role-policy"
+import {
+  DEPARTMENT_ROLE_CODES,
+  ONBOARDING_ROLE_CODE,
+  SYSTEM_ROLE_CODES,
+} from "@/components/admin/roles/system-role-policy"
 
-export { DEPARTMENT_ROLE_CODES, SYSTEM_ROLE_CODES }
+export { DEPARTMENT_ROLE_CODES, ONBOARDING_ROLE_CODE, SYSTEM_ROLE_CODES }
 
 export function rolePermissionIdSet(
   role?: {

@@ -95,6 +95,16 @@ export class EnvironmentVariables {
   @IsString()
   CLERK_AUTHORIZED_PARTIES?: string
 
+  /**
+   * Svix signing secret for POST /webhooks/clerk.
+   * Optional at boot so the API starts before the Clerk endpoint is configured;
+   * the webhook handler rejects requests when this is unset.
+   */
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @IsString()
+  CLERK_WEBHOOK_SIGNING_SECRET?: string
+
   /** Second Clerk instance for portal.nppetah.in (own keys, not satellite). */
   @IsOptional()
   @Transform(emptyToUndefined)

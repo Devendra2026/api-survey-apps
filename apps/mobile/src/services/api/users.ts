@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from "@/services/api/client"
+import { apiGet, apiPost, apiRequest } from "@/services/api/client"
 import type { AuthenticatedProfile } from "@/types/user"
 
 export type SyncUserInput = {
@@ -17,7 +17,18 @@ export type SyncedUserFields = {
   lastLoginAt?: string | null
 }
 
-export function getMe(): Promise<AuthenticatedProfile> {
+/**
+ * Load the authenticated application profile.
+ * Pass `bearerToken` from the same Clerk getToken() used for identity checks
+ * so the API client does not fetch a second (possibly different) token.
+ */
+export function getMe(bearerToken?: string): Promise<AuthenticatedProfile> {
+  if (bearerToken) {
+    return apiRequest<AuthenticatedProfile>("/users/me", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${bearerToken}` },
+    })
+  }
   return apiGet<AuthenticatedProfile>("/users/me")
 }
 

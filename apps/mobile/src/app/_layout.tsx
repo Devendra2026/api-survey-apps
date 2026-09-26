@@ -7,11 +7,22 @@ import { tokenCache } from "@clerk/expo/token-cache";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
+import { StyleSheet } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
 SplashScreen.preventAutoHideAsync().catch(() => {
   // Splash may already be hidden in fast refresh.
 });
+
+function RootProviders({ children }: { children: ReactNode }) {
+  return (
+    <GestureHandlerRootView style={styles.root}>
+      <SafeAreaProvider>{children}</SafeAreaProvider>
+    </GestureHandlerRootView>
+  );
+}
 
 function MissingClerkConfig() {
   return (
@@ -33,25 +44,37 @@ export default function RootLayout() {
   }, []);
 
   if (!publishableKey) {
-    return <MissingClerkConfig />;
+    return (
+      <RootProviders>
+        <MissingClerkConfig />
+      </RootProviders>
+    );
   }
 
   return (
-    <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
-      <AppSessionProvider>
-        <StatusBar style="dark" />
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: colors.background },
-          }}
-        >
-          <Stack.Screen name="index" />
-          <Stack.Screen name="sso-callback" />
-          <Stack.Screen name="(auth)" />
-          <Stack.Screen name="(app)" />
-        </Stack>
-      </AppSessionProvider>
-    </ClerkProvider>
+    <RootProviders>
+      <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
+        <AppSessionProvider>
+          <StatusBar style="dark" />
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: colors.background },
+            }}
+          >
+            <Stack.Screen name="index" />
+            <Stack.Screen name="sso-callback" />
+            <Stack.Screen name="(auth)" />
+            <Stack.Screen name="(app)" />
+          </Stack>
+        </AppSessionProvider>
+      </ClerkProvider>
+    </RootProviders>
   );
 }
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
+});

@@ -9,7 +9,8 @@ import { pinoHttp } from "pino-http"
 import { AppModule } from "./app.module.js"
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule)
+  // rawBody required for Clerk webhook Svix signature verification.
+  const app = await NestFactory.create(AppModule, { rawBody: true })
   const configService = app.get(ConfigService)
   const nodeEnv = configService.get<string>("NODE_ENV") ?? "development"
 

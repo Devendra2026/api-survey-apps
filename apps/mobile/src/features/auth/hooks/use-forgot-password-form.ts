@@ -6,6 +6,7 @@ import {
   MIN_PASSWORD_LENGTH,
   validateResetEmail,
 } from "../lib/clerk-errors"
+import { hasPasswordFactor, passwordResetUnavailableMessage, type SignInFactorLike } from "../lib/sign-in-factors"
 
 export type ForgotPasswordStep = "request" | "reset"
 
@@ -16,6 +17,20 @@ export function useForgotPasswordForm() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [resending, setResending] = useState(false)
+
+  async function startPasswordReset(identifier: string) {
+    const created = await signIn!.create({
+      identifier,
+    })
+    const factors = (created.supportedFirstFactors ?? []) as SignInFactorLike[]
+    if (!hasPasswordFactor(factors)) {
+      throw new Error(passwordResetUnavailableMessage(factors))
+    }
+    await signIn!.create({
+      strategy: "reset_password_email_code",
+      identifier,
+    })
+  }
 
   async function requestCode(email: string) {
     if (!isLoaded || !signIn) {
@@ -32,14 +47,15 @@ export function useForgotPasswordForm() {
     setError(null)
     setLoading(true)
     try {
-      await signIn.create({
-        strategy: "reset_password_email_code",
-        identifier: trimmed,
-      })
+      await startPasswordReset(trimmed)
       setEmailUsed(trimmed)
       setStep("reset")
     } catch (err) {
-      setError(getClerkErrorMessage(err, "Unable to send reset code"))
+      if (err instanceof Error && err.message.includes("Password reset is not available")) {
+        setError(err.message)
+      } else {
+        setError(getClerkErrorMessage(err, "Unable to send reset code"))
+      }
     } finally {
       setLoading(false)
     }

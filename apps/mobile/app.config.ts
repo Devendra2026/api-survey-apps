@@ -25,6 +25,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     scheme: "mobile",
     userInterfaceStyle: "automatic",
     ios: {
+      bundleIdentifier: "com.sdvedutech.surveymobile",
       icon: "./assets/expo.icon",
       ...(cleartext
         ? {
@@ -37,6 +38,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         : {}),
     },
     android: {
+      package: "com.sdvedutech.surveymobile",
       adaptiveIcon: {
         backgroundColor: "#E6F4FE",
         foregroundImage: "./assets/images/android-icon-foreground.png",

@@ -126,7 +126,7 @@ export class UsersController {
   @Get(":id")
   @RequirePermission(PERMISSIONS.USER_VIEW)
   findOne(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.usersService.findById(id, user)
+    return this.usersService.findByIdWithAuthProviders(id, user)
   }
 
   @Post()

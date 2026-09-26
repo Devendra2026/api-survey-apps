@@ -9,7 +9,7 @@ import {
   StatusBadge,
   UserAvatar,
 } from "@/components/admin/user-badges"
-import { usePermissionsCatalog, useRoles, useUserAudits } from "@/hooks/use-api"
+import { usePermissionsCatalog, useRoles, useUserAudits, useUserDetail } from "@/hooks/use-api"
 import { getApiErrorMessage } from "@/lib/api/client"
 import type { AuthenticatedProfile } from "@/lib/api/types"
 import { tenantRoleDisplayName } from "@/lib/api/types"
@@ -60,6 +60,10 @@ export function UserProfileDrawer({
   const geo = assignmentGeoLabels(assignment)
   const roleName = assignment?.role?.name ?? assignment?.roleName
   const isPending = roleName === "PENDING_APPROVAL"
+
+  const { data: detail } = useUserDetail(user?.id, open && Boolean(user?.id))
+  const authProviders = detail?.authProviders
+  const clerkUserId = detail?.clerkUserId ?? user?.clerkUserId
 
   const { data: roles, isLoading: rolesLoading } = useRoles()
   const { data: permissions, isLoading: permsLoading } = usePermissionsCatalog()
@@ -132,6 +136,17 @@ export function UserProfileDrawer({
                     <div className="space-y-2.5 text-sm">
                       <Row label="Mobile" value={user.phone ?? "—"} />
                       <Row label="Role" value={assignment ? tenantRoleDisplayName(assignment) : "—"} />
+                      <Row
+                        label="Auth provider"
+                        value={
+                          authProviders?.length
+                            ? authProviders
+                                .map((p) => (p === "google" ? "Google" : p === "email" ? "Email" : p))
+                                .join(", ")
+                            : "—"
+                        }
+                      />
+                      {canManageRoles && clerkUserId ? <Row label="Clerk user ID" value={clerkUserId} /> : null}
                       <Row
                         label="Last login"
                         value={user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : "Never"}

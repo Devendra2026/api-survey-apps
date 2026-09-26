@@ -1,7 +1,11 @@
 "use client"
 
 import { ROLE_PERMISSION_HINTS } from "@/components/admin/roles/matrix-config"
-import { DEPARTMENT_ROLE_CODES, SYSTEM_ROLE_CODES } from "@/components/admin/roles/permission-utils"
+import {
+  DEPARTMENT_ROLE_CODES,
+  ONBOARDING_ROLE_CODE,
+  SYSTEM_ROLE_CODES,
+} from "@/components/admin/roles/permission-utils"
 import { roleDisplayName, type CatalogRole } from "@/lib/api/types"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
@@ -121,14 +125,22 @@ export function RoleListPanel({
     )
   }, [roles, query])
 
-  const { systemRoles, customRoles } = useMemo(() => {
-    const system: CatalogRole[] = []
+  const { platformRoles, onboardingRoles, customRoles } = useMemo(() => {
+    const platform: CatalogRole[] = []
+    const onboarding: CatalogRole[] = []
     const custom: CatalogRole[] = []
     for (const role of filtered) {
-      if (SYSTEM_ROLE_CODES.has(role.name) || DEPARTMENT_ROLE_CODES.has(role.name)) system.push(role)
+      if (role.name === ONBOARDING_ROLE_CODE) onboarding.push(role)
+      else if (SYSTEM_ROLE_CODES.has(role.name) || DEPARTMENT_ROLE_CODES.has(role.name)) platform.push(role)
       else custom.push(role)
     }
-    return { systemRoles: system, customRoles: custom }
+    const order = ["ADMIN", "FIELD_SUPERVISOR", "QC_SUPERVISOR", "SURVEYOR"]
+    platform.sort((a, b) => {
+      const ai = order.indexOf(a.name)
+      const bi = order.indexOf(b.name)
+      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
+    })
+    return { platformRoles: platform, onboardingRoles: onboarding, customRoles: custom }
   }, [filtered])
 
   return (
@@ -176,12 +188,30 @@ export function RoleListPanel({
             </p>
           ) : (
             <>
-              {systemRoles.length > 0 ? (
+              {platformRoles.length > 0 ? (
                 <div className="space-y-1">
                   <p className="px-1 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
-                    System Roles
+                    Platform Roles
                   </p>
-                  {systemRoles.map((role, index) => (
+                  {platformRoles.map((role, index) => (
+                    <RoleRow
+                      key={role.id}
+                      role={role}
+                      selected={selectedId === role.id}
+                      index={index}
+                      reduceMotion={reduceMotion}
+                      userCounts={userCounts}
+                      onSelect={onSelect}
+                    />
+                  ))}
+                </div>
+              ) : null}
+              {onboardingRoles.length > 0 ? (
+                <div className="space-y-1">
+                  <p className="px-1 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
+                    Onboarding
+                  </p>
+                  {onboardingRoles.map((role, index) => (
                     <RoleRow
                       key={role.id}
                       role={role}

@@ -75,6 +75,7 @@ export class ClerkAuthGuard implements CanActivate {
     let fullName = "User"
     let phone: string | null = null
     let profileFetched = false
+    let emailVerified = false
     let matched: ClerkInstance | null = null
 
     const configuredSkew = this.configService.get<number>("CLERK_CLOCK_SKEW_MS")
@@ -102,10 +103,27 @@ export class ClerkAuthGuard implements CanActivate {
 
     try {
       const clerkUser = await clerkClientFor(matched.secretKey).users.getUser(clerkUserId)
-      email =
-        clerkUser.emailAddresses.find((e) => e.id === clerkUser.primaryEmailAddressId)?.emailAddress ??
-        clerkUser.emailAddresses[0]?.emailAddress ??
-        ""
+      const primaryEmail =
+        clerkUser.emailAddresses.find((e) => e.id === clerkUser.primaryEmailAddressId) ?? clerkUser.emailAddresses[0]
+      email = primaryEmail?.emailAddress ?? ""
+      const normalizedFetchedEmail = email ? normalizeEmail(email) : ""
+      emailVerified = clerkUser.emailAddresses.some(
+        (address) =>
+          Boolean(address.emailAddress) &&
+          normalizeEmail(address.emailAddress) === normalizedFetchedEmail &&
+          address.verification?.status === "verified"
+      )
+      // Google (and other OAuth) identities prove email ownership when Clerk linked the external account.
+      if (!emailVerified && normalizedFetchedEmail) {
+        emailVerified = (clerkUser.externalAccounts ?? []).some((account) => {
+          const accountEmail =
+            "emailAddress" in account && typeof account.emailAddress === "string"
+              ? normalizeEmail(account.emailAddress)
+              : ""
+          const provider = "provider" in account && typeof account.provider === "string" ? account.provider : ""
+          return Boolean(provider.startsWith("oauth_")) && accountEmail === normalizedFetchedEmail
+        })
+      }
       fullName =
         [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim() ||
         clerkUser.username ||
@@ -123,6 +141,7 @@ export class ClerkAuthGuard implements CanActivate {
       fullName,
       phone,
       profileFetched,
+      emailVerified,
     })
     return true
   }
@@ -133,43 +152,73 @@ export class ClerkAuthGuard implements CanActivate {
     fullName: string
     phone: string | null
     profileFetched: boolean
+    emailVerified?: boolean
   }): Promise<AuthenticatedUser> {
     const now = new Date()
+    const verifiedClerkUserId = input.clerkUserId
     let existing = await this.prisma.db.user.findUnique({
-      where: { clerkUserId: input.clerkUserId },
+      where: { clerkUserId: verifiedClerkUserId },
     })
 
     const normalizedEmail = input.profileFetched && input.email ? normalizeEmail(input.email) : (existing?.email ?? "")
 
-    // Email-first: pending:{email} rebind, or same officer on the Etah portal Clerk instance.
+    // Email is a reconciliation key only after Clerk verified the address for this session.
+    // Identity always ends as User.clerkUserId === verified JWT sub (never return another clerkUserId).
     if (!existing && normalizedEmail) {
       const byEmail = await this.prisma.db.user.findUnique({ where: { email: normalizedEmail } })
-      if (byEmail && isPendingClerkUserId(byEmail.clerkUserId)) {
-        existing = await this.prisma.db.user.update({
-          where: { id: byEmail.id },
-          data: {
-            clerkUserId: input.clerkUserId,
-            ...(input.profileFetched
-              ? {
-                  email: normalizedEmail,
-                  fullName: input.fullName !== "User" ? input.fullName : (byEmail.fullName ?? input.fullName),
-                  phone: input.phone ?? byEmail.phone,
-                }
-              : {}),
-            lastLoginAt: now,
-          },
-        })
-        this.logger.log(`Rebound pending user ${byEmail.id} to clerkUserId=${input.clerkUserId}`)
-      } else if (byEmail) {
-        existing = byEmail
-        this.logger.log(`Linked portal Clerk login to existing user ${byEmail.id} by email`)
+      if (byEmail) {
+        if (!byEmail.isActive) {
+          throw new UnauthorizedException("Your account has been disabled. Please contact the system administrator.")
+        }
+
+        const canRebind =
+          isPendingClerkUserId(byEmail.clerkUserId) ||
+          (Boolean(input.emailVerified) && byEmail.clerkUserId !== verifiedClerkUserId)
+
+        if (canRebind && byEmail.clerkUserId !== verifiedClerkUserId) {
+          const previousClerkUserId = byEmail.clerkUserId
+          existing = await this.prisma.db.user.update({
+            where: { id: byEmail.id },
+            data: {
+              clerkUserId: verifiedClerkUserId,
+              ...(input.profileFetched
+                ? {
+                    email: normalizedEmail,
+                    fullName: input.fullName !== "User" ? input.fullName : (byEmail.fullName ?? input.fullName),
+                    phone: input.phone ?? byEmail.phone,
+                  }
+                : {}),
+              lastLoginAt: now,
+            },
+          })
+          this.logger.log(
+            `Rebound user ${byEmail.id} clerkUserId ${previousClerkUserId} → ${verifiedClerkUserId} ` +
+              `via=${isPendingClerkUserId(previousClerkUserId) ? "pending" : "verified-email"} lookup=clerkUserId`
+          )
+        } else if (byEmail.clerkUserId !== verifiedClerkUserId) {
+          this.logger.warn(
+            `Refusing email adoption without verified email: verified=${verifiedClerkUserId} ` +
+              `existing=${byEmail.clerkUserId} lookup=clerkUserId`
+          )
+          throw new UnauthorizedException(
+            "This email is already linked to a different Clerk account. Sign in with the original account or contact an administrator."
+          )
+        } else {
+          existing = byEmail
+        }
       }
+    }
+
+    // Never invent a placeholder @clerk.local row when Clerk profile fetch failed — retry instead.
+    if (!existing && !input.profileFetched) {
+      this.logger.warn(`Refusing JIT create without Clerk profile for ${verifiedClerkUserId}`)
+      throw new UnauthorizedException("Unable to resolve your account profile. Please try again.")
     }
 
     const email =
       input.profileFetched && input.email
         ? normalizeEmail(input.email)
-        : (existing?.email ?? `${input.clerkUserId}@clerk.local`)
+        : (existing?.email ?? `${verifiedClerkUserId}@clerk.local`)
     const fullName =
       input.profileFetched && input.fullName !== "User" ? input.fullName : (existing?.fullName ?? input.fullName)
 
@@ -189,13 +238,20 @@ export class ClerkAuthGuard implements CanActivate {
         })
       : await this.prisma.db.user.create({
           data: {
-            clerkUserId: input.clerkUserId,
+            clerkUserId: verifiedClerkUserId,
             email,
             fullName,
             phone: input.phone,
             lastLoginAt: now,
           },
         })
+
+    if (user.clerkUserId !== verifiedClerkUserId) {
+      this.logger.warn(
+        `Identity invariant failed: verified=${verifiedClerkUserId} profile=${user.clerkUserId} lookup=clerkUserId`
+      )
+      throw new UnauthorizedException("Unable to resolve your account profile. Please try again.")
+    }
 
     if (!user.isActive) {
       throw new UnauthorizedException("Your account has been disabled. Please contact the system administrator.")

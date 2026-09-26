@@ -24,8 +24,8 @@ export default function SignInScreen() {
   return (
     <Screen scroll keyboard>
       <AuthScreenShell
-        title="Sign in"
-        caption="Municipal survey field access — use your assigned account."
+        title="Welcome back"
+        caption="Municipal survey field access — sign in with your assigned email or Google account."
         footer={
           <View style={styles.footerRow}>
             <Text variant="body" tone="secondary">
@@ -33,7 +33,7 @@ export default function SignInScreen() {
             </Text>
             <Link href="/(auth)/sign-up">
               <Text variant="bodyStrong" tone="primary">
-                Sign up
+                Create account
               </Text>
             </Link>
           </View>

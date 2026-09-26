@@ -24,6 +24,11 @@ export const PLATFORM_ROLE_CODES = new Set([
   "ADMIN",
 ])
 
+/** Operational platform roles shown as primary System Roles (excludes onboarding hold). */
+export const OPERATIONAL_PLATFORM_ROLE_CODES = new Set(["ADMIN", "SURVEYOR", "FIELD_SUPERVISOR", "QC_SUPERVISOR"])
+
+export const ONBOARDING_ROLE_CODE = "PENDING_APPROVAL" as const
+
 /**
  * @deprecated Full edit is allowed for all roles; retained for baseline reference / future Refresh RBAC.
  */

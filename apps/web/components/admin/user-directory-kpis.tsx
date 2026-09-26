@@ -3,9 +3,9 @@
 import type { UserDirectoryStats } from "@/lib/api/types"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { cn } from "@workspace/ui/lib/utils"
-import { MapPin, ShieldCheck, UserRound, Users } from "lucide-react"
+import { Clock, MapPin, Shield, ShieldCheck, UserRound, Users } from "lucide-react"
 
-export type UserDirectoryKpiId = "total" | "qc" | "surveyors" | "locations"
+export type UserDirectoryKpiId = "total" | "surveyors" | "supervisors" | "qc" | "admins" | "pending" | "locations"
 
 export function UserDirectoryKpis({
   stats,
@@ -33,6 +33,20 @@ export function UserDirectoryKpis({
       tone: "text-primary",
     },
     {
+      id: "surveyors",
+      label: "Active Surveyors",
+      value: stats?.surveyors ?? "—",
+      icon: UserRound,
+      tone: "text-sky-600 dark:text-sky-400",
+    },
+    {
+      id: "supervisors",
+      label: "Active Supervisors",
+      value: stats?.supervisors ?? "—",
+      icon: Shield,
+      tone: "text-indigo-600 dark:text-indigo-400",
+    },
+    {
       id: "qc",
       label: "Active QC Supervisors",
       value: stats?.qcSupervisors ?? "—",
@@ -40,11 +54,18 @@ export function UserDirectoryKpis({
       tone: "text-cyan-600 dark:text-cyan-400",
     },
     {
-      id: "surveyors",
-      label: "Active Surveyors",
-      value: stats?.surveyors ?? "—",
-      icon: UserRound,
-      tone: "text-sky-600 dark:text-sky-400",
+      id: "admins",
+      label: "Admins",
+      value: stats?.admins ?? "—",
+      icon: Shield,
+      tone: "text-slate-600 dark:text-slate-300",
+    },
+    {
+      id: "pending",
+      label: "Pending Users",
+      value: stats?.pending ?? "—",
+      icon: Clock,
+      tone: "text-amber-600 dark:text-amber-400",
     },
     {
       id: "locations",
@@ -65,7 +86,7 @@ export function UserDirectoryKpis({
 
   return (
     <div
-      className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border/80 bg-border/60 sm:grid-cols-4"
+      className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border/80 bg-border/60 sm:grid-cols-3 lg:grid-cols-7"
       role="group"
       aria-label="User directory metrics"
     >

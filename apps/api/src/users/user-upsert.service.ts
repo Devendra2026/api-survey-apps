@@ -6,16 +6,7 @@ import { PrismaService } from "../prisma/prisma.service.js"
 import { isPendingClerkUserId, normalizeEmail, pendingClerkUserId } from "./pending-clerk-id.util.js"
 
 const GEO_REQUIRED_ROLES = new Set(["SURVEYOR", "FIELD_SUPERVISOR"])
-const IMPORTABLE_ROLES = new Set([
-  "PENDING_APPROVAL",
-  "SURVEYOR",
-  "FIELD_SUPERVISOR",
-  "QC_SUPERVISOR",
-  "ADMIN",
-  "DEPT_ADMIN",
-  "DEPT_CLERK",
-  "DEPT_OPERATOR",
-])
+const IMPORTABLE_ROLES = new Set(["PENDING_APPROVAL", "SURVEYOR", "FIELD_SUPERVISOR", "QC_SUPERVISOR", "ADMIN"])
 
 export type UpsertUserSource = "clerk-sync" | "file-import" | "auth"
 

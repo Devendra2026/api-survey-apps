@@ -50,10 +50,30 @@ function defaultApiUrl(): string {
   return `http://localhost:${API_PORT}`
 }
 
+/**
+ * Android emulator cannot reach the host via localhost/127.0.0.1.
+ * Rewrite only those loopback hosts; leave LAN IPs and HTTPS alone.
+ */
+function rewriteAndroidEmulatorLoopback(url: string): string {
+  if (Platform.OS !== "android" || Device.isDevice) {
+    return url
+  }
+  try {
+    const parsed = new URL(url)
+    if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
+      parsed.hostname = "10.0.2.2"
+      return parsed.toString().replace(/\/$/, "")
+    }
+  } catch {
+    return url
+  }
+  return url
+}
+
 export function getApiBaseUrl(): string {
   const fromEnv = process.env.EXPO_PUBLIC_API_URL?.trim()
   if (fromEnv && fromEnv.length > 0) {
-    return fromEnv.replace(/\/$/, "")
+    return rewriteAndroidEmulatorLoopback(fromEnv.replace(/\/$/, ""))
   }
   return defaultApiUrl()
 }

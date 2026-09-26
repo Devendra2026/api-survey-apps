@@ -14,6 +14,15 @@
     },
     "superpowers": {
       "enabled": true
+    },
+    "linear": {
+      "enabled": true
+    },
+    "sentry": {
+      "enabled": true
+    },
+    "playwright": {
+      "enabled": true
     }
   }
 }

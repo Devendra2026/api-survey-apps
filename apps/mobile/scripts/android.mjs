@@ -11,6 +11,8 @@ import path from "node:path";
 
 const BOOT_TIMEOUT_MS = 180_000;
 const POLL_MS = 2_000;
+/** Expo Metro default; reverse so the emulator reaches the host packager. */
+const METRO_PORT = Number.parseInt(process.env.EXPO_METRO_PORT ?? "8081", 10) || 8081;
 
 function sdkRoot() {
   const root = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || "";
@@ -30,8 +32,8 @@ function requireSdk() {
   if (!root) {
     console.error(
       "[android] ANDROID_HOME / ANDROID_SDK_ROOT is not set.\n" +
-        "Install Android Studio, then set ANDROID_HOME to your SDK path\n" +
-        "(typical Windows: %LOCALAPPDATA%\\Android\\Sdk).",
+      "Install Android Studio, then set ANDROID_HOME to your SDK path\n" +
+      "(typical Windows: %LOCALAPPDATA%\\Android\\Sdk).",
     );
     process.exit(1);
   }
@@ -125,7 +127,7 @@ function pickAvd(avds) {
   if (avds.length > 1) {
     console.log(
       `[android] Multiple AVDs found (${avds.join(", ")}). Using "${avds[0]}".\n` +
-        "          Set ANDROID_AVD=<name> to choose a different one.",
+      "          Set ANDROID_AVD=<name> to choose a different one.",
     );
   }
   return avds[0];
@@ -191,12 +193,12 @@ async function waitForBootedDevice(adb) {
 
   console.error(
     "[android] Timed out waiting for a booted Android device.\n" +
-      "  1. Close any hung emulator windows / Task Manager → qemu-system-x86_64\n" +
-      "  2. Android Studio → Device Manager → Cold Boot Now (or Wipe Data)\n" +
-      "  3. Confirm: adb devices  (state must be \"device\", not \"offline\")\n" +
-      "  4. Re-run: pnpm mobile:android\n" +
-      "If the AVD uses a *ps16k* system image and keeps failing, create a new AVD\n" +
-      "with a standard google_apis image (non-ps16k).",
+    "  1. Close any hung emulator windows / Task Manager → qemu-system-x86_64\n" +
+    "  2. Android Studio → Device Manager → Cold Boot Now (or Wipe Data)\n" +
+    "  3. Confirm: adb devices  (state must be \"device\", not \"offline\")\n" +
+    "  4. Re-run: pnpm mobile:android\n" +
+    "If the AVD uses a *ps16k* system image and keeps failing, create a new AVD\n" +
+    "with a standard google_apis image (non-ps16k).",
   );
   process.exit(1);
 }
@@ -207,15 +209,15 @@ async function ensureAndroidDevice({ adb, emulator }) {
   if (hasOfflineEmulator(adb)) {
     console.log(
       "[android] Found offline emulator entry. Reset ADB again; if it persists,\n" +
-        "          kill qemu-system-x86_64.exe in Task Manager, then retry.",
+      "          kill qemu-system-x86_64.exe in Task Manager, then retry.",
     );
     resetAdb(adb);
     await sleep(1500);
     if (hasOfflineEmulator(adb)) {
       console.error(
         "[android] Emulator is stuck offline (ADB port 5554 race).\n" +
-          "Kill qemu-system-x86_64.exe / emulator.exe in Task Manager, then:\n" +
-          "  adb kill-server && adb start-server && pnpm mobile:android",
+        "Kill qemu-system-x86_64.exe / emulator.exe in Task Manager, then:\n" +
+        "  adb kill-server && adb start-server && pnpm mobile:android",
       );
       process.exit(1);
     }
@@ -234,6 +236,32 @@ async function ensureAndroidDevice({ adb, emulator }) {
   return waitForBootedDevice(adb);
 }
 
+/**
+ * Point Expo Go at localhost and reverse Metro into the emulator.
+ * Avoids Docker/WSL LAN IPs that the emulator cannot reach (ConnectException →
+ * Expo Go "Something went wrong" screen).
+ */
+function prepareMetroForEmulator(adb, serial) {
+  const ports = [METRO_PORT, 8082, 19000, 19001];
+  for (const port of ports) {
+    const { status, stderr } = run(adb, [
+      "-s",
+      serial,
+      "reverse",
+      `tcp:${port}`,
+      `tcp:${port}`,
+    ]);
+    if (status !== 0) {
+      console.warn(
+        `[android] adb reverse tcp:${port} failed: ${(stderr || "").trim() || `exit ${status}`}`,
+      );
+    }
+  }
+  console.log(
+    `[android] adb reverse ready for Metro ports (${ports.join(", ")}). Packager host=localhost.`,
+  );
+}
+
 function startExpoAndroid(serial) {
   console.log(`[android] Starting Expo with ANDROID_SERIAL=${serial}`);
   const child = spawn("pnpm", ["exec", "expo", "start", "--android"], {
@@ -244,6 +272,9 @@ function startExpoAndroid(serial) {
       ANDROID_HOME: sdkRoot(),
       ANDROID_SDK_ROOT: sdkRoot(),
       ANDROID_SERIAL: serial,
+      // Force packager URL to localhost so adb reverse can deliver the bundle.
+      REACT_NATIVE_PACKAGER_HOSTNAME:
+        process.env.REACT_NATIVE_PACKAGER_HOSTNAME?.trim() || "localhost",
     },
   });
   child.on("exit", (code, signal) => {
@@ -258,6 +289,7 @@ function startExpoAndroid(serial) {
 const ensureOnly = process.argv.includes("--ensure-only");
 const tools = requireSdk();
 const serial = await ensureAndroidDevice(tools);
+prepareMetroForEmulator(tools.adb, serial);
 if (ensureOnly) {
   console.log(`[android] Device ready (${serial}). Press "a" in Expo, or open Expo Go.`);
   process.exit(0);

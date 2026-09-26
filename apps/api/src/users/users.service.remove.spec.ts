@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, jest } from "@jest/globals"
-import { ConflictException, ForbiddenException } from "@nestjs/common"
+import { ForbiddenException, ServiceUnavailableException } from "@nestjs/common"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 
 const deleteUser = jest.fn(() => Promise.resolve(undefined))
@@ -12,7 +12,7 @@ jest.unstable_mockModule("@clerk/backend", () => ({
 
 const { UsersService } = await import("./users.service.js")
 
-describe("UsersService.remove (hard delete)", () => {
+describe("UsersService.remove (lifecycle)", () => {
   const admin: AuthenticatedUser = {
     id: "admin1",
     clerkUserId: "clerk-admin",
@@ -74,6 +74,7 @@ describe("UsersService.remove (hard delete)", () => {
     findById: jest.fn(),
     countDeleteBlockers: jest.fn(),
     hardDelete: jest.fn(),
+    deactivateIdentity: jest.fn(),
   }
 
   const prisma = {
@@ -102,6 +103,7 @@ describe("UsersService.remove (hard delete)", () => {
     usersRepository.findById.mockResolvedValue(targetUser as never)
     usersRepository.countDeleteBlockers.mockResolvedValue(emptyBlockers as never)
     usersRepository.hardDelete.mockResolvedValue(targetUser as never)
+    usersRepository.deactivateIdentity.mockResolvedValue("deactivated" as never)
     prisma.db.securityAudit.create.mockResolvedValue({} as never)
   })
 
@@ -110,23 +112,44 @@ describe("UsersService.remove (hard delete)", () => {
     expect(usersRepository.hardDelete).not.toHaveBeenCalled()
   })
 
-  it("blocks delete when Restrict FKs exist", async () => {
+  it("deactivates and revokes Clerk when Restrict FKs exist", async () => {
     usersRepository.countDeleteBlockers.mockResolvedValue({
       ...emptyBlockers,
       surveysCreated: 3,
       surveyAuditsChanged: 12,
     } as never)
 
-    await expect(service.remove("user2", admin)).rejects.toThrow(ConflictException)
-    await expect(service.remove("user2", admin)).rejects.toThrow(/3 surveys created/)
-    expect(usersRepository.hardDelete).not.toHaveBeenCalled()
-    expect(deleteUser).not.toHaveBeenCalled()
-  })
-
-  it("hard-deletes DB user and Clerk user when clear", async () => {
     const result = await service.remove("user2", admin)
 
-    expect(result).toEqual({ id: "user2", deleted: true })
+    expect(result).toEqual({
+      id: "user2",
+      deleted: false,
+      deactivated: true,
+      historyRetained: true,
+      reasons: ["3 surveys created", "12 survey audit entries"],
+    })
+    expect(usersRepository.deactivateIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "user2",
+        actorId: admin.id,
+        source: "admin.delete.history_retained",
+      })
+    )
+    expect(usersRepository.hardDelete).not.toHaveBeenCalled()
+    expect(deleteUser).toHaveBeenCalledWith("clerk-user2")
+  })
+
+  it("deletes Clerk before hard-deleting DB when clear", async () => {
+    const result = await service.remove("user2", admin)
+
+    expect(result).toEqual({
+      id: "user2",
+      deleted: true,
+      deactivated: false,
+      historyRetained: false,
+    })
+    expect(deleteUser).toHaveBeenCalledWith("clerk-user2")
+    expect(usersRepository.hardDelete).toHaveBeenCalledWith("user2")
     expect(prisma.db.securityAudit.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         action: "USER_DELETED",
@@ -135,8 +158,6 @@ describe("UsersService.remove (hard delete)", () => {
         targetId: "user2",
       }),
     })
-    expect(usersRepository.hardDelete).toHaveBeenCalledWith("user2")
-    expect(deleteUser).toHaveBeenCalledWith("clerk-user2")
   })
 
   it("skips Clerk delete for pending users", async () => {
@@ -151,12 +172,25 @@ describe("UsersService.remove (hard delete)", () => {
     expect(deleteUser).not.toHaveBeenCalled()
   })
 
-  it("treats Clerk not-found as success after DB delete", async () => {
+  it("treats Clerk not-found as success before hard delete", async () => {
     deleteUser.mockRejectedValue({ status: 404, message: "Not Found" })
 
     const result = await service.remove("user2", admin)
 
-    expect(result).toEqual({ id: "user2", deleted: true })
+    expect(result).toEqual({
+      id: "user2",
+      deleted: true,
+      deactivated: false,
+      historyRetained: false,
+    })
     expect(usersRepository.hardDelete).toHaveBeenCalled()
+  })
+
+  it("deactivates and errors when Clerk delete fails before hard delete", async () => {
+    deleteUser.mockRejectedValue({ status: 500, message: "Clerk down" })
+
+    await expect(service.remove("user2", admin)).rejects.toThrow(ServiceUnavailableException)
+    expect(usersRepository.deactivateIdentity).toHaveBeenCalled()
+    expect(usersRepository.hardDelete).not.toHaveBeenCalled()
   })
 })

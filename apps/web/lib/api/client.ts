@@ -106,6 +106,34 @@ export function getApiErrorMessage(error: unknown): string {
   return "An unexpected error occurred"
 }
 
+/** User-facing ward list failures — do not label every failure as a permission issue. */
+export function getWardLoadErrorMessage(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    if (!error.response) {
+      return "Check connection and retry."
+    }
+    switch (error.response.status) {
+      case 401:
+        return "Session expired. Please sign in again."
+      case 403:
+        return "You do not have permission to view wards."
+      case 404:
+        return "Ward data was not found."
+      case 422:
+        return "Invalid location selection."
+      case 500:
+        return "Unable to load wards. Please retry."
+      default:
+        break
+    }
+  }
+  const detail = getApiErrorMessage(error)
+  if (detail && detail !== "An unexpected error occurred") {
+    return detail
+  }
+  return "Unable to load wards. Please retry."
+}
+
 export async function apiGetBlob(url: string, config?: AxiosRequestConfig): Promise<Blob> {
   const response = await apiClient.get<Blob>(url, { ...config, responseType: "blob" })
   const data = response.data

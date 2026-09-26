@@ -1,11 +1,11 @@
 import { createClerkClient } from "@clerk/backend"
 import {
   BadRequestException,
-  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from "@nestjs/common"
 import { ConfigService } from "@nestjs/config"
 import { PERMISSIONS } from "../common/constants/permissions.js"
@@ -75,6 +75,51 @@ export class UsersService {
       throw new ForbiddenException("Cannot view user outside your tenant scope")
     }
     return user
+  }
+
+  async findByIdWithAuthProviders(id: string, actor: AuthenticatedUser) {
+    const user = await this.findById(id, actor)
+    const authProviders = await this.resolveAuthProviders(user.clerkUserId)
+    return { ...user, authProviders }
+  }
+
+  /**
+   * Best-effort Clerk identity providers for admin detail.
+   * Returns ["unknown"] when the Clerk user is gone or the API cannot be reached.
+   */
+  private async resolveAuthProviders(clerkUserId: string): Promise<string[]> {
+    if (isPendingClerkUserId(clerkUserId)) {
+      return ["email"]
+    }
+    const secretKey = this.configService.get<string>("CLERK_SECRET_KEY")
+    if (!secretKey) {
+      return ["unknown"]
+    }
+    try {
+      const clerk = createClerkClient({ secretKey })
+      const clerkUser = await clerk.users.getUser(clerkUserId)
+      const providers = new Set<string>()
+      for (const account of clerkUser.externalAccounts ?? []) {
+        const provider = account.provider?.replace(/^oauth_/, "")?.trim()
+        if (provider) providers.add(provider)
+      }
+      // Email in Clerk is a contact attribute; passwordEnabled means password sign-in works.
+      if (clerkUser.passwordEnabled) {
+        providers.add("email")
+      }
+      if (providers.size === 0) {
+        return ["unknown"]
+      }
+      return [...providers].sort()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      const status = typeof err === "object" && err !== null && "status" in err ? Number(err.status) : undefined
+      if (status === 404 || /not found/i.test(message)) {
+        return ["unknown"]
+      }
+      this.logger.warn(`Failed to resolve auth providers for ${clerkUserId}: ${message}`)
+      return ["unknown"]
+    }
   }
 
   getMe(user: AuthenticatedUser) {
@@ -227,7 +272,7 @@ export class UsersService {
 
     await this.assertGeoHierarchy(geo)
 
-    // DEPT_ADMIN may only grant Clerk/Operator inside the same ULB
+    // Legacy DEPT_* grants are rejected by canGrantRole (no longer assignable).
     if (isDepartmentRole(role.name) && !actorScope.isGlobal) {
       const actorDeptUlbs = actor.tenantRoles
         .filter((r) => r.isActive && isDepartmentRole(r.roleName) && r.ulbId)
@@ -321,6 +366,12 @@ export class UsersService {
     return this.usersRepository.deactivateTenantRole(id, actor.id)
   }
 
+  /**
+   * Unified delete lifecycle:
+   * - History exists → soft-deactivate + revoke Clerk access (retain surveys/audits).
+   * - No history → delete Clerk first, then hard-delete Postgres row.
+   * Clerk delete failures (other than 404) leave the row inactive and surface an error.
+   */
   async remove(id: string, actor: AuthenticatedUser) {
     if (id === actor.id) {
       throw new ForbiddenException("You cannot delete your own account")
@@ -329,10 +380,47 @@ export class UsersService {
     const user = await this.findById(id, actor)
     const blockers = await this.usersRepository.countDeleteBlockers(id)
     const reasons = this.formatDeleteBlockers(blockers)
-    if (reasons.length > 0) {
-      throw new ConflictException(
-        `Cannot delete user — linked records still reference them: ${reasons.join(", ")}. Remove or reassign that work first, or disable the account instead.`
-      )
+    const hasHistory = reasons.length > 0
+    const pendingClerk = isPendingClerkUserId(user.clerkUserId)
+
+    if (hasHistory) {
+      await this.usersRepository.deactivateIdentity({
+        userId: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        clerkUserId: user.clerkUserId,
+        actorId: actor.id,
+        source: "admin.delete.history_retained",
+      })
+      this.logger.log(`User deactivated (history retained) ${id} by ${actor.id}: ${reasons.join(", ")}`)
+
+      if (!pendingClerk) {
+        await this.deleteClerkUserOrThrow(user.clerkUserId, {
+          onFailureDeactivate: false,
+          userId: user.id,
+          email: user.email,
+          fullName: user.fullName,
+          actorId: actor.id,
+        })
+      }
+
+      return {
+        id,
+        deleted: false as const,
+        deactivated: true as const,
+        historyRetained: true as const,
+        reasons,
+      }
+    }
+
+    if (!pendingClerk) {
+      await this.deleteClerkUserOrThrow(user.clerkUserId, {
+        onFailureDeactivate: true,
+        userId: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        actorId: actor.id,
+      })
     }
 
     await this.prisma.db.securityAudit.create({
@@ -353,11 +441,7 @@ export class UsersService {
     await this.usersRepository.hardDelete(id)
     this.logger.log(`User hard-delete ${id} by ${actor.id}`)
 
-    if (!isPendingClerkUserId(user.clerkUserId)) {
-      await this.deleteClerkUser(user.clerkUserId)
-    }
-
-    return { id, deleted: true as const }
+    return { id, deleted: true as const, deactivated: false as const, historyRetained: false as const }
   }
 
   private formatDeleteBlockers(blockers: Awaited<ReturnType<UsersRepository["countDeleteBlockers"]>>): string[] {
@@ -375,11 +459,31 @@ export class UsersService {
     return labels.filter(([key]) => blockers[key] > 0).map(([key, label]) => `${blockers[key]} ${label}`)
   }
 
-  private async deleteClerkUser(clerkUserId: string) {
+  private async deleteClerkUserOrThrow(
+    clerkUserId: string,
+    context: {
+      onFailureDeactivate: boolean
+      userId: string
+      email: string
+      fullName: string
+      actorId: string
+    }
+  ): Promise<void> {
     const secretKey = this.configService.get<string>("CLERK_SECRET_KEY")
     if (!secretKey) {
-      this.logger.warn(`CLERK_SECRET_KEY missing — skipped Clerk delete for ${clerkUserId}`)
-      return
+      if (context.onFailureDeactivate) {
+        await this.usersRepository.deactivateIdentity({
+          userId: context.userId,
+          email: context.email,
+          fullName: context.fullName,
+          clerkUserId,
+          actorId: context.actorId,
+          source: "admin.delete.clerk_unavailable",
+        })
+      }
+      throw new ServiceUnavailableException(
+        "CLERK_SECRET_KEY is not configured — account access was revoked locally but Clerk could not be updated"
+      )
     }
 
     try {
@@ -392,7 +496,20 @@ export class UsersService {
         this.logger.log(`Clerk user ${clerkUserId} already absent`)
         return
       }
-      this.logger.warn(`Clerk delete failed for ${clerkUserId} after DB delete: ${message}`)
+      this.logger.warn(`Clerk delete failed for ${clerkUserId}: ${message}`)
+      if (context.onFailureDeactivate) {
+        await this.usersRepository.deactivateIdentity({
+          userId: context.userId,
+          email: context.email,
+          fullName: context.fullName,
+          clerkUserId,
+          actorId: context.actorId,
+          source: "admin.delete.clerk_failed",
+        })
+      }
+      throw new ServiceUnavailableException(
+        "Could not delete the Clerk identity. The account has been deactivated locally — retry or finish removal in Clerk."
+      )
     }
   }
 

@@ -233,7 +233,7 @@ export function UserSyncFromClerkDialog({
     try {
       const result = await syncFromClerk.mutateAsync()
       toast.success(
-        `Synced ${result.totalFetched} from Clerk · ${result.created} created, ${result.updated} updated` +
+        `Synced ${result.totalFetched} from Clerk · ${result.created} created, ${result.updated} updated, ${result.deactivated ?? 0} deactivated, ${result.skipped} skipped` +
           (result.errors.length ? `, ${result.errors.length} issues` : "")
       )
       if (result.errors[0]) {
@@ -252,8 +252,9 @@ export function UserSyncFromClerkDialog({
           <DialogTitle>Sync from Clerk</DialogTitle>
           <DialogDescription>
             Fetch all users from the Clerk instance configured by this API&apos;s{" "}
-            <span className="font-mono text-[11px]">CLERK_SECRET_KEY</span> and upsert them into the app database.
-            Existing roles and disabled accounts are preserved; new users get PENDING_APPROVAL.
+            <span className="font-mono text-[11px]">CLERK_SECRET_KEY</span> and reconcile them into the app database.
+            Existing roles are preserved. Local users missing from Clerk (except pending imports) are deactivated. New
+            users get PENDING_APPROVAL.
           </DialogDescription>
         </DialogHeader>
         <div className="px-6 py-4 text-sm text-muted-foreground">

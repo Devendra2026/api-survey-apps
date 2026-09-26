@@ -163,23 +163,17 @@ export function buildStateTenantWhere(scope: TenantScope): Prisma.StateWhereInpu
   return { id: "__no_access__" }
 }
 
-/** Roles a given actor role may grant (ceiling). */
+/**
+ * Roles a given actor role may grant (ceiling).
+ * Department roles (DEPT_*) are no longer grantable — existing assignments remain valid.
+ */
 export const ROLE_GRANT_CEILINGS: Record<string, string[]> = {
-  ADMIN: [
-    "ADMIN",
-    "QC_SUPERVISOR",
-    "FIELD_SUPERVISOR",
-    "SURVEYOR",
-    "PENDING_APPROVAL",
-    "DEPT_ADMIN",
-    "DEPT_CLERK",
-    "DEPT_OPERATOR",
-  ],
+  ADMIN: ["ADMIN", "QC_SUPERVISOR", "FIELD_SUPERVISOR", "SURVEYOR", "PENDING_APPROVAL"],
   FIELD_SUPERVISOR: ["SURVEYOR", "PENDING_APPROVAL"],
   QC_SUPERVISOR: [],
   SURVEYOR: [],
   PENDING_APPROVAL: [],
-  DEPT_ADMIN: ["DEPT_CLERK", "DEPT_OPERATOR"],
+  DEPT_ADMIN: [],
   DEPT_CLERK: [],
   DEPT_OPERATOR: [],
 }
@@ -191,6 +185,10 @@ export function isDepartmentRole(roleName: string): boolean {
 }
 
 export function canGrantRole(actorRoleNames: string[], targetRoleName: string): boolean {
+  // Stop new municipal department role assignment for every actor, including ADMIN.
+  if (DEPARTMENT_ROLE_NAMES.has(targetRoleName)) {
+    return false
+  }
   for (const actorRole of actorRoleNames) {
     const allowed = ROLE_GRANT_CEILINGS[actorRole]
     if (allowed?.includes(targetRoleName)) return true

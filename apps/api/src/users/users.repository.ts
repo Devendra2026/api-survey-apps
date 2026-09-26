@@ -64,7 +64,12 @@ export class UsersRepository {
       this.prisma.db.user.count({ where: { ...baseWhere, isActive: false } }),
       Promise.all(
         roleNames.map((roleName) => {
-          const activeOnly = roleName === "SURVEYOR" || roleName === "QC_SUPERVISOR"
+          const activeOnly =
+            roleName === "SURVEYOR" ||
+            roleName === "QC_SUPERVISOR" ||
+            roleName === "FIELD_SUPERVISOR" ||
+            roleName === "ADMIN"
+
           return this.prisma.db.user.count({
             where: {
               ...baseWhere,
@@ -305,7 +310,13 @@ export class UsersRepository {
       this.prisma.db.survey.count({ where: { createdById: id } }),
       this.prisma.db.survey.count({ where: { assignedToId: id } }),
       this.prisma.db.surveyAudit.count({ where: { changedBy: id } }),
-      this.prisma.db.securityAudit.count({ where: { actorId: id } }),
+      // Self-referential USER_DEACTIVATED rows (legacy webhook) must not lock hard-delete forever.
+      this.prisma.db.securityAudit.count({
+        where: {
+          actorId: id,
+          NOT: { AND: [{ action: "USER_DEACTIVATED" }, { targetId: id }] },
+        },
+      }),
       this.prisma.db.importJob.count({ where: { createdById: id } }),
       this.prisma.db.exportJob.count({ where: { createdById: id } }),
       this.prisma.db.qcRemark.count({ where: { authorId: id } }),
@@ -324,6 +335,63 @@ export class UsersRepository {
       rolesAssigned,
       rolesDeactivated,
     }
+  }
+
+  /**
+   * Soft-deactivate identity. Preserves survey / audit / job history.
+   * Idempotent when already inactive. When actorId is null (Clerk webhook), skip SecurityAudit
+   * so Restrict FKs do not permanently block admin hard-delete of unused accounts.
+   */
+  async deactivateIdentity(input: {
+    userId: string
+    email: string
+    fullName: string
+    clerkUserId: string
+    actorId: string | null
+    source: string
+  }): Promise<"deactivated" | "noop"> {
+    const user = await this.prisma.db.user.findUnique({
+      where: { id: input.userId },
+      select: { id: true, isActive: true },
+    })
+    if (!user) return "noop"
+    if (!user.isActive) return "noop"
+
+    const now = new Date()
+    await this.prisma.db.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: input.userId },
+        data: { isActive: false },
+      })
+      await tx.userTenantRole.updateMany({
+        where: { userId: input.userId, isActive: true },
+        data: {
+          isActive: false,
+          deactivatedAt: now,
+          deactivatedBy: input.actorId,
+        },
+      })
+      if (input.actorId) {
+        await tx.securityAudit.create({
+          data: {
+            action: "USER_DEACTIVATED",
+            actorId: input.actorId,
+            targetType: "User",
+            targetId: input.userId,
+            oldValue: {
+              email: input.email,
+              fullName: input.fullName,
+              clerkUserId: input.clerkUserId,
+              isActive: true,
+              source: input.source,
+            },
+            newValue: { isActive: false, source: input.source },
+          },
+        })
+      }
+    })
+
+    return "deactivated"
   }
 
   async hardDelete(id: string) {

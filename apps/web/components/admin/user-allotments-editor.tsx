@@ -2,6 +2,7 @@
 
 import { FormField } from "@/components/forms/form-field"
 import { useDistricts, useStates, useUlbs, useWards } from "@/hooks/use-api"
+import { getWardLoadErrorMessage } from "@/lib/api/client"
 import type { GeoWard } from "@/lib/api/types"
 import { formatWardOptionLabel } from "@/lib/format-ward-label"
 import { Button } from "@workspace/ui/components/button"
@@ -258,7 +259,12 @@ function CityGroupEditor({
     isError: districtsError,
   } = useDistricts(group.stateId || undefined)
   const { data: ulbs, isLoading: ulbsLoading, isError: ulbsError } = useUlbs(group.districtId || undefined)
-  const { data: wards, isLoading: wardsLoading, isError: wardsError } = useWards(group.ulbId || undefined)
+  const {
+    data: wards,
+    isLoading: wardsLoading,
+    isError: wardsError,
+    error: wardsQueryError,
+  } = useWards(group.ulbId || undefined)
 
   const stateItems = states?.items ?? []
   const districtItems = districts?.items ?? []
@@ -437,7 +443,7 @@ function CityGroupEditor({
                 Loading wards…
               </p>
             ) : wardsError ? (
-              <p className="text-xs text-destructive">Could not load wards. Check permissions and try again.</p>
+              <p className="text-xs text-destructive">{getWardLoadErrorMessage(wardsQueryError)}</p>
             ) : wardItems.length === 0 ? (
               <p className="text-xs text-muted-foreground">No wards in master data for this ULB.</p>
             ) : (

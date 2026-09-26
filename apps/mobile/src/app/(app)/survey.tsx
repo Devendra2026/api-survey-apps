@@ -1,9 +1,9 @@
 import { useAppSession } from "@/features/auth/session/AppSessionProvider";
 import {
   RoleHomeShell,
-  SURVEY_HOME_COPY,
+  surveyHomeCopyForRole,
 } from "@/features/home/role-home-shell";
-import { resolveAppHomeHref } from "@/types/user";
+import { primaryRoleName, resolveAppHomeHref } from "@/types/user";
 import { Redirect } from "expo-router";
 
 export default function SurveyHomeScreen() {
@@ -24,10 +24,12 @@ export default function SurveyHomeScreen() {
     return <Redirect href={home ?? "/(app)/pending"} />;
   }
 
+  const role = primaryRoleName(state.profile);
+
   return (
     <RoleHomeShell
       profile={state.profile}
-      copy={SURVEY_HOME_COPY}
+      copy={surveyHomeCopyForRole(role)}
       onSignOut={() => {
         void signOut();
       }}

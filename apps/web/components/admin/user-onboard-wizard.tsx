@@ -31,8 +31,9 @@ import { toast } from "sonner"
 
 const GEO_REQUIRED = new Set(["SURVEYOR", "FIELD_SUPERVISOR", "QC_SUPERVISOR"])
 const GEO_FORBIDDEN = new Set(["ADMIN", "PENDING_APPROVAL"])
+/** Legacy ULB-only roles — not offered in onboard, retained for geo branch safety. */
 const GEO_ULB_ONLY = new Set(["DEPT_ADMIN", "DEPT_CLERK", "DEPT_OPERATOR"])
-const OPERATIONAL_ROLES = ASSIGNABLE_ROLES.filter((r) => r !== "PENDING_APPROVAL")
+const OPERATIONAL_ROLES = [...ASSIGNABLE_ROLES]
 
 const STEPS = [
   { id: 1, title: "Confirm details" },

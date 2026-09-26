@@ -22,10 +22,19 @@ async function fetchCurrentUser(token: string) {
   })
 
   if (response.status === 401) {
-    return { status: 401 as const, profile: null }
+    let message = ""
+    try {
+      const body: unknown = await response.json()
+      if (body && typeof body === "object" && "message" in body && typeof body.message === "string") {
+        message = body.message
+      }
+    } catch {
+      // ignore parse errors — treat as generic unauthorized
+    }
+    return { status: 401 as const, profile: null, message }
   }
   if (response.status === 403) {
-    return { status: 403 as const, profile: null }
+    return { status: 403 as const, profile: null, message: "" }
   }
   if (!response.ok) {
     throw new Error(`Failed to load profile (${response.status})`)
@@ -37,6 +46,7 @@ async function fetchCurrentUser(token: string) {
   return {
     status: 200 as const,
     profile,
+    message: "",
   }
 }
 
@@ -49,9 +59,13 @@ export default async function DashboardGroupLayout({ children }: { children: Rea
 
   const currentUser = await fetchCurrentUser(token)
   if (currentUser.status === 401) {
+    // Disabled accounts still have a Clerk session — do not bounce to /sign-in (redirect loop).
+    if (/disabled/i.test(currentUser.message)) {
+      redirect("/account-disabled")
+    }
     redirect("/sign-in")
   }
-  // API 403 (e.g. disabled account messaging path) or empty permissions → Forbidden.
+  // Empty permissions (e.g. PENDING_APPROVAL) → Access pending.
   if (currentUser.status === 403 || !hasDashboardAccess(currentUser.profile?.permissions)) {
     forbidden()
   }

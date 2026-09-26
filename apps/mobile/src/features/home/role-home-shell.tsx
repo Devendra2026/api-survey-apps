@@ -92,11 +92,34 @@ export const ADMIN_HOME_COPY: RoleHomeCopy = {
 };
 
 export const SURVEY_HOME_COPY: RoleHomeCopy = {
-  caption: "Survey dashboard",
+  caption: "Survey panel",
   title: "Field surveys",
   placeholder:
     "Field survey capture tools will appear here. Your assigned wards and permissions are already active.",
 };
+
+export function surveyHomeCopyForRole(roleName: string | null): RoleHomeCopy {
+  switch (roleName) {
+    case "FIELD_SUPERVISOR":
+      return {
+        caption: "Supervisor panel",
+        title: "Survey supervision",
+        placeholder:
+          "Supervision and review tools will appear here. Your assigned wards and permissions are already active.",
+      };
+    case "QC_SUPERVISOR":
+      return {
+        caption: "QC panel",
+        title: "Quality control",
+        placeholder:
+          "QC review tools will appear here. Your assigned wards and permissions are already active.",
+      };
+    case "SURVEYOR":
+      return SURVEY_HOME_COPY;
+    default:
+      return SURVEY_HOME_COPY;
+  }
+}
 
 const styles = StyleSheet.create({
   topBar: {

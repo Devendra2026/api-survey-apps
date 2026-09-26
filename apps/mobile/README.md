@@ -90,7 +90,10 @@ The Clerk LogBox toast about **development keys** is expected for local Expo and
 1. Enable the **Google** social connection on the same Clerk instance as `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY`.
 2. Under Clerk redirect / native allowlist, add the Expo redirect URI for this app scheme, e.g. `mobile://sso-callback` (and any Expo AuthSession URI shown in logs for your build).
 3. Ensure **Email + password** and **Email verification code** are enabled for email flows.
-4. If custom mobile sign-up/sign-in fail with captcha errors, disable or reconfigure **Bot protection** for that Clerk instance so custom Expo flows are allowed.
+4. Keep **Account linking** enabled for social connections so Google sign-in joins the existing email/password Clerk user instead of creating a second Clerk user for the same verified email.
+5. If custom mobile sign-up/sign-in fail with captcha errors, disable or reconfigure **Bot protection** for that Clerk instance so custom Expo flows are allowed.
+
+When Google still creates a separate Clerk user (legacy duplicates), Nest rebinds the application `User.clerkUserId` to the authenticated session subject only when Clerk reports a **verified** email match — preserving the same `User.id`, roles, and survey history. Unverified email matches are refused.
 
 ### Nest API auth notes
 
@@ -124,6 +127,8 @@ pnpm mobile:android
 This waits until `adb` reports a fully booted device (`sys.boot_completed=1`) before Expo connects. That avoids the common Windows error:
 
 `could not connect to TCP port 5554 … actively refused`
+
+It also runs `adb reverse` for Metro ports and sets `REACT_NATIVE_PACKAGER_HOSTNAME=localhost` so Expo Go on the emulator does not try a Docker/WSL LAN IP (which shows as Expo Go’s “Something went wrong” screen).
 
 **B — Metro already running** (`pnpm dev` / `pnpm --filter mobile dev`)
 

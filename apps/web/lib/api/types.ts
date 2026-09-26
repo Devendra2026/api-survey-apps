@@ -50,18 +50,16 @@ export const ROLE_LABELS: Record<string, string> = {
 }
 
 /** Platform (SDV) roles assignable by global admins */
-export const PLATFORM_ASSIGNABLE_ROLES = [
-  "PENDING_APPROVAL",
-  "SURVEYOR",
-  "FIELD_SUPERVISOR",
-  "QC_SUPERVISOR",
-  "ADMIN",
-] as const
+export const PLATFORM_ASSIGNABLE_ROLES = ["SURVEYOR", "FIELD_SUPERVISOR", "QC_SUPERVISOR", "ADMIN"] as const
 
-/** Municipal department roles (ULB-scoped) */
+/**
+ * Municipal department roles — legacy assignments remain visible;
+ * new grants are blocked by the API.
+ */
 export const DEPARTMENT_ASSIGNABLE_ROLES = ["DEPT_ADMIN", "DEPT_CLERK", "DEPT_OPERATOR"] as const
 
-export const ASSIGNABLE_ROLES = [...PLATFORM_ASSIGNABLE_ROLES, ...DEPARTMENT_ASSIGNABLE_ROLES] as const
+/** Roles offered in assign / onboard UI (platform only). */
+export const ASSIGNABLE_ROLES = [...PLATFORM_ASSIGNABLE_ROLES] as const
 
 export type AssignableRoleName = (typeof ASSIGNABLE_ROLES)[number]
 export type DepartmentRoleName = (typeof DEPARTMENT_ASSIGNABLE_ROLES)[number]
@@ -91,6 +89,10 @@ export interface AppUser {
   fullName: string
   isActive: boolean
   lastLoginAt?: string | null
+  createdAt?: string
+  updatedAt?: string
+  /** Clerk identity providers when loaded via GET /users/:id (e.g. email, google). */
+  authProviders?: string[]
   tenantRoles?: TenantRole[]
 }
 
@@ -152,6 +154,7 @@ export interface ClerkUserSyncSummary {
   created: number
   updated: number
   skipped: number
+  deactivated: number
   errors: Array<{ clerkUserId?: string; email?: string; message: string }>
   totalFetched: number
 }

@@ -62,8 +62,9 @@ services:
         condition: on-failure
 
   minio:
-    # Quay: Docker Hub minio/* returns pull access denied.
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    # Quay anonymous pull returns 401; Docker Hub minio/* is gone.
+    # coollabsio rebuild of last community RELEASE (includes mc; do not use :latest).
+    image: coollabsio/minio:RELEASE.2025-10-15T17-29-55Z@sha256:69b55a1c1c5dc285ce04db96689f5b2102317fc77a50680a1874ca6efd1c87f9
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
@@ -73,9 +74,13 @@ services:
       - survey_minio_data:/data
     networks:
       - survey-internal
-    # Image includes curl; health endpoint does not need `mc`.
+    # UBI micro has no curl; image ships mc.
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      test:
+        [
+          "CMD-SHELL",
+          'mc alias set health http://127.0.0.1:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" >/dev/null && mc ready health',
+        ]
       interval: 5s
       timeout: 5s
       retries: 12
@@ -88,7 +93,8 @@ services:
   # Swarm ignores depends_on; retries are the fault-tolerance layer.
   # Prefer Dokploy Compose (docker-compose.dokploy.yml) for migrate + init orchestration.
   minio-init:
-    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    # Same image as server (includes mc). One-shot bucket create; idempotent.
+    image: coollabsio/minio:RELEASE.2025-10-15T17-29-55Z@sha256:69b55a1c1c5dc285ce04db96689f5b2102317fc77a50680a1874ca6efd1c87f9
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}

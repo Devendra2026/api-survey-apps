@@ -39,6 +39,18 @@ export const ROLE_LABELS: Record<string, string> = {
   DEPT_OPERATOR: "Department operator",
 }
 
+const ADMIN_HOME_ROLES = new Set(["ADMIN"])
+
+/** Onboarded roles that open the survey field shell (not admin). */
+const SURVEY_HOME_ROLES = new Set([
+  "SURVEYOR",
+  "FIELD_SUPERVISOR",
+  "QC_SUPERVISOR",
+  "DEPT_ADMIN",
+  "DEPT_CLERK",
+  "DEPT_OPERATOR",
+])
+
 export function tenantRoleCode(role: TenantRole): string {
   return role.role?.name ?? role.roleName ?? "UNKNOWN"
 }
@@ -47,11 +59,21 @@ export function roleDisplayName(roleName: string): string {
   return ROLE_LABELS[roleName] ?? roleName
 }
 
+/**
+ * Prefer ADMIN when present among active roles so multi-role users do not
+ * briefly land on the survey shell. Otherwise first non-pending active role.
+ */
 export function primaryRoleName(profile: AuthenticatedProfile): string | null {
   const active = (profile.tenantRoles ?? []).filter((role) => role.isActive)
   if (active.length === 0) {
     return null
   }
+
+  const admin = active.find((role) => tenantRoleCode(role) === "ADMIN")
+  if (admin) {
+    return "ADMIN"
+  }
+
   const nonPending = active.find((role) => tenantRoleCode(role) !== "PENDING_APPROVAL")
   return tenantRoleCode(nonPending ?? active[0]!)
 }
@@ -63,19 +85,30 @@ export function hasAppAccess(profile: AuthenticatedProfile | null | undefined): 
 
 export type AppHomeHref = "/(app)/admin" | "/(app)/survey"
 
-const ADMIN_HOME_ROLES = new Set(["ADMIN"])
-
 /**
- * Post-onboarding home: ADMIN → admin shell; surveyor/supervisor and other
- * onboarded roles → survey shell.
+ * Post-onboarding home for known mobile roles.
+ * Returns null when the user must stay on pending (no permissions, pending-only,
+ * or an unrecognized role code).
  */
-export function resolveAppHomeHref(profile: AuthenticatedProfile | null | undefined): AppHomeHref {
-  if (!profile) {
-    return "/(app)/survey"
+export function resolveAppHomeHref(profile: AuthenticatedProfile | null | undefined): AppHomeHref | null {
+  if (!profile || !hasAppAccess(profile)) {
+    return null
   }
+
   const role = primaryRoleName(profile)
-  if (role && ADMIN_HOME_ROLES.has(role)) {
+  if (!role || role === "PENDING_APPROVAL") {
+    return null
+  }
+  if (ADMIN_HOME_ROLES.has(role)) {
     return "/(app)/admin"
   }
-  return "/(app)/survey"
+  if (SURVEY_HOME_ROLES.has(role)) {
+    return "/(app)/survey"
+  }
+  return null
+}
+
+/** True when Nest permissions exist and the role maps to a mobile home shell. */
+export function canEnterAppHome(profile: AuthenticatedProfile | null | undefined): boolean {
+  return resolveAppHomeHref(profile) !== null
 }

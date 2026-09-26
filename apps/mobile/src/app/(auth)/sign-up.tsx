@@ -1,4 +1,4 @@
-import { Button, Screen, Text, TextField } from "@/components/ui";
+import { Button, PasswordInput, Screen, Text, TextField } from "@/components/ui";
 import { useGoogleAuth } from "@/features/auth/hooks/use-google-auth";
 import { useSignUpForm } from "@/features/auth/hooks/use-sign-up-form";
 import { AuthScreenShell } from "@/features/auth/ui/AuthScreenShell";
@@ -11,6 +11,7 @@ export default function SignUpScreen() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [code, setCode] = useState("");
   const {
     isLoaded,
@@ -87,14 +88,22 @@ export default function SignUpScreen() {
               placeholder="you@example.com"
               editable={!busy}
             />
-            <TextField
+            <PasswordInput
               label="Password"
               value={password}
               onChangeText={setPassword}
-              secureTextEntry
               textContentType="newPassword"
               autoComplete="new-password"
               placeholder="At least 8 characters"
+              editable={!busy}
+            />
+            <PasswordInput
+              label="Confirm password"
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              textContentType="newPassword"
+              autoComplete="new-password"
+              placeholder="Re-enter password"
               editable={!busy}
             />
           </>
@@ -115,7 +124,7 @@ export default function SignUpScreen() {
             resending ||
             (pendingVerification
               ? !code.trim()
-              : !email.trim() || !password || !fullName.trim())
+              : !email.trim() || !password || !confirmPassword || !fullName.trim())
           }
           onPress={() => {
             if (pendingVerification) {
@@ -124,7 +133,7 @@ export default function SignUpScreen() {
               return;
             }
             setGoogleError(null);
-            void signUpWithDetails(fullName, email, password);
+            void signUpWithDetails(fullName, email, password, confirmPassword);
           }}
         />
 

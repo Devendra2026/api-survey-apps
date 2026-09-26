@@ -31,7 +31,11 @@ export default function Index() {
   }
 
   if (state.status === "ready") {
-    return <Redirect href={resolveAppHomeHref(state.profile)} />;
+    const home = resolveAppHomeHref(state.profile);
+    if (!home) {
+      return <Redirect href="/(app)/pending" />;
+    }
+    return <Redirect href={home} />;
   }
 
   return (

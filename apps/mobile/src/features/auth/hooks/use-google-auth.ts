@@ -2,7 +2,7 @@ import { useSSO } from "@clerk/expo"
 import * as AuthSession from "expo-auth-session"
 import * as WebBrowser from "expo-web-browser"
 import { useState } from "react"
-import { getClerkErrorMessage } from "../lib/clerk-errors"
+import { getGoogleAuthErrorMessage } from "../lib/clerk-errors"
 import { useWarmUpBrowser } from "./use-warm-up-browser"
 
 WebBrowser.maybeCompleteAuthSession()
@@ -43,7 +43,7 @@ export function useGoogleAuth() {
 
       setError("Google sign-in did not complete a session. Try again, or use email and password.")
     } catch (err) {
-      setError(getClerkErrorMessage(err, "Google sign-in failed"))
+      setError(getGoogleAuthErrorMessage(err))
     } finally {
       setLoading(false)
     }

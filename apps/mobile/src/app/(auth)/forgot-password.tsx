@@ -1,4 +1,4 @@
-import { Button, Screen, Text, TextField } from "@/components/ui";
+import { Button, PasswordInput, Screen, Text, TextField } from "@/components/ui";
 import { useForgotPasswordForm } from "@/features/auth/hooks/use-forgot-password-form";
 import { AuthScreenShell } from "@/features/auth/ui/AuthScreenShell";
 import { spacing } from "@/theme";
@@ -15,12 +15,15 @@ export default function ForgotPasswordScreen() {
     step,
     error,
     loading,
+    resending,
     requestCode,
+    resendCode,
     resetPassword,
     backToRequest,
   } = useForgotPasswordForm();
 
   const isRequest = step === "request";
+  const busy = loading || resending;
 
   return (
     <Screen scroll keyboard>
@@ -53,7 +56,7 @@ export default function ForgotPasswordScreen() {
             textContentType="emailAddress"
             autoComplete="email"
             placeholder="you@example.com"
-            editable={!loading}
+            editable={!busy}
           />
         ) : (
           <>
@@ -64,17 +67,16 @@ export default function ForgotPasswordScreen() {
               keyboardType="number-pad"
               textContentType="oneTimeCode"
               placeholder="123456"
-              editable={!loading}
+              editable={!busy}
             />
-            <TextField
+            <PasswordInput
               label="New password"
               value={password}
               onChangeText={setPassword}
-              secureTextEntry
               textContentType="newPassword"
               autoComplete="new-password"
               placeholder="At least 8 characters"
-              editable={!loading}
+              editable={!busy}
             />
           </>
         )}
@@ -90,6 +92,7 @@ export default function ForgotPasswordScreen() {
           loading={loading}
           disabled={
             !isLoaded ||
+            resending ||
             (isRequest ? !email.trim() : !code.trim() || !password)
           }
           onPress={() => {
@@ -102,16 +105,27 @@ export default function ForgotPasswordScreen() {
         />
 
         {!isRequest ? (
-          <Pressable
-            accessibilityRole="button"
-            disabled={loading}
-            onPress={backToRequest}
-            style={styles.backLink}
-          >
-            <Text variant="bodyStrong" tone="primary">
-              Use a different email
-            </Text>
-          </Pressable>
+          <>
+            <Button
+              title="Resend code"
+              variant="ghost"
+              loading={resending}
+              disabled={!isLoaded || loading}
+              onPress={() => {
+                void resendCode();
+              }}
+            />
+            <Pressable
+              accessibilityRole="button"
+              disabled={busy}
+              onPress={backToRequest}
+              style={styles.backLink}
+            >
+              <Text variant="bodyStrong" tone="primary">
+                Use a different email
+              </Text>
+            </Pressable>
+          </>
         ) : null}
       </AuthScreenShell>
     </Screen>

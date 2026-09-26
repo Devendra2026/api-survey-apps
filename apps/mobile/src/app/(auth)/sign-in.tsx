@@ -1,4 +1,4 @@
-import { Button, Screen, Text, TextField } from "@/components/ui";
+import { Button, PasswordInput, Screen, Text, TextField } from "@/components/ui";
 import { useGoogleAuth } from "@/features/auth/hooks/use-google-auth";
 import { useSignInForm } from "@/features/auth/hooks/use-sign-in-form";
 import { AuthScreenShell } from "@/features/auth/ui/AuthScreenShell";
@@ -49,11 +49,10 @@ export default function SignInScreen() {
           placeholder="you@example.com"
           editable={!busy}
         />
-        <TextField
+        <PasswordInput
           label="Password"
           value={password}
           onChangeText={setPassword}
-          secureTextEntry
           textContentType="password"
           autoComplete="password"
           placeholder="••••••••"

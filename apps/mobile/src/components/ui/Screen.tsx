@@ -48,7 +48,8 @@ export function Screen({
   const withKeyboard = keyboard ? (
     <KeyboardAvoidingView
       style={styles.flex}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior="padding"
+      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
     >
       {body}
     </KeyboardAvoidingView>

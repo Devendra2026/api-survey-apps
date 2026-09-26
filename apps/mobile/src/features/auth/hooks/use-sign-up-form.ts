@@ -9,12 +9,12 @@ export function useSignUpForm() {
   const [loading, setLoading] = useState(false)
   const [resending, setResending] = useState(false)
 
-  async function signUpWithDetails(fullName: string, email: string, password: string) {
+  async function signUpWithDetails(fullName: string, email: string, password: string, confirmPassword: string) {
     if (!isLoaded || !signUp) {
       return
     }
 
-    const validationError = validateSignUpInput(fullName, email, password)
+    const validationError = validateSignUpInput(fullName, email, password, confirmPassword)
     if (validationError) {
       setError(validationError)
       return

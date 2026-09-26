@@ -19,8 +19,9 @@ export default function SurveyHomeScreen() {
     return <Redirect href="/" />;
   }
 
-  if (resolveAppHomeHref(state.profile) !== "/(app)/survey") {
-    return <Redirect href={resolveAppHomeHref(state.profile)} />;
+  const home = resolveAppHomeHref(state.profile);
+  if (home !== "/(app)/survey") {
+    return <Redirect href={home ?? "/(app)/pending"} />;
   }
 
   return (

@@ -2,7 +2,7 @@ import { getApiBaseUrl } from "@/lib/env";
 import { ApiClientError, isApiClientError, setApiTokenGetter } from "@/services/api/client";
 import { getMe, syncUser } from "@/services/api/users";
 import {
-  hasAppAccess,
+  canEnterAppHome,
   type AuthenticatedProfile,
 } from "@/types/user";
 import { useAuth, useUser } from "@clerk/expo";
@@ -65,6 +65,10 @@ function clerkPhone(user: {
   return phone && phone.length > 0 ? phone : undefined;
 }
 
+/**
+ * POST /users/sync returns the bare User row (no permissions / tenantRoles).
+ * Merge name/phone only so authorization from GET /users/me is preserved.
+ */
 async function maybeSyncProfile(
   profile: AuthenticatedProfile,
   clerkFullName: string | null | undefined,
@@ -85,7 +89,12 @@ async function maybeSyncProfile(
   }
 
   try {
-    return await syncUser(patch);
+    const synced = await syncUser(patch);
+    return {
+      ...profile,
+      fullName: synced.fullName ?? profile.fullName,
+      phone: synced.phone !== undefined ? synced.phone : profile.phone,
+    };
   } catch {
     return profile;
   }
@@ -160,7 +169,7 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        if (hasAppAccess(profile)) {
+        if (canEnterAppHome(profile)) {
           setProfileGate({ status: "ready", profile });
         } else {
           setProfileGate({ status: "pending", profile });

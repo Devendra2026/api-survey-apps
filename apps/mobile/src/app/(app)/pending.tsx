@@ -32,8 +32,8 @@ export default function PendingScreen() {
         title="Access pending"
         description={
           email
-            ? `You are signed in as ${email}, but an administrator has not assigned a working role yet. Tap Refresh status after they onboard you, or sign out.`
-            : "Your account is signed in but has no working role yet. Ask an administrator to complete onboarding."
+            ? `You are signed in as ${email}. Your account has not been assigned an application role. Please contact your administrator.`
+            : "Your account has not been assigned an application role. Please contact your administrator."
         }
         actionLabel="Refresh status"
         onAction={() => {

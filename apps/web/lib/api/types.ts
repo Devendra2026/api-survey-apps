@@ -1,3 +1,5 @@
+import type { QcCorrectionSection } from "@workspace/validation"
+
 export interface ApiResponse<T = unknown> {
   success: boolean
   message: string
@@ -585,6 +587,17 @@ export interface SurveyQcRemarkItem {
   body: string
   author: string
   createdAt: string
+  section?: string | null
+  field?: string | null
+  reason?: string | null
+  resolved?: boolean
+}
+
+export interface QcCorrectionItemInput {
+  section: QcCorrectionSection
+  field?: string
+  reason: string
+  note?: string
 }
 
 export interface SurveyDetails {
@@ -753,6 +766,7 @@ export type QcSurveyAction = "reopen" | "approve" | "delete" | "correct" | "reje
 export interface QcSurveyActionPayload {
   action: QcSurveyAction
   qcRemarks?: string
+  corrections?: QcCorrectionItemInput[]
   patch?: Partial<Omit<QcSurveyEditable, "floors" | "coOwners">> & {
     floors?: Array<{
       id?: string

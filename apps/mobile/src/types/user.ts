@@ -28,6 +28,27 @@ export type AuthenticatedProfile = {
   tenantRoles?: TenantRole[]
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/** Runtime check for GET /users/me: identity fields must be present before the profile drives navigation. */
+export function isAuthenticatedProfile(value: unknown): value is AuthenticatedProfile {
+  if (!isRecord(value)) return false
+  return (
+    typeof value.id === "string" &&
+    value.id.length > 0 &&
+    typeof value.clerkUserId === "string" &&
+    value.clerkUserId.length > 0 &&
+    typeof value.email === "string" &&
+    typeof value.fullName === "string" &&
+    typeof value.isActive === "boolean" &&
+    Array.isArray(value.permissions) &&
+    value.permissions.every((p) => typeof p === "string") &&
+    (value.tenantRoles === undefined || Array.isArray(value.tenantRoles))
+  )
+}
+
 export const ROLE_LABELS: Record<string, string> = {
   PENDING_APPROVAL: "Pending approval",
   SURVEYOR: "Surveyor",

@@ -15,8 +15,10 @@ import {
   UsageType,
   WaterConnection,
 } from "@workspace/database"
+import { QC_CORRECTION_MAX_ITEMS } from "@workspace/validation"
 import { Transform, Type } from "class-transformer"
 import {
+  ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsEnum,
@@ -32,6 +34,7 @@ import {
   ValidateIf,
   ValidateNested,
 } from "class-validator"
+import { QcCorrectionItemDto } from "../../surveys/dto/survey.dto.js"
 
 /** Keep null/empty as null so `@Type(() => Number)` does not coerce `null` → `0`. */
 function nullableNumber({ value }: { value: unknown }): number | null | undefined {
@@ -360,6 +363,18 @@ export class QcSurveyActionDto {
   @MinLength(1)
   @MaxLength(2000)
   qcRemarks?: string
+
+  @ApiPropertyOptional({
+    type: [QcCorrectionItemDto],
+    maxItems: QC_CORRECTION_MAX_ITEMS,
+    description: "Structured correction items (action reject only)",
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(QC_CORRECTION_MAX_ITEMS)
+  @ValidateNested({ each: true })
+  @Type(() => QcCorrectionItemDto)
+  corrections?: QcCorrectionItemDto[]
 
   @ApiPropertyOptional({ type: QcSurveyCorrectionDto })
   @IsOptional()

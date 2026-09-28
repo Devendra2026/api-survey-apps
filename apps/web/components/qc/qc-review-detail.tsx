@@ -1,5 +1,6 @@
 "use client"
 
+import { normalizeCorrectionItems, QcCorrectionItemsEditor } from "@/components/qc/qc-correction-items-editor"
 import { QcReviewActionBar } from "@/components/qc/qc-review-action-bar"
 import { QcReviewSections } from "@/components/qc/qc-review-sections"
 import { EmptyState } from "@/components/shared/page-elements"
@@ -12,7 +13,13 @@ import {
   useWards,
 } from "@/hooks/use-api"
 import { apiGet, getApiErrorMessage } from "@/lib/api/client"
-import type { QcQueueParcel, QcQueueParcelMatch, QcSurveyDetail, QcSurveyEditable } from "@/lib/api/types"
+import type {
+  QcCorrectionItemInput,
+  QcQueueParcel,
+  QcQueueParcelMatch,
+  QcSurveyDetail,
+  QcSurveyEditable,
+} from "@/lib/api/types"
 import {
   buildQcQueueSearchParams,
   buildQcRegistryHref,
@@ -89,6 +96,7 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
   const [reopenOpen, setReopenOpen] = useState(false)
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectRemarks, setRejectRemarks] = useState("")
+  const [rejectCorrections, setRejectCorrections] = useState<QcCorrectionItemInput[]>([])
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [wardSwitchId, setWardSwitchId] = useState<string | null>(null)
   const [wardSwitchPending, setWardSwitchPending] = useState(false)
@@ -546,7 +554,7 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
       </Dialog>
 
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Reject survey</DialogTitle>
             <DialogDescription>
@@ -560,6 +568,11 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
             className="min-h-24"
             aria-label="QC remarks"
           />
+          <QcCorrectionItemsEditor
+            items={rejectCorrections}
+            onChange={setRejectCorrections}
+            disabled={actions.reject.isPending}
+          />
           <DialogFooter>
             <Button variant="outline" className="cursor-pointer" onClick={() => setRejectOpen(false)}>
               Cancel
@@ -570,9 +583,14 @@ export function QcReviewDetail({ surveyId }: { surveyId: string }) {
               disabled={actions.reject.isPending || !rejectRemarks.trim()}
               onClick={async () => {
                 try {
-                  await actions.reject.mutateAsync({ id: survey.id, qcRemarks: rejectRemarks.trim() })
+                  await actions.reject.mutateAsync({
+                    id: survey.id,
+                    qcRemarks: rejectRemarks.trim(),
+                    corrections: normalizeCorrectionItems(rejectCorrections),
+                  })
                   toast.success("Survey rejected")
                   setRejectOpen(false)
+                  setRejectCorrections([])
                   await advanceAfterComplete()
                 } catch (error) {
                   toast.error(getApiErrorMessage(error))

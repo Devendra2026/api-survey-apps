@@ -152,6 +152,10 @@ type SurveyForView = {
     id: string
     body: string
     createdAt: Date
+    section?: string | null
+    field?: string | null
+    reason?: string | null
+    resolvedAt?: Date | null
     author?: { fullName: string } | null
   }>
 }
@@ -279,6 +283,10 @@ export function mapSurveyToDetailsDto(survey: SurveyForView): SurveyDetailsDto {
       body: item.body,
       author: item.author?.fullName ?? "—",
       createdAt: formatWhen(item.createdAt),
+      section: item.section ?? null,
+      field: item.field ?? null,
+      reason: item.reason ?? null,
+      resolved: item.resolvedAt != null,
     })),
   }
 }

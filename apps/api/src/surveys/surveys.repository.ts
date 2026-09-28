@@ -6,6 +6,7 @@ import { allocateTempPropertyId, findActiveSurveyIdentityConflict } from "../com
 import { buildTenantWhere, canAccessTenant, resolveTenantScope } from "../common/utils/tenant-scope.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import type { CreateSurveyDto, SurveyQueryDto, UpdateSurveyDto } from "./dto/survey.dto.js"
+import type { FieldMetricsScope, SurveyorInfo, WardInfo } from "./field-metrics.js"
 import { createSurveyAuditRow } from "./survey-audit-write.js"
 
 const surveyInclude = {
@@ -32,6 +33,13 @@ const surveyViewInclude = {
   // Including audits forces Prisma to SELECT all SurveyAudit columns and breaks detail
   // when the API client is ahead of the DB migration.
 } as const
+
+export type QcRemarkInput = {
+  body: string
+  section: string | null
+  field: string | null
+  reason: string | null
+}
 
 type SurveyCursor = {
   createdAt: string
@@ -371,6 +379,10 @@ export class SurveysRepository {
     action: string
     extra?: Prisma.SurveyUpdateInput
     auditNew?: Prisma.InputJsonValue
+    /** Structured QC remarks authored by `changedBy`, written atomically with the transition. */
+    createQcRemarks?: QcRemarkInput[]
+    /** Mark every open QC remark resolved (correction resubmitted). */
+    resolveOpenQcRemarks?: boolean
   }) {
     return this.prisma.db.$transaction(async (tx) => {
       const updated = await tx.survey.updateMany({
@@ -386,6 +398,25 @@ export class SurveysRepository {
       })
       if (updated.count === 0) {
         throw new NotFoundException(`Survey not found or not in status ${params.from}`)
+      }
+
+      if (params.createQcRemarks?.length) {
+        await tx.qcRemark.createMany({
+          data: params.createQcRemarks.map((remark) => ({
+            surveyId: params.id,
+            authorId: params.changedBy,
+            body: remark.body,
+            section: remark.section,
+            field: remark.field,
+            reason: remark.reason,
+          })),
+        })
+      }
+      if (params.resolveOpenQcRemarks) {
+        await tx.qcRemark.updateMany({
+          where: { surveyId: params.id, resolvedAt: null },
+          data: { resolvedAt: new Date() },
+        })
       }
 
       const survey = await tx.survey.findFirstOrThrow({
@@ -444,6 +475,148 @@ export class SurveysRepository {
           select: preMigration,
         })
       )
+  }
+
+  /**
+   * Grouped counts for the mobile Field dashboard. Always tenant-scoped; `self` narrows to the caller's own
+   * assigned surveys, `team` returns per-surveyor progress for everyone inside the caller's scope.
+   */
+  async fieldMetrics(user: AuthenticatedUser, opts: { scope: FieldMetricsScope; todayStart: Date }) {
+    const scope = resolveTenantScope(user.tenantRoles)
+    const tenantWhere = buildTenantWhere(scope)
+    const where: Prisma.SurveyWhereInput = {
+      deletedAt: null,
+      AND: [tenantWhere ?? {}, opts.scope === "self" ? { assignedToId: user.id } : {}],
+    }
+
+    const [statusRows, createdTodayRows, submittedTodayRows, resubmitted] = await Promise.all([
+      this.prisma.db.survey.groupBy({
+        by: ["wardId", "assignedToId", "surveyStatus", "qcStatus"],
+        where,
+        _count: { _all: true },
+      }),
+      this.prisma.db.survey.groupBy({
+        by: ["assignedToId"],
+        where: { AND: [where, { createdAt: { gte: opts.todayStart } }] },
+        _count: { _all: true },
+      }),
+      this.prisma.db.survey.groupBy({
+        by: ["assignedToId"],
+        where: { AND: [where, { submittedAt: { gte: opts.todayStart } }] },
+        _count: { _all: true },
+      }),
+      this.prisma.db.survey.count({
+        where: {
+          AND: [
+            where,
+            { surveyStatus: "SUBMITTED", qcStatus: "PENDING" },
+            { audits: { some: { action: "REOPENED" } } },
+          ],
+        },
+      }),
+    ])
+
+    const wardIds = [...new Set(statusRows.map((r) => r.wardId))]
+    const wardRows = wardIds.length
+      ? await this.prisma.db.ward.findMany({
+          where: { id: { in: wardIds } },
+          select: { id: true, wardNumber: true, wardName: true, ulb: { select: { name: true } } },
+        })
+      : []
+    const wards: WardInfo[] = wardRows.map((w) => ({
+      id: w.id,
+      wardNumber: w.wardNumber,
+      wardName: w.wardName,
+      ulbName: w.ulb?.name ?? null,
+    }))
+
+    if (opts.scope === "self") {
+      return {
+        statusRows,
+        createdTodayRows,
+        submittedTodayRows,
+        resubmitted,
+        wards,
+        surveyors: [] as SurveyorInfo[],
+        lastActivityByUser: new Map<string, Date>(),
+        assignedSurveyorCount: null,
+      }
+    }
+
+    const roleWhere: Prisma.UserTenantRoleWhereInput = {
+      isActive: true,
+      role: { name: "SURVEYOR" },
+      user: { isActive: true },
+      ...(scope.isGlobal
+        ? {}
+        : {
+            OR: [
+              ...(scope.wardIds.length ? [{ wardId: { in: scope.wardIds } }] : []),
+              // ULB-wide surveyors also work inside a ward-scoped supervisor's wards.
+              ...(scope.parentUlbIds.length ? [{ wardId: null, ulbId: { in: scope.parentUlbIds } }] : []),
+              ...(scope.ulbIds.length ? [{ ulbId: { in: scope.ulbIds } }] : []),
+              ...(scope.districtIds.length ? [{ districtId: { in: scope.districtIds } }] : []),
+              ...(scope.stateIds.length ? [{ stateId: { in: scope.stateIds } }] : []),
+              { id: "__no_access__" },
+            ],
+          }),
+    }
+
+    const assigneeIds = [...new Set(statusRows.map((r) => r.assignedToId).filter((id): id is string => Boolean(id)))]
+
+    const [surveyorRoles, assignees, activityRows] = await Promise.all([
+      this.prisma.db.userTenantRole.findMany({
+        where: roleWhere,
+        select: {
+          userId: true,
+          user: { select: { fullName: true } },
+          ward: { select: { wardNumber: true } },
+          ulb: { select: { name: true } },
+        },
+        take: 1000,
+      }),
+      assigneeIds.length
+        ? this.prisma.db.user.findMany({
+            where: { id: { in: assigneeIds } },
+            select: { id: true, fullName: true },
+          })
+        : Promise.resolve([] as Array<{ id: string; fullName: string }>),
+      this.prisma.db.survey.groupBy({
+        by: ["assignedToId"],
+        where,
+        _max: { updatedAt: true },
+      }),
+    ])
+
+    const surveyorMap = new Map<string, SurveyorInfo>()
+    for (const role of surveyorRoles) {
+      const current = surveyorMap.get(role.userId) ?? { userId: role.userId, fullName: role.user.fullName, wards: [] }
+      const label = role.ward ? `Ward ${role.ward.wardNumber}` : role.ulb ? `${role.ulb.name} (all wards)` : null
+      if (label && !current.wards.includes(label)) current.wards.push(label)
+      surveyorMap.set(role.userId, current)
+    }
+    const assignedSurveyorCount = surveyorMap.size
+    for (const assignee of assignees) {
+      if (!surveyorMap.has(assignee.id)) {
+        surveyorMap.set(assignee.id, { userId: assignee.id, fullName: assignee.fullName, wards: [] })
+      }
+    }
+
+    const lastActivityByUser = new Map<string, Date>()
+    for (const row of activityRows) {
+      if (row.assignedToId && row._max.updatedAt) lastActivityByUser.set(row.assignedToId, row._max.updatedAt)
+    }
+
+    return {
+      statusRows,
+      createdTodayRows,
+      submittedTodayRows,
+      resubmitted,
+      wards,
+      surveyors: [...surveyorMap.values()],
+      lastActivityByUser,
+      assignedSurveyorCount,
+    }
   }
 
   async assignSurvey(params: { id: string; assigneeId: string; changedBy: string; previousAssigneeId: string }) {

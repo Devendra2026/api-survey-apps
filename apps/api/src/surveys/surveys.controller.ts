@@ -10,6 +10,7 @@ import {
   BulkRejectSurveysDto,
   BulkSurveyIdsDto,
   CreateSurveyDto,
+  FieldMetricsQueryDto,
   RejectSurveyDto,
   SurveyQueryDto,
   UpdateSurveyDto,
@@ -34,6 +35,13 @@ export class SurveysController {
   @ApiOperation({ summary: "Ward command-center cards for survey registry" })
   wardStats(@Query() query: WardStatsQueryDto, @CurrentUser() user: AuthenticatedUser) {
     return this.surveysService.wardCommandStats(query, user)
+  }
+
+  @Get("field-metrics")
+  @RequirePermission(PERMISSIONS.SURVEY_VIEW)
+  @ApiOperation({ summary: "Mobile field dashboard counts (self or team), tenant-scoped" })
+  fieldMetrics(@Query() query: FieldMetricsQueryDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.surveysService.fieldMetrics(query, user)
   }
 
   @Post("bulk/approve")
@@ -79,6 +87,13 @@ export class SurveysController {
   })
   findOne(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.surveysService.getSurveyDetails(id, user)
+  }
+
+  @Get(":id/record")
+  @RequirePermission(PERMISSIONS.SURVEY_VIEW)
+  @ApiOperation({ summary: "Raw editable survey record (enum values, floors, co-owners, photos, QC remarks)" })
+  record(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.surveysService.getSurveyRecord(id, user)
   }
 
   @Get(":id/history")

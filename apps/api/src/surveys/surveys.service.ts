@@ -31,11 +31,14 @@ import type {
   BulkRejectSurveysDto,
   BulkSurveyIdsDto,
   CreateSurveyDto,
+  FieldMetricsQueryDto,
   RejectSurveyDto,
   SurveyQueryDto,
   UpdateSurveyDto,
   WardStatsQueryDto,
 } from "./dto/survey.dto.js"
+import { buildFieldMetrics, resolveTodayStart } from "./field-metrics.js"
+import { buildQcRemarkRows, correctionsAuditValue } from "./qc-remarks.js"
 import {
   buildSurveyAuditHistoryFromSources,
   collectAuditActorLookupKeys,
@@ -76,6 +79,29 @@ export class SurveysService {
 
   findById(id: string, user: AuthenticatedUser) {
     return this.surveysRepository.findById(id, user)
+  }
+
+  /** Raw editable survey (enum values, child rows, QC remark thread) for field clients. Tenant-scoped. */
+  async getSurveyRecord(id: string, user: AuthenticatedUser) {
+    const survey = await this.surveysRepository.findById(id, user)
+    return this.ensureFormulaPropertyId(survey)
+  }
+
+  async fieldMetrics(query: FieldMetricsQueryDto, user: AuthenticatedUser) {
+    const scope = query.scope ?? "self"
+    if (scope === "team") {
+      const canSeeTeam = user.tenantRoles.some(
+        (r) =>
+          r.isActive &&
+          (r.permissions.includes(PERMISSIONS.SURVEY_ASSIGN) || r.permissions.includes(PERMISSIONS.SURVEY_APPROVE))
+      )
+      if (!canSeeTeam) {
+        throw new ForbiddenException("Team metrics require survey:assign or survey:approve")
+      }
+    }
+    const todayStart = resolveTodayStart(query.todayStart)
+    const data = await this.surveysRepository.fieldMetrics(user, { scope, todayStart })
+    return buildFieldMetrics({ scope, todayStart, ...data })
   }
 
   async getSurveyDetails(idOrPropertyId: string, user: AuthenticatedUser) {
@@ -401,20 +427,27 @@ export class SurveysService {
       throw new BadRequestException(`Cannot submit survey in status ${survey.surveyStatus}`)
     }
 
+    const missing: string[] = []
     if (!survey.floors.length) {
-      throw new BadRequestException("Survey requires at least one floor")
+      missing.push("Survey requires at least one floor")
     }
     if (!survey.photos.some((p) => p.photoType === PhotoType.FRONT)) {
-      throw new BadRequestException("Survey requires at least one FRONT photo")
+      missing.push("Survey requires at least one FRONT photo")
     }
     if (survey.latitude == null || survey.longitude == null) {
-      throw new BadRequestException("Survey requires GPS latitude and longitude")
+      missing.push("Survey requires GPS latitude and longitude")
     }
     if (!survey.propertyId || !survey.ownershipType || !survey.propertyUse || !survey.propertyType) {
-      throw new BadRequestException("Survey requires valid property details")
+      missing.push("Survey requires valid property details")
     }
     if (survey.ownershipType === OwnershipType.JOINT && survey.coOwners.length === 0) {
-      throw new BadRequestException("JOINT ownership requires at least one co-owner")
+      missing.push("JOINT ownership requires at least one co-owner")
+    }
+    if (missing.length === 1) {
+      throw new BadRequestException(missing[0])
+    }
+    if (missing.length > 1) {
+      throw new BadRequestException({ message: `Survey is incomplete: ${missing.join("; ")}`, errors: missing })
     }
 
     const { survey: updated } = await this.surveysRepository.transitionStatus({
@@ -429,6 +462,7 @@ export class SurveysService {
         qcRemarks: null,
         qcStatus: "PENDING",
       },
+      resolveOpenQcRemarks: survey.surveyStatus === "REOPENED",
     })
     this.logger.log(`Survey status SUBMITTED ${id}`)
     return updated
@@ -493,7 +527,13 @@ export class SurveysService {
         qcRemarks: dto.qcRemarks,
         qcStatus: "REJECTED",
       },
-      auditNew: { surveyStatus: "REJECTED", qcStatus: "REJECTED", qcRemarks: dto.qcRemarks },
+      auditNew: {
+        surveyStatus: "REJECTED",
+        qcStatus: "REJECTED",
+        qcRemarks: dto.qcRemarks,
+        ...(dto.corrections?.length ? { corrections: correctionsAuditValue(dto.corrections) } : {}),
+      },
+      createQcRemarks: buildQcRemarkRows(dto),
     })
     this.logger.log(`Survey status REJECTED ${id}`)
     return updated

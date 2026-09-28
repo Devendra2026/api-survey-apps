@@ -7,6 +7,7 @@ import { IS_PUBLIC_KEY } from "../decorators/public.decorator.js"
 import type { AuthenticatedUser } from "../interfaces/authenticated-user.interface.js"
 import { RoleProvisioningService } from "../services/role-provisioning.service.js"
 import { TenantScopeService } from "../services/tenant-scope.service.js"
+import { resolveClerkEmailVerification } from "./clerk-email-verification.js"
 import { clerkClientFor, clerkInstances, verifySessionToken, type ClerkInstance } from "./clerk-instance.js"
 
 @Injectable()
@@ -76,6 +77,7 @@ export class ClerkAuthGuard implements CanActivate {
     let phone: string | null = null
     let profileFetched = false
     let emailVerified = false
+    let verificationDetail = "clerkProfile=unavailable"
     let matched: ClerkInstance | null = null
 
     const configuredSkew = this.configService.get<number>("CLERK_CLOCK_SKEW_MS")
@@ -103,27 +105,12 @@ export class ClerkAuthGuard implements CanActivate {
 
     try {
       const clerkUser = await clerkClientFor(matched.secretKey).users.getUser(clerkUserId)
-      const primaryEmail =
-        clerkUser.emailAddresses.find((e) => e.id === clerkUser.primaryEmailAddressId) ?? clerkUser.emailAddresses[0]
-      email = primaryEmail?.emailAddress ?? ""
-      const normalizedFetchedEmail = email ? normalizeEmail(email) : ""
-      emailVerified = clerkUser.emailAddresses.some(
-        (address) =>
-          Boolean(address.emailAddress) &&
-          normalizeEmail(address.emailAddress) === normalizedFetchedEmail &&
-          address.verification?.status === "verified"
-      )
-      // Google (and other OAuth) identities prove email ownership when Clerk linked the external account.
-      if (!emailVerified && normalizedFetchedEmail) {
-        emailVerified = (clerkUser.externalAccounts ?? []).some((account) => {
-          const accountEmail =
-            "emailAddress" in account && typeof account.emailAddress === "string"
-              ? normalizeEmail(account.emailAddress)
-              : ""
-          const provider = "provider" in account && typeof account.provider === "string" ? account.provider : ""
-          return Boolean(provider.startsWith("oauth_")) && accountEmail === normalizedFetchedEmail
-        })
-      }
+      const verification = resolveClerkEmailVerification(clerkUser)
+      email = verification.email
+      emailVerified = verification.verified
+      verificationDetail =
+        `emailStatus=${verification.primaryStatus} emailStrategy=${verification.primaryStrategy} ` +
+        `providers=${verification.providers.join(",") || "none"} via=${verification.via} instance=${matched.name}`
       fullName =
         [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim() ||
         clerkUser.username ||
@@ -142,6 +129,7 @@ export class ClerkAuthGuard implements CanActivate {
       phone,
       profileFetched,
       emailVerified,
+      verificationDetail,
     })
     return true
   }
@@ -153,6 +141,8 @@ export class ClerkAuthGuard implements CanActivate {
     phone: string | null
     profileFetched: boolean
     emailVerified?: boolean
+    /** Log-safe Clerk verification summary (status, strategy, providers). Never tokens. */
+    verificationDetail?: string
   }): Promise<AuthenticatedUser> {
     const now = new Date()
     const verifiedClerkUserId = input.clerkUserId
@@ -198,7 +188,8 @@ export class ClerkAuthGuard implements CanActivate {
         } else if (byEmail.clerkUserId !== verifiedClerkUserId) {
           this.logger.warn(
             `Refusing email adoption without verified email: verified=${verifiedClerkUserId} ` +
-              `existing=${byEmail.clerkUserId} lookup=clerkUserId`
+              `existing=${byEmail.clerkUserId} databaseUserId=${byEmail.id} lookup=clerkUserId ` +
+              (input.verificationDetail ?? "")
           )
           throw new UnauthorizedException(
             "This email is already linked to a different Clerk account. Sign in with the original account or contact an administrator."

@@ -1,6 +1,7 @@
 import { createClerkClient, verifyToken } from "@clerk/backend"
 import { Logger } from "@nestjs/common"
 import type { ConfigService } from "@nestjs/config"
+import { clerkKeyKind, clerkKeysEnvironmentMismatch } from "./clerk-email-verification.js"
 
 export type ClerkInstance = {
   name: "admin" | "portal"
@@ -42,6 +43,16 @@ export function clerkInstances(config: ConfigService): ClerkInstance[] {
     )
   } else if (adminSecret && !portalSecret) {
     logger.warn("PORTAL_CLERK_SECRET_KEY is not set. Etah portal (portal.nppetah.in) JWTs cannot be verified.")
+  }
+
+  const publishableKind = clerkKeyKind(config.get<string>("CLERK_PUBLISHABLE_KEY"))
+  const secretKind = clerkKeyKind(adminSecret)
+  logger.log(`Clerk admin keys: publishable=${publishableKind} secret=${secretKind}`)
+  if (clerkKeysEnvironmentMismatch(publishableKind, secretKind)) {
+    logger.error(
+      `CLERK_PUBLISHABLE_KEY (${publishableKind}) and CLERK_SECRET_KEY (${secretKind}) are from different Clerk environments. ` +
+        "Mobile/web sessions from one instance will fail verification or resolve to different Clerk users."
+    )
   }
 
   logger.log(`Clerk JWT instances loaded: ${instances.map((instance) => instance.name).join(", ") || "none"}`)

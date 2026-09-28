@@ -34,6 +34,7 @@ import type {
   NotificationItem,
   PaginatedResult,
   QcCommandCenterFilters,
+  QcCorrectionItemInput,
   QcMetrics,
   QcQueueNeighbors,
   QcQueueParcel,
@@ -339,8 +340,15 @@ export function useQcSurveyActions() {
       onSuccess: invalidate,
     }),
     reject: useMutation({
-      mutationFn: ({ id, qcRemarks }: { id: string; qcRemarks: string }) =>
-        runAction(id, { action: "reject", qcRemarks }),
+      mutationFn: ({
+        id,
+        qcRemarks,
+        corrections,
+      }: {
+        id: string
+        qcRemarks: string
+        corrections?: QcCorrectionItemInput[]
+      }) => runAction(id, { action: "reject", qcRemarks, ...(corrections?.length ? { corrections } : {}) }),
       onSuccess: invalidate,
     }),
     remove: useMutation({

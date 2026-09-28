@@ -339,11 +339,11 @@ model Ward {
   updatedAt  DateTime        @updatedAt
   deletedAt  DateTime?
 
-  ulb              Ulb              @relation(fields: [ulbId], references: [id], onDelete: Restrict)
-  surveys          Survey[]         @relation("SurveyCurrentWard")
-  originalSurveys  Survey[]         @relation("SurveyOriginalWard")
-  userTenantRoles  UserTenantRole[]
-  taxConfigs       TaxConfig[]
+  ulb             Ulb              @relation(fields: [ulbId], references: [id], onDelete: Restrict)
+  surveys         Survey[]         @relation("SurveyCurrentWard")
+  originalSurveys Survey[]         @relation("SurveyOriginalWard")
+  userTenantRoles UserTenantRole[]
+  taxConfigs      TaxConfig[]
 
   @@index([ulbId])
   @@index([status])
@@ -625,15 +625,15 @@ model Survey {
   id String @id @default(uuid())
 
   // Tenant hierarchy (normalized FKs — do not duplicate tenant names)
-  stateId      String
-  districtId   String
-  ulbId        String
-  wardId       String
+  stateId        String
+  districtId     String
+  ulbId          String
+  wardId         String
   /// Geographic ward captured when the survey is quarantined. Null means current wardId is the property ward.
   originalWardId String?
-  createdById  String
-  assignedToId String?
-  assignedAt   DateTime?
+  createdById    String
+  assignedToId   String?
+  assignedAt     DateTime?
 
   // Property identification
   /// Also GIN trigram (pg_trgm) in SQL for ILIKE contains — see surveys_*_trgm_idx migration
@@ -721,13 +721,13 @@ model Survey {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  state      State    @relation(fields: [stateId], references: [id], onDelete: Restrict)
-  district   District @relation(fields: [districtId], references: [id], onDelete: Restrict)
-  ulb        Ulb      @relation(fields: [ulbId], references: [id], onDelete: Restrict)
-  ward         Ward  @relation("SurveyCurrentWard", fields: [wardId], references: [id], onDelete: Restrict)
-  originalWard Ward? @relation("SurveyOriginalWard", fields: [originalWardId], references: [id], onDelete: Restrict)
-  createdBy    User  @relation("SurveyCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  assignedTo User?    @relation("SurveyAssignedTo", fields: [assignedToId], references: [id], onDelete: Restrict)
+  state        State    @relation(fields: [stateId], references: [id], onDelete: Restrict)
+  district     District @relation(fields: [districtId], references: [id], onDelete: Restrict)
+  ulb          Ulb      @relation(fields: [ulbId], references: [id], onDelete: Restrict)
+  ward         Ward     @relation("SurveyCurrentWard", fields: [wardId], references: [id], onDelete: Restrict)
+  originalWard Ward?    @relation("SurveyOriginalWard", fields: [originalWardId], references: [id], onDelete: Restrict)
+  createdBy    User     @relation("SurveyCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  assignedTo   User?    @relation("SurveyAssignedTo", fields: [assignedToId], references: [id], onDelete: Restrict)
 
   coOwners       CoOwner[]
   floors         Floor[]
@@ -843,6 +843,12 @@ model QcRemark {
   surveyId   String
   authorId   String
   body       String
+  /// Mobile wizard step the correction belongs to (e.g. "owner", "photos"); null = general remark.
+  section    String?
+  /// Field label within the section (free text, e.g. "Mobile number").
+  field      String?
+  /// Short reason code/label chosen by QC (e.g. "Incorrect", "Missing").
+  reason     String?
   resolvedAt DateTime?
   createdAt  DateTime  @default(now())
 
@@ -850,6 +856,7 @@ model QcRemark {
   author User   @relation("QcRemarkAuthor", fields: [authorId], references: [id], onDelete: Restrict)
 
   @@index([surveyId, createdAt])
+  @@index([surveyId, resolvedAt])
   @@index([authorId])
   @@map("qc_remarks")
 }

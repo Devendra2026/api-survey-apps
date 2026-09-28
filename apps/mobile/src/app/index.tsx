@@ -12,7 +12,11 @@ export default function Index() {
         <StatusView
           variant="loading"
           title="Signing you in…"
-          description="Verifying your session with the API."
+          description={
+            state.status === "loading_profile" && state.message
+              ? state.message
+              : "Verifying your session with the API."
+          }
         />
       </Screen>
     );

@@ -14,6 +14,14 @@ import {
   TaxRateZone,
   WaterConnection,
 } from "@workspace/database"
+import {
+  QC_CORRECTION_FIELD_MAX,
+  QC_CORRECTION_MAX_ITEMS,
+  QC_CORRECTION_NOTE_MAX,
+  QC_CORRECTION_REASON_MAX,
+  QC_CORRECTION_SECTIONS,
+  type QcCorrectionSection,
+} from "@workspace/validation"
 import { Type } from "class-transformer"
 import {
   ArrayMaxSize,
@@ -23,6 +31,7 @@ import {
   IsBooleanString,
   IsDateString,
   IsEnum,
+  IsIn,
   IsInt,
   IsNumber,
   IsOptional,
@@ -31,6 +40,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateNested,
 } from "class-validator"
 import { PaginationQueryDto } from "../../common/dto/pagination-query.dto.js"
 
@@ -258,12 +268,44 @@ export class CreateSurveyDto {
 
 export class UpdateSurveyDto extends PartialType(CreateSurveyDto) {}
 
+export class QcCorrectionItemDto {
+  @ApiProperty({ enum: QC_CORRECTION_SECTIONS, description: "Survey section (mobile wizard step) to correct" })
+  @IsIn(QC_CORRECTION_SECTIONS)
+  section!: QcCorrectionSection
+
+  @ApiPropertyOptional({ maxLength: QC_CORRECTION_FIELD_MAX, description: "Field within the section" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(QC_CORRECTION_FIELD_MAX)
+  field?: string
+
+  @ApiProperty({ maxLength: QC_CORRECTION_REASON_MAX })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(QC_CORRECTION_REASON_MAX)
+  reason!: string
+
+  @ApiPropertyOptional({ maxLength: QC_CORRECTION_NOTE_MAX, description: "Extra instructions for the surveyor" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(QC_CORRECTION_NOTE_MAX)
+  note?: string
+}
+
 export class RejectSurveyDto {
   @ApiProperty()
   @IsString()
   @MinLength(1)
   @MaxLength(2000)
   qcRemarks!: string
+
+  @ApiPropertyOptional({ type: [QcCorrectionItemDto], maxItems: QC_CORRECTION_MAX_ITEMS })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(QC_CORRECTION_MAX_ITEMS)
+  @ValidateNested({ each: true })
+  @Type(() => QcCorrectionItemDto)
+  corrections?: QcCorrectionItemDto[]
 }
 
 export class AssignSurveyDto {
@@ -366,6 +408,22 @@ export class BulkExportSurveysDto {
   @IsOptional()
   @IsString()
   reportType?: "surveys" | "convex_full" | "survey_data" | "nagar_panchayat" | "qc_final"
+}
+
+export class FieldMetricsQueryDto {
+  @ApiPropertyOptional({
+    enum: ["self", "team"],
+    default: "self",
+    description: "self = surveys assigned to the caller; team = everyone in the caller's tenant scope",
+  })
+  @IsOptional()
+  @IsIn(["self", "team"])
+  scope?: "self" | "team"
+
+  @ApiPropertyOptional({ description: "Caller's local start of day (ISO). Falls back to UTC midnight." })
+  @IsOptional()
+  @IsDateString()
+  todayStart?: string
 }
 
 export class WardStatsQueryDto {

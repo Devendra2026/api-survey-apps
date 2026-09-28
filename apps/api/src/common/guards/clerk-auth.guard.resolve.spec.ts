@@ -238,6 +238,32 @@ describe("ClerkAuthGuard.resolveLocalUser", () => {
     )
   })
 
+  it("refuses unverified email adoption even for a different real clerkUserId and never creates a duplicate", async () => {
+    findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      id: "uuid-a",
+      email: "google@example.com",
+      clerkUserId: "user_password",
+      isActive: true,
+      fullName: "Surveyor A",
+      phone: null,
+    })
+
+    await expect(
+      resolveLocalUser({
+        clerkUserId: "user_google",
+        email: "google@example.com",
+        fullName: "Surveyor A",
+        phone: null,
+        profileFetched: true,
+        emailVerified: false,
+        verificationDetail: "emailStatus=unverified emailStrategy=oauth_google providers=oauth_google via=none",
+      })
+    ).rejects.toThrow(/already linked to a different Clerk account/i)
+
+    expect(userCreate).not.toHaveBeenCalled()
+    expect(userUpdate).not.toHaveBeenCalled()
+  })
+
   it("rebinds pending: email placeholder so returned clerkUserId equals verified subject", async () => {
     findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({
       id: "uuid-pending",

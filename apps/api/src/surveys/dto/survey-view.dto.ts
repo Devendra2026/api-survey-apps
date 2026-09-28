@@ -31,6 +31,10 @@ export class QcRemarkItemDto {
   body!: string
   author!: string
   createdAt!: string
+  section?: string | null
+  field?: string | null
+  reason?: string | null
+  resolved?: boolean
 }
 
 export class SurveyWardIdentityDto {

@@ -22,6 +22,7 @@ import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@workspace/ui/components/table"
 import { cn } from "@workspace/ui/lib/utils"
+import { isQcCorrectionSection, QC_CORRECTION_SECTION_LABELS } from "@workspace/validation"
 import { ArrowLeft, ImageIcon } from "lucide-react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
@@ -412,9 +413,21 @@ export function SurveyViewContent({
             ) : null}
             {survey.qcRemarkItems.map((item) => (
               <div key={item.id} className={cn(glassInsetClass, "px-4 py-3 text-sm")}>
+                {item.section || item.field || item.reason ? (
+                  <p className="mb-1 text-xs font-medium text-slate-600 dark:text-slate-300">
+                    {[
+                      isQcCorrectionSection(item.section) ? QC_CORRECTION_SECTION_LABELS[item.section] : item.section,
+                      item.field,
+                      item.reason,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                ) : null}
                 <p className="text-slate-800 dark:text-slate-100">{item.body}</p>
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   {item.author} · {item.createdAt}
+                  {item.resolved ? " · Resolved" : ""}
                 </p>
               </div>
             ))}

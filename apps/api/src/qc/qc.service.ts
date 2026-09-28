@@ -75,7 +75,11 @@ export class QcService {
         if (!dto.qcRemarks?.trim()) {
           throw new BadRequestException("QC remarks are required when returning a survey")
         }
-        return this.surveysService.reject(survey.id, { qcRemarks: dto.qcRemarks.trim() }, user)
+        return this.surveysService.reject(
+          survey.id,
+          { qcRemarks: dto.qcRemarks.trim(), corrections: dto.corrections },
+          user
+        )
       }
       case "delete":
         if (!user.permissions.includes(PERMISSIONS.SURVEY_DELETE)) {

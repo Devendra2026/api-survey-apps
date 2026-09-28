@@ -9,7 +9,11 @@ export default function AppLayout() {
   if (state.status === "booting" || state.status === "loading_profile") {
     return (
       <Screen>
-        <StatusView variant="loading" title="Loading profile…" />
+        <StatusView
+          variant="loading"
+          title="Loading profile…"
+          description={state.status === "loading_profile" ? state.message : undefined}
+        />
       </Screen>
     );
   }
@@ -48,6 +52,9 @@ export default function AppLayout() {
       <Stack.Screen name="index" />
       <Stack.Screen name="admin" />
       <Stack.Screen name="survey" />
+      <Stack.Screen name="surveys/list" />
+      <Stack.Screen name="surveys/new" />
+      <Stack.Screen name="surveys/[id]" />
       <Stack.Screen name="pending" />
       <Stack.Screen name="disabled" />
     </Stack>

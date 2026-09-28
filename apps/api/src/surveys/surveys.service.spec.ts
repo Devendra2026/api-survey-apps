@@ -1,5 +1,5 @@
-import { jest } from "@jest/globals"
-import { BadRequestException, ForbiddenException } from "@nestjs/common"
+import { expect, jest } from "@jest/globals"
+import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common"
 import { PhotoType } from "@workspace/database"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { SurveysService } from "./surveys.service.js"
@@ -74,8 +74,8 @@ describe("SurveysService workflow", () => {
   }
 
   const repo = {
-    findById: jest.fn(),
-    transitionStatus: jest.fn(),
+    findById: jest.fn<(...args: unknown[]) => Promise<unknown>>(),
+    transitionStatus: jest.fn<(...args: unknown[]) => Promise<unknown>>(),
   }
 
   const prisma = {
@@ -211,5 +211,91 @@ describe("SurveysService workflow", () => {
     const result = await service.reopen("s1", user)
     expect(repo.transitionStatus).toHaveBeenCalledWith(expect.objectContaining({ to: "REOPENED", action: "REOPENED" }))
     expect(result.surveyStatus).toBe("REOPENED")
+  })
+
+  it("reports every missing submit requirement at once", async () => {
+    repo.findById.mockResolvedValue({ ...baseSurvey, photos: [], floors: [], latitude: null, longitude: null })
+    const error = await service.submit("s1", user).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(BadRequestException)
+    const body = (error as BadRequestException).getResponse()
+    expect(body).toEqual(
+      expect.objectContaining({
+        errors: [
+          "Survey requires at least one floor",
+          "Survey requires at least one FRONT photo",
+          "Survey requires GPS latitude and longitude",
+        ],
+      })
+    )
+    expect(repo.transitionStatus).not.toHaveBeenCalled()
+  })
+
+  it("does not transition again when the survey is already SUBMITTED (double submit)", async () => {
+    repo.findById.mockResolvedValue({ ...baseSurvey, surveyStatus: "SUBMITTED" })
+    await expect(service.submit("s1", user)).rejects.toThrow("Cannot submit survey in status SUBMITTED")
+    expect(repo.transitionStatus).not.toHaveBeenCalled()
+  })
+
+  it("surfaces the conditional-update loss when a concurrent submit wins", async () => {
+    repo.findById.mockResolvedValue(baseSurvey)
+    repo.transitionStatus.mockRejectedValue(new NotFoundException("Survey not found or not in status DRAFT"))
+    await expect(service.submit("s1", user)).rejects.toBeInstanceOf(NotFoundException)
+    expect(repo.transitionStatus).toHaveBeenCalledWith(expect.objectContaining({ id: "s1", from: "DRAFT" }))
+  })
+
+  it("writes structured QC remarks on reject alongside the summary", async () => {
+    repo.findById.mockResolvedValue({ ...baseSurvey, surveyStatus: "SUBMITTED" })
+    repo.transitionStatus.mockResolvedValue({ survey: { ...baseSurvey, surveyStatus: "REJECTED" } })
+    await service.reject(
+      "s1",
+      {
+        qcRemarks: " Fix owner and photo ",
+        corrections: [
+          { section: "owner", field: " Mobile number ", reason: "Incorrect" },
+          { section: "photos", reason: "Unclear", note: "Retake front photo in daylight" },
+        ],
+      },
+      reviewer
+    )
+    expect(repo.transitionStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: "SUBMITTED",
+        to: "REJECTED",
+        extra: expect.objectContaining({ qcRemarks: " Fix owner and photo ", qcStatus: "REJECTED" }),
+        createQcRemarks: [
+          { body: "Fix owner and photo", section: null, field: null, reason: null },
+          { body: "Mobile number: Incorrect", section: "owner", field: "Mobile number", reason: "Incorrect" },
+          { body: "Retake front photo in daylight", section: "photos", field: null, reason: "Unclear" },
+        ],
+      })
+    )
+  })
+
+  it("resubmits a correction on the same survey id and resolves open remarks", async () => {
+    repo.findById.mockResolvedValue({ ...baseSurvey, surveyStatus: "REOPENED" })
+    repo.transitionStatus.mockResolvedValue({ survey: { ...baseSurvey, surveyStatus: "SUBMITTED" } })
+    const result = await service.submit("s1", user)
+    expect(repo.transitionStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "s1",
+        from: "REOPENED",
+        to: "SUBMITTED",
+        resolveOpenQcRemarks: true,
+        extra: expect.objectContaining({ qcStatus: "PENDING", qcRemarks: null }),
+      })
+    )
+    expect(result.id).toBe("s1")
+  })
+
+  it("does not resolve remarks on a first submit", async () => {
+    repo.findById.mockResolvedValue(baseSurvey)
+    repo.transitionStatus.mockResolvedValue({ survey: { ...baseSurvey, surveyStatus: "SUBMITTED" } })
+    await service.submit("s1", user)
+    expect(repo.transitionStatus).toHaveBeenCalledWith(expect.objectContaining({ resolveOpenQcRemarks: false }))
+  })
+
+  it("denies team field metrics without survey:assign or survey:approve", async () => {
+    const surveyorOnly: AuthenticatedUser = { ...user, tenantRoles: [user.tenantRoles[0]!] }
+    await expect(service.fieldMetrics({ scope: "team" }, surveyorOnly)).rejects.toBeInstanceOf(ForbiddenException)
   })
 })

@@ -2,6 +2,7 @@ import { Screen, StatusView } from "@/components/ui";
 import { AppSessionProvider } from "@/features/auth/session/AppSessionProvider";
 import { getClerkPublishableKey } from "@/lib/env";
 import { ClerkProvider } from "@/services/auth/clerk-provider";
+import { QueryProvider } from "@/services/query/QueryProvider";
 import { colors } from "@/theme";
 import { tokenCache } from "@clerk/expo/token-cache";
 import { Stack } from "expo-router";
@@ -54,20 +55,22 @@ export default function RootLayout() {
   return (
     <RootProviders>
       <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
-        <AppSessionProvider>
-          <StatusBar style="dark" />
-          <Stack
-            screenOptions={{
-              headerShown: false,
-              contentStyle: { backgroundColor: colors.background },
-            }}
-          >
-            <Stack.Screen name="index" />
-            <Stack.Screen name="sso-callback" />
-            <Stack.Screen name="(auth)" />
-            <Stack.Screen name="(app)" />
-          </Stack>
-        </AppSessionProvider>
+        <QueryProvider>
+          <AppSessionProvider>
+            <StatusBar style="dark" />
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                contentStyle: { backgroundColor: colors.background },
+              }}
+            >
+              <Stack.Screen name="index" />
+              <Stack.Screen name="sso-callback" />
+              <Stack.Screen name="(auth)" />
+              <Stack.Screen name="(app)" />
+            </Stack>
+          </AppSessionProvider>
+        </QueryProvider>
       </ClerkProvider>
     </RootProviders>
   );

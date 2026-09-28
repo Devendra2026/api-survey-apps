@@ -2,7 +2,10 @@ import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import { canEnterAppHome, resolveAppHomeHref, type AuthenticatedProfile, type TenantRole } from "../../../types/user.ts"
 import {
+  formatIdentityDiagnostics,
+  isProfileRequestCurrent,
   isTransientTokenUserMismatch,
+  profileCacheKey,
   profileMatchesSession,
   resolveSsoSessionId,
   shouldAutoSignOutOnProfile401,
@@ -40,8 +43,16 @@ describe("profileMatchesSession", () => {
     assert.equal(profileMatchesSession("user_a", "user_a", null), true)
   })
 
-  it("matches when profile.clerkUserId equals token subject", () => {
-    assert.equal(profileMatchesSession("user_a", null, "user_a"), true)
+  it("never matches without a current Clerk userId, even if the token subject matches", () => {
+    assert.equal(profileMatchesSession("user_a", null, "user_a"), false)
+  })
+
+  it("rejects a stale token subject even when profile equals it (Surveyor A token, Surveyor B session)", () => {
+    assert.equal(profileMatchesSession("user_a", "user_b", "user_a"), false)
+  })
+
+  it("rejects a profile for the session user loaded with another user's bearer", () => {
+    assert.equal(profileMatchesSession("user_b", "user_b", "user_a"), false)
   })
 
   it("does not treat Prisma User.id as Clerk identity", () => {
@@ -94,6 +105,80 @@ describe("shouldCommitProfileResponse", () => {
       }),
       false
     )
+  })
+})
+
+describe("isProfileRequestCurrent", () => {
+  it("is current when generation and Clerk user are unchanged", () => {
+    assert.equal(
+      isProfileRequestCurrent({
+        requestId: 2,
+        currentRequestId: 2,
+        expectedClerkUserId: "user_a",
+        currentClerkUserId: "user_a",
+      }),
+      true
+    )
+  })
+
+  it("is stale after sign-out or a newer fetch", () => {
+    assert.equal(
+      isProfileRequestCurrent({
+        requestId: 2,
+        currentRequestId: 3,
+        expectedClerkUserId: "user_a",
+        currentClerkUserId: "user_a",
+      }),
+      false
+    )
+    assert.equal(
+      isProfileRequestCurrent({
+        requestId: 2,
+        currentRequestId: 2,
+        expectedClerkUserId: "user_a",
+        currentClerkUserId: null,
+      }),
+      false
+    )
+  })
+
+  it("is stale when Clerk switched users mid-request", () => {
+    assert.equal(
+      isProfileRequestCurrent({
+        requestId: 2,
+        currentRequestId: 2,
+        expectedClerkUserId: "user_a",
+        currentClerkUserId: "user_b",
+      }),
+      false
+    )
+  })
+})
+
+describe("identity diagnostics", () => {
+  it("scopes the profile cache key by Clerk userId", () => {
+    assert.equal(profileCacheKey("user_a"), "profile:user_a")
+    assert.notEqual(profileCacheKey("user_a"), profileCacheKey("user_b"))
+  })
+
+  it("formats ids, role and status without any token field", () => {
+    const line = formatIdentityDiagnostics({
+      clerkUserId: "user_a",
+      authenticatedUserId: "user_a",
+      databaseUserId: "uuid_a",
+      databaseClerkUserId: "user_a",
+      profileClerkUserId: "user_a",
+      role: "SURVEYOR",
+      status: "ACTIVE",
+      assignmentIds: ["utr_1", "utr_2"],
+      cacheKey: "profile:user_a",
+      navigationState: "ready",
+    })
+    assert.match(line, /clerkUserId=user_a/)
+    assert.match(line, /databaseUserId=uuid_a/)
+    assert.match(line, /assignmentIds=utr_1,utr_2/)
+    assert.match(line, /navigationState=ready/)
+    assert.doesNotMatch(line, /token=|bearer|secret|password/i)
   })
 })
 

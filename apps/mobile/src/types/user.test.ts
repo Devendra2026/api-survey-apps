@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import {
   canEnterAppHome,
+  isAuthenticatedProfile,
   primaryRoleName,
   resolveAppHomeHref,
   type AuthenticatedProfile,
@@ -170,5 +171,20 @@ describe("canEnterAppHome", () => {
       ),
       false
     )
+  })
+})
+
+describe("isAuthenticatedProfile", () => {
+  it("accepts a /users/me payload with identity fields", () => {
+    assert.equal(isAuthenticatedProfile(profile({})), true)
+  })
+
+  it("rejects payloads without clerkUserId or with malformed permissions", () => {
+    const { clerkUserId: _omit, ...withoutClerk } = profile({})
+    assert.equal(isAuthenticatedProfile(withoutClerk), false)
+    assert.equal(isAuthenticatedProfile({ ...profile({}), clerkUserId: "" }), false)
+    assert.equal(isAuthenticatedProfile({ ...profile({}), permissions: [1] }), false)
+    assert.equal(isAuthenticatedProfile(null), false)
+    assert.equal(isAuthenticatedProfile([]), false)
   })
 })

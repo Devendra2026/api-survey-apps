@@ -64,6 +64,19 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       ],
       "expo-secure-store",
       [
+        "expo-location",
+        {
+          locationWhenInUsePermission: "Survey GPS coordinates are captured at the property location.",
+        },
+      ],
+      [
+        "expo-image-picker",
+        {
+          cameraPermission: "Survey photos document the property for QC review.",
+          photosPermission: "Attach existing property photos to a survey.",
+        },
+      ],
+      [
         "expo-build-properties",
         {
           android: {

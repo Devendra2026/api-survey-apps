@@ -7,6 +7,7 @@ import {
   type AuthenticatedProfile,
 } from "@/types/user";
 import { useAuth, useUser } from "@clerk/expo";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   createContext,
   useCallback,
@@ -19,7 +20,11 @@ import {
 } from "react";
 import { AppState, type AppStateStatus } from "react-native";
 import {
+  SESSION_MESSAGES,
+  formatIdentityDiagnostics,
+  isProfileRequestCurrent,
   isTransientTokenUserMismatch,
+  profileCacheKey,
   profileMatchesSession,
   readJwtSubject,
   shouldAutoSignOutOnProfile401,
@@ -29,7 +34,7 @@ import {
 export type AppSessionState =
   | { status: "booting" }
   | { status: "signed_out" }
-  | { status: "loading_profile" }
+  | { status: "loading_profile"; message?: string }
   | { status: "ready"; profile: AuthenticatedProfile }
   | { status: "pending"; profile: AuthenticatedProfile }
   | { status: "disabled"; message: string }
@@ -44,8 +49,8 @@ type AppSessionContextValue = {
 const AppSessionContext = createContext<AppSessionContextValue | null>(null);
 
 const MISSING_BEARER_RETRY_MS = 250;
-const TOKEN_ALIGN_RETRY_MS = 300;
-const TOKEN_ALIGN_ATTEMPTS = 5;
+const TOKEN_ALIGN_RETRY_MS = 400;
+const TOKEN_ALIGN_ATTEMPTS = 6;
 const GET_TOKEN_TIMEOUT_MS = 12_000;
 
 function isDisabledAccountError(error: unknown): boolean {
@@ -62,6 +67,10 @@ function isMissingBearerError(error: unknown): boolean {
   return /missing bearer token/i.test(error.message);
 }
 
+function isExpiredSessionMessage(message: string): boolean {
+  return /invalid or expired token|missing bearer token/i.test(message);
+}
+
 function clerkPhone(user: {
   primaryPhoneNumber?: { phoneNumber: string } | null;
 } | null | undefined): string | undefined {
@@ -73,6 +82,39 @@ function authLog(scope: "AUTH" | "API" | "ROLE" | "CACHE", message: string): voi
   if (__DEV__) {
     console.log(`[${scope}] ${message}`);
   }
+}
+
+function logIdentity(
+  context: string,
+  input: {
+    expectedClerkUserId: string | null;
+    tokenSubject: string | null;
+    profile: AuthenticatedProfile | null;
+    navigationState: string;
+  },
+): void {
+  const { profile } = input;
+  authLog(
+    "AUTH",
+    `${context} ${formatIdentityDiagnostics({
+      clerkUserId: input.expectedClerkUserId,
+      authenticatedUserId: input.tokenSubject,
+      databaseUserId: profile?.id ?? null,
+      databaseClerkUserId: profile?.clerkUserId ?? null,
+      profileClerkUserId: profile?.clerkUserId ?? null,
+      role: profile ? primaryRoleName(profile) : null,
+      status: profile
+        ? profile.isActive
+          ? canEnterAppHome(profile)
+            ? "ACTIVE"
+            : "PENDING"
+          : "DISABLED"
+        : null,
+      assignmentIds: (profile?.tenantRoles ?? []).filter((r) => r.isActive).map((r) => r.id),
+      cacheKey: input.expectedClerkUserId ? profileCacheKey(input.expectedClerkUserId) : null,
+      navigationState: input.navigationState,
+    })}`,
+  );
 }
 
 /**
@@ -137,11 +179,19 @@ async function getTokenWithTimeout(
 
 type ProfileGate =
   | { status: "idle" }
-  | { status: "loading" }
+  | { status: "loading"; message?: string }
   | { status: "ready"; profile: AuthenticatedProfile }
   | { status: "pending"; profile: AuthenticatedProfile }
   | { status: "disabled"; message: string }
   | { status: "error"; message: string };
+
+type LoadOptions = {
+  allowMissingBearerRetry: boolean;
+  /** One /users/me refetch with a fresh token when the profile belongs to another Clerk user. */
+  allowIdentityRefetch: boolean;
+  /** Bypass Clerk's token cache on the first attempt (identity refetch). */
+  forceFreshToken: boolean;
+};
 
 export function AppSessionProvider({ children }: { children: ReactNode }) {
   const {
@@ -153,12 +203,14 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
     signOut: clerkSignOut,
   } = useAuth();
   const { user } = useUser();
+  const queryClient = useQueryClient();
   const [profileGate, setProfileGate] = useState<ProfileGate>({ status: "idle" });
   const requestIdRef = useRef(0);
   const getTokenRef = useRef(getToken);
   const mismatchRefetchRef = useRef<string | null>(null);
   const sessionUserId = authUserId ?? null;
   const sessionUserIdRef = useRef<string | null>(sessionUserId);
+  const lastCacheOwnerRef = useRef<string | null>(null);
   const [tokenSubject, setTokenSubject] = useState<string | null>(null);
   const userFullName = user?.fullName;
   const userPhone = clerkPhone(user);
@@ -178,14 +230,28 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
     }
     setApiTokenGetter(async () => {
       try {
-        return await getTokenWithTimeout(getTokenRef.current, GET_TOKEN_TIMEOUT_MS);
+        return await getTokenWithTimeout(() => getTokenRef.current(), GET_TOKEN_TIMEOUT_MS);
       } catch {
         return null;
       }
     });
   }, [isLoaded]);
 
-  const fetchProfile = useCallback(async () => {
+  // Server data belongs to one Clerk user: drop every cached query on sign-out or user switch.
+  useEffect(() => {
+    if (!isLoaded) {
+      return;
+    }
+    const owner = isSignedIn ? sessionUserId : null;
+    if (lastCacheOwnerRef.current !== null && lastCacheOwnerRef.current !== owner) {
+      void queryClient.cancelQueries();
+      queryClient.clear();
+      authLog("CACHE", `Query cache cleared previousOwner=${lastCacheOwnerRef.current} nextOwner=${owner ?? "none"}`);
+    }
+    lastCacheOwnerRef.current = owner;
+  }, [isLoaded, isSignedIn, sessionUserId, queryClient]);
+
+  const fetchProfile = useCallback(async (options?: { background?: boolean }) => {
     const expectedClerkUserId = sessionUserIdRef.current;
     if (!expectedClerkUserId) {
       authLog("AUTH", "Skip profile fetch — no Clerk userId yet");
@@ -193,24 +259,49 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
     }
 
     const requestId = ++requestIdRef.current;
-    setProfileGate({ status: "loading" });
+    const isCurrent = () =>
+      isProfileRequestCurrent({
+        requestId,
+        currentRequestId: requestIdRef.current,
+        expectedClerkUserId,
+        currentClerkUserId: sessionUserIdRef.current,
+      });
+
+    // Background refresh keeps the current ready/pending profile mounted so open screens
+    // (e.g. a survey form after the camera returns) are not unmounted by a loading gate.
+    if (options?.background) {
+      setProfileGate((prev) =>
+        prev.status === "ready" || prev.status === "pending" ? prev : { status: "loading" },
+      );
+    } else {
+      setProfileGate({ status: "loading" });
+    }
+    const failTransient = (message: string) => {
+      setProfileGate((prev) =>
+        options?.background && (prev.status === "ready" || prev.status === "pending")
+          ? prev
+          : { status: "error", message },
+      );
+    };
     authLog(
       "AUTH",
-      `Fetching profile clerkUserId=${expectedClerkUserId} sessionId=${sessionId ?? "none"}`,
+      `Fetching profile clerkUserId=${expectedClerkUserId} sessionId=${sessionId ?? "none"} cacheKey=${profileCacheKey(expectedClerkUserId)}`,
     );
 
-    const load = async (allowMissingBearerRetry: boolean): Promise<void> => {
+    const load = async (opts: LoadOptions): Promise<void> => {
       try {
         let token: string | null = null;
         let tokenSubjectFromJwt: string | null = null;
 
-        // After Google/SSO setActive, userId can update before getToken rotates.
+        // After Google/SSO setActive, userId can update before the cached JWT rotates.
+        // Retries bypass Clerk's token cache so the bearer belongs to the current user.
         for (let attempt = 1; attempt <= TOKEN_ALIGN_ATTEMPTS; attempt += 1) {
+          const skipCache = opts.forceFreshToken || attempt > 1;
           token = await getTokenWithTimeout(
-            getTokenRef.current,
+            () => getTokenRef.current(skipCache ? { skipCache: true } : undefined),
             GET_TOKEN_TIMEOUT_MS,
           );
-          if (requestId !== requestIdRef.current) {
+          if (!isCurrent()) {
             return;
           }
           if (!token) {
@@ -222,31 +313,40 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
             break;
           }
           tokenSubjectFromJwt = readJwtSubject(token);
-          if (
-            !isTransientTokenUserMismatch(expectedClerkUserId, tokenSubjectFromJwt)
-          ) {
+          if (!isTransientTokenUserMismatch(expectedClerkUserId, tokenSubjectFromJwt)) {
             break;
           }
           authLog(
             "AUTH",
-            `Transient token/user mismatch attempt=${attempt} tokenSub=${tokenSubjectFromJwt ?? "none"} expected=${expectedClerkUserId}`,
+            `Token not yet rotated attempt=${attempt} tokenSub=${tokenSubjectFromJwt ?? "none"} expected=${expectedClerkUserId}`,
           );
           if (attempt < TOKEN_ALIGN_ATTEMPTS) {
             await delay(TOKEN_ALIGN_RETRY_MS);
           }
         }
 
-        if (requestId !== requestIdRef.current) {
+        if (!isCurrent()) {
           return;
         }
         if (!token) {
           authLog("AUTH", "No Clerk session token within timeout");
-          setProfileGate({
-            status: "error",
-            message: __DEV__
-              ? `No Clerk session token yet (API: ${getApiBaseUrl()}). Retry or sign in again.`
-              : "Your session could not be verified. Please try again.",
+          failTransient(
+            __DEV__
+              ? `${SESSION_MESSAGES.sessionExpired} (API: ${getApiBaseUrl()})`
+              : SESSION_MESSAGES.sessionExpired,
+          );
+          return;
+        }
+
+        if (isTransientTokenUserMismatch(expectedClerkUserId, tokenSubjectFromJwt)) {
+          // Clerk never issued a bearer for the current user: the session itself is not usable.
+          logIdentity("Token subject never matched Clerk userId", {
+            expectedClerkUserId,
+            tokenSubject: tokenSubjectFromJwt,
+            profile: null,
+            navigationState: "error:session_expired",
           });
+          setProfileGate({ status: "error", message: SESSION_MESSAGES.sessionExpired });
           return;
         }
 
@@ -256,22 +356,41 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
           `GET /users/me tokenSub=${tokenSubjectFromJwt ?? "none"} authUserId=${expectedClerkUserId} sessionId=${sessionId ?? "none"}`,
         );
 
-        if (isTransientTokenUserMismatch(expectedClerkUserId, tokenSubjectFromJwt)) {
+        // Use the same bearer for identity check and the API call (no second getToken).
+        const loaded = await getMe(token);
+
+        if (!isCurrent()) {
           authLog(
-            "AUTH",
-            `Token subject still mismatched after retries tokenSub=${tokenSubjectFromJwt ?? "none"} expected=${expectedClerkUserId}`,
+            "CACHE",
+            `Dropped stale profile response profile=${loaded.clerkUserId} expected=${expectedClerkUserId} current=${sessionUserIdRef.current ?? "none"}`,
           );
-          setProfileGate({
-            status: "error",
-            message:
-              "Your session user does not match the loaded profile. Sign out and try again.",
-          });
           return;
         }
 
-        // Use the same bearer for identity check and the API call (no second getToken).
-        let profile = await getMe(token);
-        profile = await maybeSyncProfile(profile, userFullName, userPhone);
+        if (!profileMatchesSession(loaded.clerkUserId, expectedClerkUserId, tokenSubjectFromJwt)) {
+          if (opts.allowIdentityRefetch) {
+            logIdentity("Profile identity mismatch — clearing profile and refetching", {
+              expectedClerkUserId,
+              tokenSubject: tokenSubjectFromJwt,
+              profile: loaded,
+              navigationState: "loading_profile:identity_refetch",
+            });
+            setTokenSubject(null);
+            setProfileGate({ status: "loading", message: SESSION_MESSAGES.identityRefreshing });
+            await load({ ...opts, allowIdentityRefetch: false, forceFreshToken: true });
+            return;
+          }
+          logIdentity("Profile identity mismatch persists after refetch", {
+            expectedClerkUserId,
+            tokenSubject: tokenSubjectFromJwt,
+            profile: loaded,
+            navigationState: "error:identity_mismatch",
+          });
+          setProfileGate({ status: "error", message: SESSION_MESSAGES.identityMismatch });
+          return;
+        }
+
+        const profile = await maybeSyncProfile(loaded, userFullName, userPhone);
 
         if (
           !shouldCommitProfileResponse({
@@ -282,44 +401,25 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
             profileClerkUserId: profile.clerkUserId,
           })
         ) {
-          authLog(
-            "CACHE",
-            `Dropped stale profile response profile=${profile.clerkUserId} expected=${expectedClerkUserId} current=${sessionUserIdRef.current ?? "none"}`,
-          );
+          authLog("CACHE", `Dropped stale profile after sync profile=${profile.clerkUserId}`);
           return;
         }
 
-        if (!profileMatchesSession(profile.clerkUserId, expectedClerkUserId, tokenSubjectFromJwt)) {
-          authLog(
-            "AUTH",
-            `Profile clerkUserId=${profile.clerkUserId} mismatches session=${expectedClerkUserId}`,
-          );
-          // Invalidate and allow the mismatch effect to refetch once; do not navigate.
-          setProfileGate({
-            status: "error",
-            message:
-              "Your session user does not match the loaded profile. Sign out and try again.",
-          });
-          return;
-        }
+        const enterHome = canEnterAppHome(profile);
+        logIdentity("Profile resolved", {
+          expectedClerkUserId,
+          tokenSubject: tokenSubjectFromJwt,
+          profile,
+          navigationState: enterHome ? "ready" : "pending",
+        });
 
-        const role = primaryRoleName(profile);
-        authLog(
-          "ROLE",
-          `profile id=${profile.id} clerkUserId=${profile.clerkUserId} role=${role ?? "none"} active=${String(profile.isActive)}`,
-        );
-        authLog(
-          "AUTH",
-          `NAV decision=${canEnterAppHome(profile) ? "ready→home" : "pending"}`,
-        );
-
-        if (canEnterAppHome(profile)) {
+        if (enterHome) {
           setProfileGate({ status: "ready", profile });
         } else {
           setProfileGate({ status: "pending", profile });
         }
       } catch (error) {
-        if (requestId !== requestIdRef.current) {
+        if (!isCurrent()) {
           return;
         }
         if (isDisabledAccountError(error)) {
@@ -332,17 +432,17 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
           });
           return;
         }
-        if (allowMissingBearerRetry && isMissingBearerError(error)) {
+        if (opts.allowMissingBearerRetry && isMissingBearerError(error)) {
           await delay(MISSING_BEARER_RETRY_MS);
-          if (requestId !== requestIdRef.current) {
+          if (!isCurrent()) {
             return;
           }
-          await load(false);
+          await load({ ...opts, allowMissingBearerRetry: false });
           return;
         }
         if (isApiClientError(error) && error.statusCode === 401) {
           const message = error.message;
-          authLog("AUTH", `401 from profile load — keep session unless disabled (msg logged above)`);
+          authLog("AUTH", `401 from profile load message=${message}`);
           // Never auto-sign-out here: Google SSO was succeeding then bouncing to Login
           // because account-resolution 401s triggered clerkSignOut().
           if (shouldAutoSignOutOnProfile401(message)) {
@@ -356,25 +456,22 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
           setProfileGate({
             status: "error",
             message:
-              message ||
-              "Unable to load your profile. Please try again or sign out.",
+              !message || isExpiredSessionMessage(message)
+                ? SESSION_MESSAGES.sessionExpired
+                : message,
           });
           return;
         }
-        const status =
-          isApiClientError(error) ? ` status=${error.statusCode}` : "";
-        authLog("API", `Profile load failed${status}`);
-        setProfileGate({
-          status: "error",
-          message:
-            error instanceof Error
-              ? error.message
-              : "Unable to load your profile. Please try again.",
-        });
+        const status = isApiClientError(error) ? ` status=${error.statusCode}` : "";
+        const detail = error instanceof Error ? error.message : String(error);
+        authLog("API", `Profile load failed${status} detail=${detail}`);
+        failTransient(
+          __DEV__ ? `${SESSION_MESSAGES.profileUnavailable} (${detail})` : SESSION_MESSAGES.profileUnavailable,
+        );
       }
     };
 
-    await load(true);
+    await load({ allowMissingBearerRetry: true, allowIdentityRefetch: true, forceFreshToken: false });
   }, [userFullName, userPhone, clerkSignOut, sessionId]);
 
   useEffect(() => {
@@ -413,7 +510,7 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
     const onChange = (next: AppStateStatus) => {
       if (next === "active") {
         authLog("AUTH", "App foreground — refreshing profile");
-        void fetchProfile();
+        void fetchProfile({ background: true });
       }
     };
     const sub = AppState.addEventListener("change", onChange);
@@ -422,9 +519,9 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
     };
   }, [isLoaded, isSignedIn, sessionUserId, fetchProfile]);
 
-  // Clerk user id changed after a profile was cached — refetch once, then error.
+  // Clerk user id changed after a profile was loaded — clear it and refetch once, then error.
   useEffect(() => {
-    if (!isLoaded || !isSignedIn || (!sessionUserId && !tokenSubject)) {
+    if (!isLoaded || !isSignedIn || !sessionUserId) {
       return;
     }
     if (profileGate.status !== "ready" && profileGate.status !== "pending") {
@@ -435,20 +532,26 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const mismatchKey = `${profileGate.profile.clerkUserId}->${sessionUserId ?? tokenSubject}`;
+    const mismatchKey = `${profileGate.profile.clerkUserId}->${sessionUserId}`;
     if (mismatchRefetchRef.current === mismatchKey) {
-      authLog("AUTH", "Clerk user id still mismatched after refetch");
-      setProfileGate({
-        status: "error",
-        message:
-          "Your session user does not match the loaded profile. Sign out and try again.",
+      logIdentity("Loaded profile still belongs to another Clerk user", {
+        expectedClerkUserId: sessionUserId,
+        tokenSubject,
+        profile: profileGate.profile,
+        navigationState: "error:identity_mismatch",
       });
+      setProfileGate({ status: "error", message: SESSION_MESSAGES.identityMismatch });
       return;
     }
 
     mismatchRefetchRef.current = mismatchKey;
-    authLog("AUTH", "Clerk user id mismatch — clearing and refetching profile");
-    setProfileGate({ status: "idle" });
+    logIdentity("Clerk userId changed under a loaded profile — refetching", {
+      expectedClerkUserId: sessionUserId,
+      tokenSubject,
+      profile: profileGate.profile,
+      navigationState: "loading_profile:identity_refetch",
+    });
+    setProfileGate({ status: "loading", message: SESSION_MESSAGES.identityRefreshing });
     void fetchProfile();
   }, [isLoaded, isSignedIn, sessionUserId, tokenSubject, profileGate, fetchProfile]);
 
@@ -459,34 +562,23 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
     if (!isSignedIn) {
       return { status: "signed_out" };
     }
-    if (profileGate.status === "idle" || profileGate.status === "loading") {
+    if (!sessionUserId) {
       return { status: "loading_profile" };
     }
-    if (profileGate.status === "ready") {
-      if (
-        (sessionUserId || tokenSubject) &&
-        !profileMatchesSession(
-          profileGate.profile.clerkUserId,
-          sessionUserId,
-          tokenSubject,
-        )
-      ) {
-        return { status: "loading_profile" };
-      }
-      return { status: "ready", profile: profileGate.profile };
+    if (profileGate.status === "idle") {
+      return { status: "loading_profile" };
     }
-    if (profileGate.status === "pending") {
-      if (
-        (sessionUserId || tokenSubject) &&
-        !profileMatchesSession(
-          profileGate.profile.clerkUserId,
-          sessionUserId,
-          tokenSubject,
-        )
-      ) {
-        return { status: "loading_profile" };
+    if (profileGate.status === "loading") {
+      return profileGate.message
+        ? { status: "loading_profile", message: profileGate.message }
+        : { status: "loading_profile" };
+    }
+    if (profileGate.status === "ready" || profileGate.status === "pending") {
+      // Never expose a profile that belongs to a different Clerk user than the live session.
+      if (!profileMatchesSession(profileGate.profile.clerkUserId, sessionUserId, tokenSubject)) {
+        return { status: "loading_profile", message: SESSION_MESSAGES.identityRefreshing };
       }
-      return { status: "pending", profile: profileGate.profile };
+      return { status: profileGate.status, profile: profileGate.profile };
     }
     if (profileGate.status === "disabled") {
       return { status: "disabled", message: profileGate.message };
@@ -500,9 +592,11 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
     sessionUserIdRef.current = null;
     setTokenSubject(null);
     setProfileGate({ status: "idle" });
-    authLog("AUTH", "Sign out — profile and request generation cleared");
+    await queryClient.cancelQueries();
+    queryClient.clear();
+    authLog("AUTH", "Sign out — profile, request generation and query cache cleared");
     await clerkSignOut();
-  }, [clerkSignOut]);
+  }, [clerkSignOut, queryClient]);
 
   const value = useMemo(
     () => ({

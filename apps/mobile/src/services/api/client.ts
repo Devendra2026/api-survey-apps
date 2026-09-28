@@ -1,4 +1,5 @@
 import { getApiBaseUrl } from "@/lib/env"
+import { fetch as expoFetch } from "expo/fetch"
 
 export type ApiEnvelope<T> = {
   success: boolean
@@ -78,9 +79,10 @@ function friendlyHttpMessage(statusCode: number, serverMessage: string): string 
   }
 }
 
-async function buildHeaders(init?: HeadersInit): Promise<Headers> {
+async function buildHeaders(init?: HeadersInit, body?: RequestInit["body"]): Promise<Headers> {
   const headers = new Headers(init)
-  if (!headers.has("Content-Type")) {
+  // Multipart bodies need the runtime-generated boundary header.
+  if (!headers.has("Content-Type") && !(body instanceof FormData)) {
     headers.set("Content-Type", "application/json")
   }
   // Prefer an explicit Authorization header (one-token profile loads) over a second getToken().
@@ -133,13 +135,23 @@ async function parseEnvelope<T>(response: Response): Promise<T> {
   return envelope.data
 }
 
-export async function apiRequest<T>(path: string, init: RequestInit = {}, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<T> {
-  const headers = await buildHeaders(init.headers)
+type FetchImpl = (
+  url: string,
+  init: { method?: string; headers: Headers; body?: BodyInit | null; signal: AbortSignal }
+) => Promise<Response>
+
+export async function apiRequest<T>(
+  path: string,
+  init: RequestInit = {},
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  fetchImpl: FetchImpl = fetch
+): Promise<T> {
+  const headers = await buildHeaders(init.headers, init.body)
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
 
   try {
-    const response = await fetch(resolveUrl(path), {
+    const response = await fetchImpl(resolveUrl(path), {
       ...init,
       headers,
       signal: controller.signal,
@@ -178,4 +190,26 @@ export async function apiPatch<T>(path: string, body?: unknown): Promise<T> {
 
 export async function apiDelete<T>(path: string): Promise<T> {
   return apiRequest<T>(path, { method: "DELETE" })
+}
+
+const UPLOAD_TIMEOUT_MS = 90_000
+
+/** Multipart upload via `expo/fetch`, which encodes `expo-file-system` `File` parts (name + MIME type). */
+export async function apiPostForm<T>(path: string, form: FormData): Promise<T> {
+  return apiRequest<T>(path, { method: "POST", body: form }, UPLOAD_TIMEOUT_MS, expoFetch)
+}
+
+/** Absolute URL for authenticated binary GETs (e.g. `expo-image` sources with an Authorization header). */
+export function apiUrl(path: string): string {
+  return resolveUrl(path)
+}
+
+export async function getApiAuthHeader(): Promise<Record<string, string>> {
+  const token = tokenGetter ? await tokenGetter() : null
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+/** Network or timeout failure — the request never reached a server decision, so it is safe to retry later. */
+export function isRetryableNetworkError(error: unknown): boolean {
+  return isApiClientError(error) && (error.kind === "network" || error.kind === "timeout")
 }

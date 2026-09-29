@@ -20,9 +20,20 @@ export const SESSION_MESSAGES = {
     "Your authentication session and application profile do not match. Sign out and sign in again, or contact an administrator.",
 } as const
 
-/** Nest/Clerk auth failures that are not a clean "please sign in again" UX. */
+/** Nest/Clerk auth failures that should surface the admin/config token message. */
 export function isApiTokenRejectedMessage(message: string): boolean {
-  return /invalid or expired token|missing bearer token/i.test(message.trim())
+  const trimmed = message.trim()
+  return (
+    /invalid or expired token|missing bearer token/i.test(trimmed) ||
+    /invalid session token/i.test(trimmed) ||
+    /authorized party is not allowed/i.test(trimmed) ||
+    /CLERK_AUTHORIZED_PARTIES/i.test(trimmed)
+  )
+}
+
+/** Prefer Nest's expired copy as the session-expired UX (not the azp admin blurb). */
+export function isSessionExpiredMessage(message: string): boolean {
+  return /session token expired/i.test(message.trim())
 }
 
 /**

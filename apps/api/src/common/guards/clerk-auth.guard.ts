@@ -1,3 +1,4 @@
+import { TokenVerificationError } from "@clerk/backend/errors"
 import { CanActivate, ExecutionContext, Injectable, Logger, UnauthorizedException } from "@nestjs/common"
 import { ConfigService } from "@nestjs/config"
 import { Reflector } from "@nestjs/core"
@@ -8,7 +9,36 @@ import type { AuthenticatedUser } from "../interfaces/authenticated-user.interfa
 import { RoleProvisioningService } from "../services/role-provisioning.service.js"
 import { TenantScopeService } from "../services/tenant-scope.service.js"
 import { resolveClerkEmailVerification } from "./clerk-email-verification.js"
-import { clerkClientFor, clerkInstances, verifySessionToken, type ClerkInstance } from "./clerk-instance.js"
+import {
+  classifyTokenVerificationError,
+  clerkClientFor,
+  clerkInstances,
+  formatSessionTokenDiagnostics,
+  sessionTokenDiagnostics,
+  unauthorizedMessageForVerifyKind,
+  verifySessionToken,
+  type ClerkInstance,
+  type SessionTokenDiagnostics,
+} from "./clerk-instance.js"
+
+/** Decode JWT payload claims for safe failure logs only. Never trust for authorization. */
+function peekSessionTokenClaims(token: string): SessionTokenDiagnostics {
+  const segment = token.split(".")[1]
+  if (!segment) {
+    return { iss: null, azp: null, sub: null, sid: null }
+  }
+  try {
+    const padded = segment.replace(/-/g, "+").replace(/_/g, "/")
+    const json = Buffer.from(padded, "base64").toString("utf8")
+    const parsed: unknown = JSON.parse(json)
+    if (typeof parsed !== "object" || parsed === null) {
+      return { iss: null, azp: null, sub: null, sid: null }
+    }
+    return sessionTokenDiagnostics(parsed)
+  } catch {
+    return { iss: null, azp: null, sub: null, sid: null }
+  }
+}
 
 @Injectable()
 export class ClerkAuthGuard implements CanActivate {
@@ -85,6 +115,7 @@ export class ClerkAuthGuard implements CanActivate {
       typeof configuredSkew === "number" && Number.isFinite(configuredSkew) ? configuredSkew : 30_000
 
     let lastVerifyError: unknown
+    let lastVerifyKind: ReturnType<typeof classifyTokenVerificationError> = "invalid"
     for (const instance of this.instances) {
       try {
         const payload = await verifySessionToken(token, instance, clockSkewInMs)
@@ -93,14 +124,32 @@ export class ClerkAuthGuard implements CanActivate {
         matched = instance
         break
       } catch (err) {
-        if (err instanceof UnauthorizedException) throw err
+        // Authorized-party rejection is definitive for this token; do not try other instances.
+        if (err instanceof UnauthorizedException && /authorized party/i.test(err.message)) {
+          const peeked = peekSessionTokenClaims(token)
+          this.logger.warn(
+            `JWT verification failed kind=authorized_party reason=azp_not_allowlisted ` +
+              `instance=${instance.name} ${formatSessionTokenDiagnostics(peeked)}`
+          )
+          throw err
+        }
         lastVerifyError = err
+        lastVerifyKind = classifyTokenVerificationError(err)
       }
     }
 
     if (!matched) {
-      this.logger.warn(`JWT verification failed: ${String(lastVerifyError)}`)
-      throw new UnauthorizedException("Invalid or expired token")
+      const peeked = peekSessionTokenClaims(token)
+      const reason =
+        lastVerifyError instanceof TokenVerificationError
+          ? lastVerifyError.reason
+          : lastVerifyError instanceof Error
+            ? lastVerifyError.message
+            : String(lastVerifyError)
+      this.logger.warn(
+        `JWT verification failed kind=${lastVerifyKind} reason=${reason} ${formatSessionTokenDiagnostics(peeked)}`
+      )
+      throw new UnauthorizedException(unauthorizedMessageForVerifyKind(lastVerifyKind))
     }
 
     try {

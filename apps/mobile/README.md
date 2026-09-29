@@ -89,19 +89,19 @@ After Clerk sign-in the app calls Nest `GET /users/me` with the session JWT. Fai
 
 Important distinctions:
 
-| Message                                 | Meaning                                                                                                                                                       |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Authentication session expired…         | Clerk session / JWT subject is unusable after rotation retries                                                                                                |
-| Could not obtain a session token…       | Clerk still reports signed-in but `getToken()` returned nothing — Retry or Sign out                                                                           |
-| The server rejected this session token… | Nest 401 `Invalid or expired token` / missing bearer — often **wrong Clerk instance** or web-only `CLERK_AUTHORIZED_PARTIES` (not a soft “session timed out”) |
+| Message                                 | Meaning                                                                                                                                      |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Authentication session expired…         | Nest reported an expired session token, or Clerk JWT subject never aligned after rotation retries                                            |
+| Could not obtain a session token…       | Clerk still reports signed-in but `getToken()` returned nothing — Retry or Sign out                                                          |
+| The server rejected this session token… | Nest rejected the JWT — often **wrong Clerk instance** (invalid signature / issuer) or a **present** `azp` not on `CLERK_AUTHORIZED_PARTIES` |
 
 Checklist:
 
 1. Nest API is running (`pnpm --filter api dev`) and reachable — Android emulator: `EXPO_PUBLIC_API_URL=http://10.0.2.2:4000`.
 2. Database migrations are applied after pulling schema changes: `pnpm db:deploy` (includes `User.requestedRole`). A missing column returns HTTP 500 with a schema message — apply migrations, then Retry.
 3. Mobile `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` and API `CLERK_SECRET_KEY` are from the **same** Clerk instance (`pk_test_` with `sk_test_`).
-4. Local API: leave `CLERK_AUTHORIZED_PARTIES` **empty**. A web-only value such as `http://localhost:3000` will 401 mobile after Clerk login with **Invalid or expired token**.
-5. Production: if you set `CLERK_AUTHORIZED_PARTIES`, include the mobile JWT `azp` (decode a session token) in addition to web origins — web-only lists break native clients.
+4. Local API: leave `CLERK_AUTHORIZED_PARTIES` **empty**, or set only browser Origins. Expo tokens usually have **no** `azp`; the API accepts missing `azp` after signature verification. Do not invent a `mobile://` party.
+5. Production: `CLERK_AUTHORIZED_PARTIES` should list web Origins (`https://admin…`). A wrong **present** `azp` still 401s; missing `azp` (native) does not.
 6. In `__DEV__`, network/timeout errors include the API base URL to speed up diagnosis.
 
 If sign-in asks for a **verification code**, that is Clerk second-factor / email verification — enter the code on mobile (do not treat it as a dead-end “use web admin” unless TOTP/SMS is required).
@@ -136,7 +136,7 @@ When Google still creates a separate Clerk user (legacy duplicates), Nest rebind
 ### Nest API auth notes
 
 - Nest validates the Clerk session JWT with `CLERK_SECRET_KEY` from the **same** Clerk instance as the mobile publishable key (test with test, live with live).
-- If `CLERK_AUTHORIZED_PARTIES` is set on the API, the JWT `azp` from mobile sessions must be included—or leave the variable empty (web-only party lists will 401 mobile with **Invalid or expired token** after an otherwise successful Clerk login).
+- If `CLERK_AUTHORIZED_PARTIES` is set, browser tokens with a present `azp` must match that list. Expo/native tokens that omit `azp` are accepted after signature verification (do not invent a mobile party URL).
 - CORS (`CORS_ORIGIN`) applies to browsers (Expo web / Next). Native Android/iOS clients do not use CORS.
 
 ## Commands (run from repo root)

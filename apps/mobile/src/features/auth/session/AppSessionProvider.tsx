@@ -32,6 +32,7 @@ import {
   formatIdentityDiagnostics,
   isApiTokenRejectedMessage,
   isProfileRequestCurrent,
+  isSessionExpiredMessage,
   isTransientTokenUserMismatch,
   profileCacheKey,
   profileMatchesSession,
@@ -493,11 +494,15 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
             return;
           }
           // Preserve Nest business copy (disabled / email linked / resolve failures).
-          // Map generic JWT verification failures to apiTokenRejected — not "session expired".
+          // Map generic JWT verification failures — do not treat every 401 as "session expired".
           const nextMessage =
-            !message || isApiTokenRejectedMessage(message)
+            !message
               ? SESSION_MESSAGES.apiTokenRejected
-              : message;
+              : isSessionExpiredMessage(message)
+                ? SESSION_MESSAGES.sessionExpired
+                : isApiTokenRejectedMessage(message)
+                  ? SESSION_MESSAGES.apiTokenRejected
+                  : message;
           setProfileGate({
             status: "error",
             message: nextMessage,

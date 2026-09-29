@@ -5,6 +5,7 @@ import {
   formatIdentityDiagnostics,
   isApiTokenRejectedMessage,
   isProfileRequestCurrent,
+  isSessionExpiredMessage,
   isTransientTokenUserMismatch,
   profileCacheKey,
   profileMatchesSession,
@@ -218,9 +219,24 @@ describe("session error classification", () => {
   it("treats Nest JWT verification copy as API token rejection, not a vague expiry", () => {
     assert.equal(isApiTokenRejectedMessage("Invalid or expired token"), true)
     assert.equal(isApiTokenRejectedMessage("Missing Bearer token"), true)
+    assert.equal(
+      isApiTokenRejectedMessage("Invalid session token. Confirm the API uses the same Clerk instance as this app."),
+      true
+    )
+    assert.equal(
+      isApiTokenRejectedMessage(
+        "Session token authorized party is not allowed for this API. Ask an administrator to review CLERK_AUTHORIZED_PARTIES."
+      ),
+      true
+    )
     assert.equal(isApiTokenRejectedMessage("This email is already linked to a different Clerk account."), false)
     assert.notEqual(SESSION_MESSAGES.apiTokenRejected, SESSION_MESSAGES.sessionExpired)
     assert.notEqual(SESSION_MESSAGES.sessionTokenUnavailable, SESSION_MESSAGES.sessionExpired)
+  })
+
+  it("treats Nest expired-token copy as session expired", () => {
+    assert.equal(isSessionExpiredMessage("Session token expired. Sign in again."), true)
+    assert.equal(isSessionExpiredMessage("Invalid or expired token"), false)
   })
 })
 

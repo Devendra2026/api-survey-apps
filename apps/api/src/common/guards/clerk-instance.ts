@@ -1,5 +1,6 @@
 import { createClerkClient, verifyToken } from "@clerk/backend"
-import { Logger } from "@nestjs/common"
+import { TokenVerificationError, TokenVerificationErrorReason } from "@clerk/backend/errors"
+import { Logger, UnauthorizedException } from "@nestjs/common"
 import type { ConfigService } from "@nestjs/config"
 import { clerkKeyKind, clerkKeysEnvironmentMismatch } from "./clerk-email-verification.js"
 
@@ -9,6 +10,21 @@ export type ClerkInstance = {
   authorizedParties: string[]
 }
 
+/** Safe JWT claim snapshot for logs — never include the raw token. */
+export type SessionTokenDiagnostics = {
+  iss: string | null
+  azp: string | null
+  sub: string | null
+  sid: string | null
+}
+
+export type SessionTokenVerifyFailure = {
+  kind: "expired" | "authorized_party" | "invalid"
+  reason: string
+  diagnostics: SessionTokenDiagnostics
+  cause: unknown
+}
+
 const logger = new Logger("ClerkInstances")
 
 function splitList(value: string | undefined): string[] {
@@ -16,6 +32,93 @@ function splitList(value: string | undefined): string[] {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean)
+}
+
+function asOptionalString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null
+}
+
+function readClaim(payload: object, key: string): string | null {
+  if (!(key in payload)) {
+    return null
+  }
+  return asOptionalString((payload as Record<string, unknown>)[key])
+}
+
+export function sessionTokenDiagnostics(payload: object): SessionTokenDiagnostics {
+  return {
+    iss: readClaim(payload, "iss"),
+    azp: readClaim(payload, "azp"),
+    sub: readClaim(payload, "sub"),
+    sid: readClaim(payload, "sid"),
+  }
+}
+
+export function formatSessionTokenDiagnostics(d: SessionTokenDiagnostics): string {
+  return `iss=${d.iss ?? "absent"} azp=${d.azp ?? "absent"} sub=${d.sub ?? "absent"} sid=${d.sid ?? "absent"}`
+}
+
+/**
+ * Browser tokens include `azp` (Origin). Expo/native tokens typically omit it because
+ * React Native does not send Origin. Passing `authorizedParties` into Clerk's verifyToken
+ * rejects missing azp (@clerk/backend ≥ 3.11.1). Enforce the allowlist only when azp is present.
+ */
+export function assertSessionAuthorizedParty(azp: string | undefined, authorizedParties: string[]): void {
+  if (authorizedParties.length === 0) {
+    return
+  }
+  const party = typeof azp === "string" ? azp.trim() : ""
+  if (!party) {
+    // Native Expo session — signature already verified by verifyToken.
+    return
+  }
+  if (!authorizedParties.includes(party)) {
+    throw new UnauthorizedException(
+      "Session token authorized party is not allowed for this API. Ask an administrator to review CLERK_AUTHORIZED_PARTIES."
+    )
+  }
+}
+
+export function classifyTokenVerificationError(err: unknown): SessionTokenVerifyFailure["kind"] {
+  if (err instanceof UnauthorizedException) {
+    const message = err.message
+    if (/authorized party/i.test(message)) {
+      return "authorized_party"
+    }
+    return "invalid"
+  }
+  if (err instanceof TokenVerificationError) {
+    if (err.reason === TokenVerificationErrorReason.TokenExpired) {
+      return "expired"
+    }
+    if (err.reason === TokenVerificationErrorReason.TokenInvalidAuthorizedParties) {
+      return "authorized_party"
+    }
+    return "invalid"
+  }
+  const message = err instanceof Error ? err.message : String(err)
+  if (/expired/i.test(message)) {
+    return "expired"
+  }
+  if (/authorized party|authorizedParties|azp/i.test(message)) {
+    return "authorized_party"
+  }
+  return "invalid"
+}
+
+export function unauthorizedMessageForVerifyKind(kind: SessionTokenVerifyFailure["kind"]): string {
+  switch (kind) {
+    case "expired":
+      return "Session token expired. Sign in again."
+    case "authorized_party":
+      return "Session token authorized party is not allowed for this API. Ask an administrator to review CLERK_AUTHORIZED_PARTIES."
+    case "invalid":
+      return "Invalid session token. Confirm the API uses the same Clerk instance as this app."
+    default: {
+      const _exhaustive: never = kind
+      return _exhaustive
+    }
+  }
 }
 
 export function clerkInstances(config: ConfigService): ClerkInstance[] {
@@ -60,12 +163,17 @@ export function clerkInstances(config: ConfigService): ClerkInstance[] {
   return instances
 }
 
+/**
+ * Verify signature / issuer (JWKS) / expiry via Clerk, then enforce azp only when present.
+ * Do not pass authorizedParties into verifyToken — that rejects Expo tokens with no azp.
+ */
 export async function verifySessionToken(token: string, instance: ClerkInstance, clockSkewInMs: number) {
-  return verifyToken(token, {
+  const payload = await verifyToken(token, {
     secretKey: instance.secretKey,
     clockSkewInMs,
-    ...(instance.authorizedParties.length ? { authorizedParties: instance.authorizedParties } : {}),
   })
+  assertSessionAuthorizedParty(typeof payload.azp === "string" ? payload.azp : undefined, instance.authorizedParties)
+  return payload
 }
 
 export function clerkClientFor(secretKey: string) {

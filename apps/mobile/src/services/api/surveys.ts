@@ -103,6 +103,10 @@ export function createFloor(input: CreateFloorInput): Promise<SurveyFloor> {
   return apiPost("/floors", input)
 }
 
+export function updateFloor(id: string, input: Omit<CreateFloorInput, "surveyId">): Promise<SurveyFloor> {
+  return apiPatch(`/floors/${encodeURIComponent(id)}`, input)
+}
+
 export function deleteFloor(id: string): Promise<unknown> {
   return apiDelete(`/floors/${encodeURIComponent(id)}`)
 }

@@ -76,8 +76,7 @@ export function sanitizePatch(raw: unknown): SurveyPatch {
     if (value === null || (typeof value === "number" && Number.isFinite(value))) out[key] = value
   }
 
-  const propertyId = raw.propertyId
-  if (typeof propertyId === "string" && propertyId.trim()) out.propertyId = propertyId
+  // Do not copy client-generated propertyId into the outgoing patch — Nest writes it on update.
 
   const solid = raw.solidWasteCollection
   if (solid === null || typeof solid === "boolean") out.solidWasteCollection = solid

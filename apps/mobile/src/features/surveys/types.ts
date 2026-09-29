@@ -40,6 +40,15 @@ export const PROPERTY_TYPES = [
   "STATE_GOVERNMENT",
   "INDUSTRY",
   "COLD_STORE",
+  "OPEN",
+  "AGRICULTURE",
+  "OPEN_LAND_GODOWN",
+  "MANDIR",
+  "MASJID",
+  "TRUST_DHARAMSHALA",
+  "SHAMSHAN_KABRISTAN",
+  "GURUDWARA_CHURCH",
+  "RESIDENTIAL_AND_COMMERCIAL",
 ] as const
 export type PropertyType = (typeof PROPERTY_TYPES)[number]
 
@@ -200,7 +209,11 @@ export type SurveyRecord = SurveyEditableFields & {
   coOwners: SurveyCoOwner[]
   photos: SurveyPhoto[]
   qcRemarkThread?: QcRemarkThreadItem[]
-  ward: { id: string; wardName: string; wardNumber: string } | null
+  /** Present on the record endpoint; used for Property ID preview (same as Nest). */
+  ulbCode?: string | null
+  wardNumber?: string | null
+  ward: { id: string; wardName: string; wardNumber: string; kind?: string | null } | null
+  originalWard?: { wardNumber?: string | null } | null
   ulb: { id: string; name: string; code: string | null } | null
   district: { id: string; name: string } | null
   assignedTo: { id: string; fullName: string } | null

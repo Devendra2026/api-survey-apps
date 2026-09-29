@@ -1,7 +1,7 @@
 import { Button, Screen, StatusView, Text, TextField, cardStyle } from "@/components/ui"
-import { getApiErrorMessage } from "@/services/api/client"
+import { getApiErrorMessage, isApiClientError } from "@/services/api/client"
 import { createSurvey } from "@/services/api/surveys"
-import { colors, radius, spacing } from "@/theme"
+import { colors, radius, spacing, touchTarget } from "@/theme"
 import type { AuthenticatedProfile } from "@/types/user"
 import { randomUUID } from "expo-crypto"
 import { useRouter } from "expo-router"
@@ -14,6 +14,25 @@ import { ASSESSMENT_YEARS, type AssessmentYear } from "../types"
 import { OptionChips } from "../ui/primitives"
 
 type WardChoice = { wardId: string; label: string }
+
+function wardLoadFailureMessage(error: unknown): string {
+  if (isApiClientError(error)) {
+    if (error.statusCode === 403) {
+      return error.message || "You do not have permission to list wards for this ULB."
+    }
+    if (error.statusCode === 401) {
+      return error.message || "Your session expired. Sign in again to load wards."
+    }
+    if (error.statusCode === 404) {
+      return error.message || "No wards were found for this ULB."
+    }
+    if (error.kind === "network" || error.kind === "timeout") {
+      return getApiErrorMessage(error, "Could not reach the server to load wards.")
+    }
+    return getApiErrorMessage(error, `Could not load wards (${error.statusCode || "error"}).`)
+  }
+  return getApiErrorMessage(error, "Could not load wards")
+}
 
 export function NewSurveyScreen({ profile }: { profile: AuthenticatedProfile }) {
   const router = useRouter()
@@ -110,8 +129,16 @@ export function NewSurveyScreen({ profile }: { profile: AuthenticatedProfile }) 
             <Text variant="label">Ward *</Text>
             {wardsQuery.isPending ? <ActivityIndicator color={colors.primary} /> : null}
             {wardsQuery.isError ? (
-              <Text variant="caption" tone="danger">
-                {getApiErrorMessage(wardsQuery.error, "Could not load wards")}
+              <View style={styles.wardError}>
+                <Text variant="caption" tone="danger">
+                  {wardLoadFailureMessage(wardsQuery.error)}
+                </Text>
+                <Button title="Retry" variant="secondary" onPress={() => void wardsQuery.refetch()} />
+              </View>
+            ) : null}
+            {!wardsQuery.isPending && !wardsQuery.isError && (wardsQuery.data?.items.length ?? 0) === 0 ? (
+              <Text variant="caption" tone="secondary">
+                No wards returned for this ULB. Contact an administrator.
               </Text>
             ) : null}
             <View style={styles.chips}>
@@ -159,7 +186,7 @@ export function NewSurveyScreen({ profile }: { profile: AuthenticatedProfile }) 
 }
 
 const styles = StyleSheet.create({
-  back: { minHeight: 44, justifyContent: "center", alignSelf: "flex-start" },
+  back: { minHeight: touchTarget, justifyContent: "center", alignSelf: "flex-start" },
   title: { marginBottom: spacing.lg },
   card: { gap: spacing.md, marginBottom: spacing.lg },
   option: {
@@ -168,12 +195,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     gap: 2,
+    minHeight: touchTarget,
   },
   optionSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
   wards: { gap: spacing.sm },
+  wardError: { gap: spacing.sm },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   chip: {
-    minHeight: 40,
+    minHeight: touchTarget,
     justifyContent: "center",
     paddingHorizontal: spacing.md,
     borderRadius: radius.full,

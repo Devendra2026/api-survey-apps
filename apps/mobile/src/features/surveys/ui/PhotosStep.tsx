@@ -9,7 +9,12 @@ import { useEffect, useState } from "react"
 import { ActivityIndicator, Alert, Linking, StyleSheet, View } from "react-native"
 import { useRecordCache } from "../hooks/queries"
 import { optionLabel } from "../lib/labels"
-import { PHOTO_TYPES, type PhotoType, type SurveyPhoto } from "../types"
+import { type PhotoType, type SurveyPhoto } from "../types"
+
+const REQUIRED_PHOTOS: { type: PhotoType; hint: string }[] = [
+  { type: "FRONT", hint: "Full front of the building from the street" },
+  { type: "SIDE", hint: "Side elevation along the property boundary" },
+]
 
 const MAX_WIDTH = 1600
 const JPEG_QUALITY = 0.7
@@ -129,7 +134,7 @@ export function PhotosStep({
 
   return (
     <View style={styles.grid}>
-      {PHOTO_TYPES.map((type) => {
+      {REQUIRED_PHOTOS.map(({ type, hint }) => {
         const confirmed = photos.filter((p) => p.photoType === type && p.objectKey)
         const latest = confirmed[confirmed.length - 1]
         const pending = local[type]
@@ -138,7 +143,7 @@ export function PhotosStep({
             <View style={styles.slotHeader}>
               <Text variant="bodyStrong">
                 {optionLabel(type)}
-                {type === "FRONT" ? <Text tone="danger"> *</Text> : null}
+                <Text tone="danger"> *</Text>
               </Text>
               {latest && !pending ? (
                 <Text variant="caption" style={{ color: colors.success, fontWeight: "600" }}>
@@ -146,6 +151,9 @@ export function PhotosStep({
                 </Text>
               ) : null}
             </View>
+            <Text variant="caption" tone="secondary">
+              {hint}
+            </Text>
             <View style={styles.preview}>
               {pending ? (
                 <Image source={{ uri: pending.uri }} style={styles.image} contentFit="cover" />
@@ -185,11 +193,11 @@ export function PhotosStep({
             {editable && !pending ? (
               latest ? (
                 <View style={styles.actions}>
-                  <Button title="Replace" variant="secondary" onPress={() => choose(type, latest.id)} style={styles.flex} />
-                  <Button title="Delete" variant="ghost" onPress={() => remove(latest)} style={styles.flex} />
+                  <Button title="Retake" variant="secondary" onPress={() => choose(type, latest.id)} style={styles.flex} />
+                  <Button title="Remove" variant="ghost" onPress={() => remove(latest)} style={styles.flex} />
                 </View>
               ) : (
-                <Button title="Add photo" variant={type === "FRONT" ? "primary" : "secondary"} onPress={() => choose(type)} />
+                <Button title="Open camera" variant={type === "FRONT" ? "primary" : "secondary"} onPress={() => choose(type)} />
               )
             ) : null}
           </View>

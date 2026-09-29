@@ -53,6 +53,31 @@ const EDITABLE: SurveyStatus[] = ["DRAFT", "IN_PROGRESS", "REOPENED"]
 
 type BulkItemResult = { id: string; reason: string }
 
+/**
+ * Canonical Property ID for field-survey PATCH updates.
+ * Parcel may be 1–5 digits and unit 1–3 digits; formatPropertyId pads them
+ * (74 → 00074, 1 → 001). Longer values are rejected, not truncated.
+ * The use letter comes only from PROPERTY_USE_CODES.
+ */
+export function canonicalFieldPropertyId(input: {
+  ulbCode: string
+  wardNo: string
+  parcelNo: string
+  unitNo: string
+  propertyUse: string
+}): string | undefined {
+  const parcelNo = input.parcelNo.trim()
+  const unitNo = input.unitNo.trim()
+  if (!/^\d{1,5}$/.test(parcelNo) || !/^\d{1,3}$/.test(unitNo)) return undefined
+  return formatPropertyId({
+    ulbCode: input.ulbCode,
+    wardNo: input.wardNo,
+    parcelNo,
+    unitNo,
+    propertyUse: input.propertyUse,
+  })
+}
+
 @Injectable()
 export class SurveysService {
   private readonly logger = new Logger(SurveysService.name)
@@ -358,7 +383,30 @@ export class SurveysService {
       await this.assertGeoHierarchy(nextGeo)
     }
 
-    const nextPropertyId = dto.propertyId ?? survey.propertyId
+    const ulbCode = (survey.ulbCode?.trim() || survey.ulb?.code?.trim() || "").trim()
+    const wardNo = resolvePropertyWardNumber({
+      currentWard: survey.ward,
+      originalWard: survey.originalWard,
+      storedWardNumber: survey.wardNumber,
+    })
+    const parcelNo = ((dto.parcelNumber !== undefined ? dto.parcelNumber : survey.parcelNumber) ?? "").trim()
+    const unitNo = ((dto.unitSubNo !== undefined ? dto.unitSubNo : survey.unitSubNo) ?? "").trim()
+    const propertyUse = ((dto.propertyUse !== undefined ? dto.propertyUse : survey.propertyUse) ?? "").trim()
+    const derivedPropertyId = canonicalFieldPropertyId({
+      ulbCode,
+      wardNo,
+      parcelNo,
+      unitNo,
+      propertyUse,
+    })
+    // The client must not choose propertyId. Write it only when the server can derive it.
+    const { propertyId: _clientPropertyId, ...dtoWithoutPropertyId } = dto
+    void _clientPropertyId
+    const writeDto = derivedPropertyId
+      ? { ...dtoWithoutPropertyId, propertyId: derivedPropertyId }
+      : dtoWithoutPropertyId
+
+    const nextPropertyId = derivedPropertyId ?? survey.propertyId
     const nextAssessmentYear = dto.assessmentYear ?? survey.assessmentYear
     const identityChanged =
       nextGeo.ulbId !== survey.ulbId ||
@@ -376,7 +424,7 @@ export class SurveysService {
     const nextStatus = survey.surveyStatus === "DRAFT" ? ("IN_PROGRESS" as const) : undefined
 
     try {
-      const updated = await this.surveysRepository.update(id, dto)
+      const updated = await this.surveysRepository.update(id, writeDto)
       if (nextStatus) {
         await this.surveysRepository.transitionStatus({
           id,

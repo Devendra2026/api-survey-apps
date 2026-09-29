@@ -65,9 +65,13 @@ export function normalizeParcelKey(parcelNo: string): string {
   return Number.isNaN(n) ? parcelNo.trim() : String(n)
 }
 
+/**
+ * Use letter for Property ID — only from PROPERTY_USE_CODES.
+ * Unmapped uses return "" so formatPropertyId yields undefined (no invented letter).
+ */
 export function propertyUseCode(propertyUse: string | undefined): string {
   if (!propertyUse) return ""
-  return PROPERTY_USE_CODES[propertyUse] ?? propertyUse.charAt(0).toUpperCase()
+  return PROPERTY_USE_CODES[propertyUse] ?? ""
 }
 
 export function formatPropertyId(parts: {

@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query } from "@nestjs/common
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger"
 import { PERMISSIONS } from "../common/constants/permissions.js"
 import { CurrentUser } from "../common/decorators/current-user.decorator.js"
-import { RequirePermission } from "../common/decorators/require-permission.decorator.js"
+import { RequireAnyPermission, RequirePermission } from "../common/decorators/require-permission.decorator.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import {
   BulkStatusDto,
@@ -19,13 +19,13 @@ export class ReferenceCatalogsController {
   constructor(private readonly referenceCatalogsService: ReferenceCatalogsService) {}
 
   @Get("categories")
-  @RequirePermission(PERMISSIONS.SETTINGS_VIEW)
+  @RequireAnyPermission(PERMISSIONS.SETTINGS_VIEW, PERMISSIONS.SURVEY_VIEW)
   listCategories() {
     return this.referenceCatalogsService.listCategories()
   }
 
   @Get("categories/:code/entries")
-  @RequirePermission(PERMISSIONS.SETTINGS_VIEW)
+  @RequireAnyPermission(PERMISSIONS.SETTINGS_VIEW, PERMISSIONS.SURVEY_VIEW)
   listEntries(
     @Param("code") code: string,
     @Query("search") search?: string,

@@ -1,5 +1,5 @@
 import { Text, TextField, cardStyle } from "@/components/ui"
-import { colors, radius, spacing } from "@/theme"
+import { colors, radius, spacing, touchTarget } from "@/theme"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View, type TextInputProps } from "react-native"
 import { optionLabel } from "../lib/labels"
@@ -71,7 +71,7 @@ export function StepChips({
   const scrollRef = useRef<ScrollView>(null)
   const index = steps.indexOf(current)
   useEffect(() => {
-    scrollRef.current?.scrollTo({ x: Math.max(0, index - 1) * 104, animated: true })
+    scrollRef.current?.scrollTo({ x: Math.max(0, index - 1) * 112, animated: true })
   }, [index])
 
   return (
@@ -79,23 +79,36 @@ export function StepChips({
       {steps.map((step, i) => {
         const p = progress[step]
         const isCurrent = step === current
-        const blocked = p.missing.length > 0
-        const done = !blocked && p.filled > 0
+        const hasRequiredMissing = p.missing.length > 0
+        const done = !hasRequiredMissing && p.filled > 0
         return (
           <Pressable
             key={step}
             accessibilityRole="tab"
             accessibilityState={{ selected: isCurrent }}
-            accessibilityLabel={`${STEP_TITLES[step]}${blocked ? ", required fields missing" : done ? ", done" : ""}`}
+            accessibilityLabel={`${STEP_TITLES[step]}${
+              hasRequiredMissing ? ", required fields missing" : done ? ", complete" : ""
+            }`}
             onPress={() => onSelect(step)}
-            style={[styles.step, isCurrent && styles.stepCurrent]}
+            style={[styles.step, isCurrent && styles.stepCurrent, done && !isCurrent && styles.stepDone]}
           >
-            <View style={[styles.stepDot, done && styles.stepDotDone, blocked && styles.stepDotBlocked]}>
-              <Text variant="caption" tone={done || blocked ? "inverse" : "secondary"} style={styles.stepDotText}>
-                {done ? "✓" : blocked ? "!" : String(i + 1)}
+            <View
+              style={[
+                styles.stepDot,
+                done && styles.stepDotDone,
+                hasRequiredMissing && styles.stepDotBlocked,
+              ]}
+            >
+              <Text variant="caption" tone={done || hasRequiredMissing ? "inverse" : "secondary"} style={styles.stepDotText}>
+                {done ? "✓" : hasRequiredMissing ? "!" : String(i + 1)}
               </Text>
             </View>
-            <Text variant="caption" tone={isCurrent ? "primary" : "secondary"} style={isCurrent && styles.bold}>
+            <Text
+              variant="caption"
+              tone={isCurrent ? "primary" : "secondary"}
+              style={isCurrent ? styles.bold : undefined}
+              numberOfLines={1}
+            >
               {STEP_TITLES[step]}
             </Text>
           </Pressable>
@@ -281,17 +294,20 @@ export function BoundNumberField({
   onCommit,
   integer,
   editable,
+  required,
 }: {
   label: string
   value: number | null
   onCommit: (next: number | null) => void
   integer?: boolean
   editable?: boolean
+  required?: boolean
 }) {
   const [error, setError] = useState<string | undefined>()
   return (
     <BoundTextField
       label={label}
+      required={required}
       value={value === null ? null : String(value)}
       keyboardType={integer ? "number-pad" : "decimal-pad"}
       editable={editable}
@@ -331,11 +347,14 @@ const styles = StyleSheet.create({
   steps: {
     gap: spacing.sm,
     paddingVertical: spacing.sm,
+    paddingRight: spacing.lg,
   },
   step: {
     alignItems: "center",
+    justifyContent: "center",
     gap: spacing.xs,
-    width: 96,
+    width: 104,
+    minHeight: touchTarget,
     paddingVertical: spacing.sm,
     borderRadius: radius.md,
     borderWidth: 1,
@@ -345,10 +364,14 @@ const styles = StyleSheet.create({
   stepCurrent: {
     borderColor: colors.primary,
     borderWidth: 2,
+    backgroundColor: colors.primaryMuted,
+  },
+  stepDone: {
+    borderColor: colors.success,
   },
   stepDot: {
-    width: 26,
-    height: 26,
+    width: 28,
+    height: 28,
     borderRadius: radius.full,
     backgroundColor: colors.surfaceMuted,
     alignItems: "center",

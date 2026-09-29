@@ -5,8 +5,10 @@
   "dependencies": {
     "@clerk/expo": "^4.6.9",
     "@clerk/react": "^6.17.0",
+    "@expo/ui": "~57.0.20",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@tanstack/react-query": "^5.103.2",
+    "@workspace/validation": "workspace:*",
     "expo": "~57.0.25",
     "expo-auth-session": "~57.0.13",
     "expo-build-properties": "~57.0.22",
@@ -32,6 +34,7 @@
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
     "react-native-gesture-handler": "~2.32.0",
+    "react-native-maps": "1.27.2",
     "react-native-reanimated": "4.5.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
@@ -54,7 +57,7 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types src/types/user.test.ts src/features/auth/lib/sign-in-factors.test.ts src/features/auth/lib/otp.test.ts src/features/auth/session/profile-identity.test.ts src/services/api/error-messages.test.ts src/features/surveys/lib/survey-lib.test.ts"
+    "test": "node --test --experimental-strip-types src/types/user.test.ts src/features/auth/lib/sign-in-factors.test.ts src/features/auth/lib/otp.test.ts src/features/auth/session/profile-identity.test.ts src/services/api/error-messages.test.ts src/features/surveys/lib/survey-lib.test.ts src/features/surveys/lib/navigation.test.ts src/features/surveys/lib/field-format.test.ts src/features/surveys/lib/property-identity.test.ts src/features/surveys/lib/floor-draft.test.ts"
   },
   "private": true
 }

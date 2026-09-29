@@ -90,6 +90,11 @@ export function getClerkPublishableKey(): string {
   return key
 }
 
+/** Public Maps SDK key. Empty when unset — never invent or commit a key. */
+export function getGoogleMapsApiKey(): string {
+  return process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() ?? ""
+}
+
 export function isLocalHttpApi(): boolean {
   return getApiBaseUrl().startsWith("http://")
 }

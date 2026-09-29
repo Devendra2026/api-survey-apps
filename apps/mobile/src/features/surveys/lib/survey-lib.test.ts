@@ -149,7 +149,7 @@ describe("submit requirements", () => {
 
   it("counts only confirmed photo types", () => {
     const p = stepProgress({ ...complete(), uploadedPhotoTypes: ["FRONT", "FRONT", "SIDE"] })
-    assert.deepEqual(p.photos, { filled: 2, total: 4, missing: [] })
+    assert.deepEqual(p.photos, { filled: 2, total: 2, missing: [] })
   })
 
   it("routes server messages and remark sections to steps", () => {

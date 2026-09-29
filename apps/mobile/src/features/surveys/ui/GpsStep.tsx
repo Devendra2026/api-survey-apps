@@ -1,14 +1,15 @@
 import { Button, Text } from "@/components/ui"
 import { colors, radius, spacing } from "@/theme"
 import * as Location from "expo-location"
-import { useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Linking, StyleSheet, View } from "react-native"
 import type { SurveyEditableFields, SurveyPatch } from "../types"
+import { SurveyLocationMap } from "./SurveyLocationMap"
 
 const GPS_TIMEOUT_MS = 20_000
-const WEAK_ACCURACY_METERS = 30
 
 type GpsError = { message: string; openSettings: boolean }
+type GpsPhase = "idle" | "searching" | "acquired"
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -42,25 +43,32 @@ export function GpsStep({
   onCapture: (patch: SurveyPatch) => void
 }) {
   const [busy, setBusy] = useState(false)
+  const [phase, setPhase] = useState<GpsPhase>(fields.latitude != null ? "acquired" : "idle")
   const [error, setError] = useState<GpsError | null>(null)
   const lat = toNumber(fields.latitude)
   const lng = toNumber(fields.longitude)
-  const accuracy = toNumber(fields.gpsAccuracyMeters)
+  const autoStarted = useRef(false)
 
-  const capture = async () => {
+  const capture = useCallback(async () => {
     setBusy(true)
     setError(null)
+    setPhase("searching")
     try {
       if (!(await Location.hasServicesEnabledAsync())) {
-        setError({ message: "Location services are off. Turn on GPS and try again.", openSettings: false })
+        setError({
+          message: "Unable to get accurate location. Location services are off — turn on GPS and try again.",
+          openSettings: false,
+        })
+        setPhase(lat !== null ? "acquired" : "idle")
         return
       }
       const permission = await Location.requestForegroundPermissionsAsync()
       if (permission.status !== Location.PermissionStatus.GRANTED) {
         setError({
-          message: "Location permission is required to record the property position.",
+          message: "Unable to get accurate location. Location permission is required to record the property position.",
           openSettings: !permission.canAskAgain,
         })
+        setPhase(lat !== null ? "acquired" : "idle")
         return
       }
       const position = await withTimeout(
@@ -75,36 +83,49 @@ export function GpsStep({
         capturedAt: new Date(position.timestamp).toISOString(),
         gpsSource: "DEVICE",
       })
+      setPhase("acquired")
     } catch (e) {
       const timedOut = e instanceof Error && e.message === "timeout"
       setError({
         message: timedOut
-          ? "Could not get a GPS fix in time. Move to an open area and try again."
-          : "Could not read your location. Try again.",
+          ? "Unable to get accurate location. Move to an open area and tap Retry."
+          : "Unable to get accurate location. Try again.",
         openSettings: false,
       })
+      setPhase(lat !== null ? "acquired" : "idle")
     } finally {
       setBusy(false)
     }
-  }
+  }, [lat, onCapture])
+
+  useEffect(() => {
+    if (!editable || lat !== null || autoStarted.current) return
+    autoStarted.current = true
+    void capture()
+  }, [capture, editable, lat])
 
   return (
     <View style={styles.wrap}>
+      <View style={styles.statusRow}>
+        <Text variant="label">GPS status</Text>
+        <Text
+          variant="caption"
+          tone={phase === "searching" ? "primary" : phase === "acquired" ? "default" : "secondary"}
+        >
+          {phase === "searching" ? "Searching…" : phase === "acquired" && lat !== null ? "Acquired" : "Not captured"}
+        </Text>
+      </View>
       {lat !== null && lng !== null ? (
         <View style={styles.readout}>
+          <SurveyLocationMap latitude={lat} longitude={lng} />
           <Row label="Latitude" value={lat.toFixed(6)} />
           <Row label="Longitude" value={lng.toFixed(6)} />
-          <Row label="Accuracy" value={accuracy !== null ? `± ${accuracy.toFixed(1)} m` : "Unknown"} />
           <Row label="Captured" value={fields.capturedAt ? new Date(fields.capturedAt).toLocaleString() : "—"} />
-          {accuracy !== null && accuracy > WEAK_ACCURACY_METERS ? (
-            <Text variant="caption" style={{ color: colors.warning }}>
-              Accuracy is weak. Recapture outdoors if possible.
-            </Text>
-          ) : null}
         </View>
       ) : (
         <Text variant="body" tone="secondary">
-          Stand at the property entrance and capture the location. GPS is required to submit.
+          Stand at the property entrance and capture the location. GPS is required to submit. Only a successful
+          capture is stored — failed attempts never overwrite a valid fix.
         </Text>
       )}
       {error ? (
@@ -119,7 +140,7 @@ export function GpsStep({
       ) : null}
       {editable ? (
         <Button
-          title={lat !== null ? "Recapture GPS" : "Capture GPS"}
+          title={busy ? "Getting current location…" : lat !== null ? "Capture current location" : error ? "Retry" : "Capture current location"}
           loading={busy}
           variant={lat !== null ? "secondary" : "primary"}
           onPress={() => void capture()}
@@ -142,6 +163,7 @@ function Row({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   wrap: { gap: spacing.lg },
+  statusRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   readout: {
     gap: spacing.sm,
     padding: spacing.lg,

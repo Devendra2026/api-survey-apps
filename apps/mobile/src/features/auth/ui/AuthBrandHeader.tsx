@@ -12,7 +12,7 @@ export function AuthBrandHeader({ caption, title }: Props) {
   return (
     <View style={styles.wrap}>
       <BrandLogo />
-      <Text style={styles.brand}>SDV EDUTECH</Text>
+     
       <Text style={styles.product}>Property Survey</Text>
       <Text style={styles.subtitle}>Nagar Panchayat · GIS field operations</Text>
       {title ? <Text style={styles.title}>{title}</Text> : null}

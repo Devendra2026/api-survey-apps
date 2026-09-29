@@ -27,6 +27,9 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     ios: {
       bundleIdentifier: "com.sdvedutech.surveymobile",
       icon: "./assets/expo.icon",
+      config: {
+        googleMapsApiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY,
+      },
       ...(cleartext
         ? {
             infoPlist: {
@@ -39,6 +42,11 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     },
     android: {
       package: "com.sdvedutech.surveymobile",
+      config: {
+        googleMaps: {
+          apiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY,
+        },
+      },
       adaptiveIcon: {
         backgroundColor: "#E6F4FE",
         foregroundImage: "./assets/images/android-icon-foreground.png",
@@ -57,9 +65,9 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       [
         "expo-splash-screen",
         {
-          backgroundColor: "#208AEF",
-          image: "./assets/images/splash-icon.png",
-          imageWidth: 76,
+          backgroundColor: "#FFFFFF",
+          image: "./assets/logo.png",
+          imageWidth: 240,
         },
       ],
       "expo-secure-store",

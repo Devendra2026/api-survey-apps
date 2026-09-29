@@ -1,4 +1,4 @@
-import { Button, Screen, StatusView, Text, cardStyle } from "@/components/ui"
+import { Screen, StatusView, Text, cardStyle } from "@/components/ui"
 import { getApiErrorMessage, isApiClientError } from "@/services/api/client"
 import { reopenSurvey, submitSurvey } from "@/services/api/surveys"
 import { colors, radius, spacing } from "@/theme"
@@ -9,21 +9,30 @@ import { Alert, Pressable, ScrollView, StyleSheet, View } from "react-native"
 import { useInvalidateSurveyLists, useRecordCache, useSurveyRecord } from "../hooks/queries"
 import { useSurveyAutosave } from "../hooks/use-survey-autosave"
 import { fieldBucket, isAlreadySubmittedError, isFieldEditable, needsReopenBeforeEdit } from "../lib/lifecycle"
+import {
+  canAdvanceFromStep,
+  nextStepId,
+  overallCompletionPercent,
+  previousStepId,
+} from "../lib/navigation"
 import { clearPendingPatch } from "../lib/pending-store"
 import {
   STEP_IDS,
   STEP_TITLES,
+  mobileFieldRequirements,
   stepForRemarkSection,
   stepForServerMessage,
   stepProgress,
-  submitRequirements,
   type StepId,
   type SurveySnapshot,
 } from "../lib/requirements"
+import { previewPropertyId } from "../lib/property-identity"
 import { hasUnsyncedChanges } from "../lib/sync-state"
 import { CorrectionPanel } from "../ui/CorrectionPanel"
+import { ReviewSection } from "../ui/ReviewSection"
+import { BottomActionBar, SurveyHeader, ValidationBanner } from "../ui/SurveyChrome"
 import { SurveyStepBody } from "../ui/SurveyStepBody"
-import { StatusBadge, StepChips, SyncChip } from "../ui/primitives"
+import { StepChips } from "../ui/primitives"
 
 export function SurveyWizard({
   surveyId,
@@ -44,15 +53,28 @@ export function SurveyWizard({
   const autosave = useSurveyAutosave({ userId: profile.id, record, enabled: editable })
   const [step, setStep] = useState<StepId>(initialStep ?? "start")
   const [submitting, setSubmitting] = useState(false)
+  const [savingDraft, setSavingDraft] = useState(false)
   const [reopening, setReopening] = useState(false)
   const [serverErrors, setServerErrors] = useState<string[]>([])
+  const [navHint, setNavHint] = useState<string | null>(null)
   const submitLockRef = useRef(false)
   const scrollRef = useRef<ScrollView>(null)
 
   const snapshot = useMemo<SurveySnapshot | null>(() => {
     if (!record || !autosave.fields) return null
+    const preview = previewPropertyId({
+      ulbCode: record.ulbCode ?? record.ulb?.code,
+      wardNo: record.ward?.wardNumber,
+      currentWard: record.ward,
+      originalWard: record.originalWard,
+      storedWardNumber: record.wardNumber,
+      parcelNo: autosave.fields.parcelNumber,
+      unitNo: autosave.fields.unitSubNo,
+      propertyUse: autosave.fields.propertyUse,
+    })
     return {
       ...autosave.fields,
+      propertyId: preview ?? autosave.fields.propertyId,
       wardLabel: record.ward ? `${record.ward.wardNumber} · ${record.ward.wardName}` : null,
       floorCount: record.floors.length,
       coOwnerCount: record.coOwners.length,
@@ -61,10 +83,12 @@ export function SurveyWizard({
   }, [record, autosave.fields])
 
   const progress = useMemo(() => (snapshot ? stepProgress(snapshot) : null), [snapshot])
-  const requirements = useMemo(() => (snapshot ? submitRequirements(snapshot) : []), [snapshot])
+  const requirements = useMemo(() => (snapshot ? mobileFieldRequirements(snapshot) : []), [snapshot])
+  const completionPercent = useMemo(() => (progress ? overallCompletionPercent(progress) : 0), [progress])
 
   const goTo = useCallback(
     (next: StepId) => {
+      setNavHint(null)
       void autosave.flush()
       setStep(next)
       scrollRef.current?.scrollTo({ y: 0, animated: false })
@@ -87,15 +111,35 @@ export function SurveyWizard({
     }
   }
 
+  const saveDraft = async () => {
+    if (!editable || savingDraft) return
+    setSavingDraft(true)
+    setNavHint(null)
+    try {
+      const synced = await autosave.flush()
+      if (!synced) {
+        Alert.alert(
+          "Draft saved on this device",
+          "Could not reach the server. Your changes are kept locally and will sync when you are back online.",
+        )
+      }
+    } finally {
+      setSavingDraft(false)
+    }
+  }
+
   const submit = async () => {
     if (!record || submitLockRef.current) return
     if (requirements.length > 0) {
+      const sections = [...new Set(requirements.map((r) => r.step))]
       setStep(requirements[0]!.step)
+      setNavHint(`Please complete the required fields before submitting. ${sections.join(", ")}`)
       return
     }
     submitLockRef.current = true
     setSubmitting(true)
     setServerErrors([])
+    setNavHint(null)
     try {
       const synced = await autosave.flush()
       if (!synced) {
@@ -113,7 +157,6 @@ export function SurveyWizard({
     } catch (e) {
       const message = getApiErrorMessage(e, "Submission failed")
       if (isAlreadySubmittedError(message)) {
-        // A previous attempt reached the server (e.g. response lost on a flaky network).
         await recordQuery.refetch()
         invalidateLists()
         router.replace({ pathname: "/(app)/survey", params: { submitted: record.id } })
@@ -158,6 +201,15 @@ export function SurveyWizard({
   const isLast = index === STEP_IDS.length - 1
   const stepMissing = progress[step].missing
   const unsynced = hasUnsyncedChanges(autosave.status) || autosave.hasPending
+  const nextId = nextStepId(step)
+  const prevId = previousStepId(step)
+  const forwardGate = progress ? canAdvanceFromStep(step, progress) : { allowed: true as const }
+  const nextDisabledReason =
+    navHint ??
+    (!forwardGate.allowed ? forwardGate.reason : null) ??
+    (isLast && requirements.length > 0
+      ? `Complete before submit: ${requirements.map((r) => r.message).join("; ")}`
+      : null)
 
   const leave = () => {
     void autosave.flush()
@@ -165,27 +217,32 @@ export function SurveyWizard({
     else router.replace("/(app)/survey")
   }
 
+  const wardLine = `${snapshot.wardLabel ? `Ward ${snapshot.wardLabel}` : "Ward —"}${record.ulb ? ` · ${record.ulb.name}` : ""
+    }`
+
   return (
     <Screen padded={false} keyboard>
-      <View style={styles.header}>
-        <View style={styles.headerRow}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={leave} style={styles.back}>
-            <Text variant="bodyStrong" tone="primary">
-              ‹ Back
-            </Text>
-          </Pressable>
-          {editable ? <SyncChip status={autosave.status} onRetry={autosave.retry} /> : <StatusBadge bucket={bucket} />}
-        </View>
-        <Text variant="heading" numberOfLines={1}>
-          {autosave.fields.propertyId}
-        </Text>
-        <View style={styles.headerRow}>
-          <Text variant="caption" tone="secondary" numberOfLines={1} style={styles.flex}>
-            {snapshot.wardLabel ? `Ward ${snapshot.wardLabel}` : "Ward —"}
-            {record.ulb ? ` · ${record.ulb.name}` : ""}
-          </Text>
-          {editable ? <StatusBadge bucket={bucket} /> : null}
-        </View>
+      <SurveyHeader
+        propertyId={previewPropertyId({
+          ulbCode: record.ulbCode ?? record.ulb?.code,
+          wardNo: record.ward?.wardNumber,
+          currentWard: record.ward,
+          originalWard: record.originalWard,
+          storedWardNumber: record.wardNumber,
+          parcelNo: autosave.fields.parcelNumber,
+          unitNo: autosave.fields.unitSubNo,
+          propertyUse: autosave.fields.propertyUse,
+        }) ?? "Property ID pending"}
+        wardLine={wardLine}
+        step={step}
+        completionPercent={completionPercent}
+        editable={editable}
+        bucket={bucket}
+        syncStatus={autosave.status}
+        onBack={leave}
+        onRetrySync={autosave.retry}
+      />
+      <View style={styles.chipsWrap}>
         <StepChips steps={STEP_IDS} current={step} progress={progress} onSelect={goTo} />
       </View>
 
@@ -193,6 +250,7 @@ export function SurveyWizard({
         ref={scrollRef}
         contentContainerStyle={styles.body}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
       >
         {bucket === "needsCorrection" ? (
@@ -215,15 +273,19 @@ export function SurveyWizard({
           </View>
         ) : null}
         {serverErrors.length ? (
-          <View style={styles.serverErrors}>
-            <Text variant="label" tone="danger">
-              Server rejected submission
-            </Text>
+          <ValidationBanner title="Server rejected submission">
             {serverErrors.map((m) => (
               <Text key={m} variant="caption" tone="danger">
                 • {m}
               </Text>
             ))}
+          </ValidationBanner>
+        ) : null}
+        {stepMissing.length && editable && !isLast ? (
+          <View style={styles.stepHints}>
+            <Text variant="caption" tone="secondary">
+              Required for submit on this step: {stepMissing.join(", ")}
+            </Text>
           </View>
         ) : null}
         <SurveyStepBody
@@ -235,100 +297,92 @@ export function SurveyWizard({
           editable={editable}
           setFields={autosave.setFields}
         />
-        {isLast && editable ? (
-          <View style={[cardStyle, styles.checklist]}>
-            <Text variant="heading">Ready to submit?</Text>
-            {requirements.length === 0 ? (
-              <Text variant="body" style={{ color: colors.success }}>
-                All required items are complete.
-              </Text>
-            ) : (
-              requirements.map((r) => (
-                <Pressable key={r.message} onPress={() => goTo(r.step)} style={styles.reqRow} accessibilityRole="link">
-                  <Text variant="caption" tone="danger" style={styles.flex}>
-                    • {r.message}
-                  </Text>
-                  <Text variant="caption" tone="primary">
-                    {STEP_TITLES[r.step]} ›
-                  </Text>
-                </Pressable>
-              ))
-            )}
-          </View>
+        {isLast ? (
+          <>
+            <ReviewSection
+              snapshot={snapshot}
+              record={record}
+              editable={editable}
+              onEdit={(target) => goTo(target)}
+            />
+            <View style={[cardStyle, styles.checklist]}>
+              <Text variant="heading">Ready to submit?</Text>
+              {requirements.length === 0 ? (
+                <Text variant="body" style={{ color: colors.success }}>
+                  All required items are complete.
+                </Text>
+              ) : (
+                requirements.map((r) => (
+                  <Pressable key={r.message} onPress={() => goTo(r.step)} style={styles.reqRow} accessibilityRole="link">
+                    <Text variant="caption" tone="danger" style={styles.flex}>
+                      • {r.message}
+                    </Text>
+                    <Text variant="caption" tone="primary">
+                      {STEP_TITLES[r.step]} ›
+                    </Text>
+                  </Pressable>
+                ))
+              )}
+            </View>
+          </>
         ) : null}
       </ScrollView>
 
-      <View style={styles.footer}>
-        {stepMissing.length && !isLast && editable ? (
-          <Text variant="caption" tone="secondary" numberOfLines={1}>
-            Required later: {stepMissing.join(", ")}
-          </Text>
-        ) : null}
-        <View style={styles.footerRow}>
-          <Button
-            title="Back"
-            variant="secondary"
-            disabled={index === 0}
-            onPress={() => goTo(STEP_IDS[Math.max(0, index - 1)]!)}
-            style={styles.flex}
-          />
-          {isLast ? (
-            editable ? (
-              <Button
-                title={bucket === "needsCorrection" ? "Resubmit for QC" : "Submit for QC"}
-                loading={submitting}
-                disabled={requirements.length > 0 || submitting}
-                onPress={() => void submit()}
-                style={styles.flex2}
-              />
-            ) : (
-              <Button title="Done" onPress={leave} style={styles.flex2} />
-            )
-          ) : (
-            <Button title="Next" onPress={() => goTo(STEP_IDS[index + 1]!)} style={styles.flex2} />
-          )}
-        </View>
-        {isLast && editable && unsynced && requirements.length === 0 ? (
-          <Text variant="caption" tone="secondary">
-            Pending edits are synced before submission.
-          </Text>
-        ) : null}
-      </View>
+      <BottomActionBar
+        canGoBack={Boolean(prevId)}
+        canGoNext={isLast ? requirements.length === 0 : Boolean(nextId) && forwardGate.allowed}
+        nextDisabledReason={nextDisabledReason}
+        nextTitle={
+          isLast
+            ? bucket === "needsCorrection"
+              ? "Resubmit for review"
+              : "Submit for Review"
+            : `Next: ${nextId ? STEP_TITLES[nextId] : ""}`
+        }
+        editable={editable}
+        isLast={isLast}
+        submitting={submitting}
+        savingDraft={savingDraft}
+        onBack={() => {
+          if (prevId) goTo(prevId)
+        }}
+        onSaveDraft={() => void saveDraft()}
+        onNext={() => {
+          if (!forwardGate.allowed) {
+            setNavHint(forwardGate.reason)
+            return
+          }
+          if (nextId) goTo(nextId)
+        }}
+        onSubmit={() => void submit()}
+        onDone={leave}
+      />
+      {isLast && editable && unsynced && requirements.length === 0 ? (
+        <Text variant="caption" tone="secondary" style={styles.syncNote}>
+          Pending edits are synced before submission.
+        </Text>
+      ) : null}
     </Screen>
   )
 }
 
 const styles = StyleSheet.create({
-  header: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-    gap: spacing.xs,
+  chipsWrap: {
     backgroundColor: colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+    paddingHorizontal: spacing.lg,
   },
-  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
-  back: { minHeight: 44, justifyContent: "center", paddingRight: spacing.md },
   body: { padding: spacing.lg, paddingBottom: spacing.xxxl },
   notice: { marginBottom: spacing.lg, padding: spacing.lg },
-  serverErrors: {
-    gap: spacing.xs,
-    padding: spacing.lg,
-    marginBottom: spacing.lg,
-    borderRadius: radius.md,
-    backgroundColor: colors.dangerMuted,
+  stepHints: {
+    marginBottom: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surfaceMuted,
   },
   checklist: { gap: spacing.sm, marginBottom: spacing.lg },
   reqRow: { flexDirection: "row", alignItems: "center", minHeight: 36, gap: spacing.sm },
-  footer: {
-    gap: spacing.xs,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    backgroundColor: colors.surface,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  footerRow: { flexDirection: "row", gap: spacing.md },
   flex: { flex: 1 },
-  flex2: { flex: 2 },
+  syncNote: { textAlign: "center", paddingBottom: spacing.sm, backgroundColor: colors.surface },
 })

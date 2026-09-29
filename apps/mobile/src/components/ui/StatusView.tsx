@@ -1,4 +1,5 @@
 import { colors, radius, spacing } from "@/theme";
+import { Image } from "expo-image";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Button } from "./Button";
 import { Text } from "./Text";
@@ -26,23 +27,31 @@ export function StatusView({
 }: Props) {
   return (
     <View style={styles.wrap}>
-      <View
-        style={[
-          styles.badge,
-          variant === "pending" && styles.badgePending,
-          variant === "disabled" && styles.badgeDanger,
-          variant === "error" && styles.badgeDanger,
-          variant === "empty" && styles.badgeMuted,
-        ]}
-      >
-        {variant === "loading" ? (
+      {variant === "loading" ? (
+        <View style={styles.brand}>
+          <Image
+            source={require("../../../assets/logo.png")}
+            style={styles.logo}
+            contentFit="contain"
+            accessibilityLabel="SDV EduTech"
+          />
           <ActivityIndicator color={colors.primary} size="large" />
-        ) : (
+        </View>
+      ) : (
+        <View
+          style={[
+            styles.badge,
+            variant === "pending" && styles.badgePending,
+            variant === "disabled" && styles.badgeDanger,
+            variant === "error" && styles.badgeDanger,
+            variant === "empty" && styles.badgeMuted,
+          ]}
+        >
           <Text variant="heading" tone={variant === "disabled" || variant === "error" ? "danger" : "primary"}>
             {variant === "pending" ? "…" : variant === "disabled" ? "!" : "i"}
           </Text>
-        )}
-      </View>
+        </View>
+      )}
       <Text variant="heading" style={styles.title}>
         {title}
       </Text>
@@ -70,6 +79,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: spacing.lg,
     paddingHorizontal: spacing.xl,
+  },
+  brand: {
+    alignItems: "center",
+    gap: spacing.lg,
+    marginBottom: spacing.sm,
+  },
+  logo: {
+    width: 220,
+    height: 78,
   },
   badge: {
     width: 64,

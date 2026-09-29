@@ -1,10 +1,13 @@
 import { Button, Text } from "@/components/ui"
 import { getApiErrorMessage } from "@/services/api/client"
-import { createCoOwner, createFloor, deleteCoOwner, deleteFloor } from "@/services/api/surveys"
+import { createCoOwner, createFloor, deleteCoOwner, deleteFloor, updateFloor } from "@/services/api/surveys"
 import { colors, radius, spacing } from "@/theme"
+import { sqFtToSqMeter } from "@workspace/validation"
 import { useState } from "react"
-import { Alert, StyleSheet, View } from "react-native"
+import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native"
+import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { useRecordCache } from "../hooks/queries"
+import { missingFloorFields } from "../lib/floor-draft"
 import { optionLabel } from "../lib/labels"
 import {
   CONSTRUCTION_TYPES,
@@ -18,13 +21,20 @@ import {
   type UsageFactor,
   type UsageType,
 } from "../types"
-import { BoundNumberField, BoundTextField, OptionChips } from "./primitives"
+import { BoundNumberField, BoundTextField } from "./primitives"
+import { CatalogSelect, EnumSelect } from "./SurveySelect"
 
 function confirmDelete(title: string, onConfirm: () => void) {
   Alert.alert(title, "This cannot be undone.", [
     { text: "Cancel", style: "cancel" },
     { text: "Delete", style: "destructive", onPress: onConfirm },
   ])
+}
+
+function floorArea(value: SurveyFloor["areaSqFt"]): number | null {
+  if (value === null) return null
+  const n = typeof value === "number" ? value : Number(value)
+  return Number.isFinite(n) ? n : null
 }
 
 export function FloorsEditor({
@@ -37,7 +47,9 @@ export function FloorsEditor({
   editable: boolean
 }) {
   const recordCache = useRecordCache()
-  const [adding, setAdding] = useState(false)
+  const insets = useSafeAreaInsets()
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
   const [position, setPosition] = useState<FloorPosition | null>(null)
   const [usageFactor, setUsageFactor] = useState<UsageFactor | null>(null)
   const [usageType, setUsageType] = useState<UsageType | null>(null)
@@ -47,7 +59,8 @@ export function FloorsEditor({
   const [error, setError] = useState<string | null>(null)
 
   const reset = () => {
-    setAdding(false)
+    setOpen(false)
+    setEditingId(null)
     setPosition(null)
     setUsageFactor(null)
     setUsageType(null)
@@ -56,26 +69,71 @@ export function FloorsEditor({
     setError(null)
   }
 
+  const openNew = () => {
+    setEditingId(null)
+    setPosition(null)
+    setUsageFactor(null)
+    setUsageType(null)
+    setConstruction(null)
+    setArea(null)
+    setError(null)
+    setOpen(true)
+  }
+
+  const openEdit = (floor: SurveyFloor) => {
+    setEditingId(floor.id)
+    setPosition(floor.floorPosition)
+    setUsageFactor(floor.usageFactor)
+    setUsageType(floor.usageType)
+    setConstruction(floor.constructionType)
+    setArea(floorArea(floor.areaSqFt))
+    setError(null)
+    setOpen(true)
+  }
+
+  const missing = missingFloorFields({
+    position,
+    area,
+    usageFactor,
+    usageType,
+    construction,
+  })
+  const ready = missing.length === 0
+  const areaSqMeter = area === null ? null : sqFtToSqMeter(area)
+
+  const rememberFloor = (floor: SurveyFloor) => {
+    recordCache.update(surveyId, (current) => {
+      const exists = current.floors.some((row) => row.id === floor.id)
+      return {
+        ...current,
+        floors: exists ? current.floors.map((row) => (row.id === floor.id ? floor : row)) : [...current.floors, floor],
+      }
+    })
+  }
+
   const save = async () => {
-    if (!position || !usageFactor || !construction) {
-      setError("Floor position, usage and construction type are required")
+    if (!position || !usageFactor || !usageType || !construction || area === null || !ready) {
+      setError(missing.join(" "))
       return
     }
     setBusy(true)
     setError(null)
+    const body = {
+      floorPosition: position,
+      usageFactor,
+      usageType,
+      constructionType: construction,
+      areaSqFt: area,
+    }
     try {
-      const floor = await createFloor({
-        surveyId,
-        floorPosition: position,
-        usageFactor,
-        constructionType: construction,
-        ...(usageType ? { usageType } : {}),
-        ...(area !== null ? { areaSqFt: area } : {}),
-      })
-      recordCache.update(surveyId, (r) => ({ ...r, floors: [...r.floors, floor] }))
+      if (editingId) {
+        rememberFloor(await updateFloor(editingId, body))
+      } else {
+        rememberFloor(await createFloor({ surveyId, ...body }))
+      }
       reset()
     } catch (e) {
-      setError(getApiErrorMessage(e, "Could not add floor. Check your connection and try again."))
+      setError(getApiErrorMessage(e, "Could not save floor. Check your connection and try again."))
     } finally {
       setBusy(false)
     }
@@ -90,7 +148,7 @@ export function FloorsEditor({
 
   return (
     <View style={styles.wrap}>
-      <Text variant="label">Floors *</Text>
+      <Text variant="label">Built-up floors *</Text>
       {floors.length === 0 ? (
         <Text variant="caption" tone="secondary">
           No floors yet. At least one floor is required to submit.
@@ -106,34 +164,101 @@ export function FloorsEditor({
               {floor.areaSqFt !== null ? ` · ${String(floor.areaSqFt)} sq ft` : ""}
             </Text>
           </View>
-          {editable ? <Button title="Delete" variant="ghost" onPress={() => remove(floor)} /> : null}
+          {editable ? (
+            <View style={styles.actions}>
+              <Button title="Edit" variant="ghost" onPress={() => openEdit(floor)} />
+              <Button title="Delete" variant="ghost" onPress={() => remove(floor)} />
+            </View>
+          ) : null}
         </View>
       ))}
-      {editable && adding ? (
-        <View style={styles.form}>
-          <OptionChips label="Floor" options={FLOOR_POSITIONS} value={position} onChange={setPosition} required />
-          <OptionChips label="Usage" options={USAGE_FACTORS} value={usageFactor} onChange={setUsageFactor} required />
-          <OptionChips label="Occupancy" options={USAGE_TYPES} value={usageType} onChange={setUsageType} />
-          <OptionChips
-            label="Construction"
-            options={CONSTRUCTION_TYPES}
-            value={construction}
-            onChange={setConstruction}
-            required
-          />
-          <BoundNumberField label="Area (sq ft)" value={area} onCommit={setArea} />
-          {error ? (
-            <Text variant="caption" tone="danger">
-              {error}
-            </Text>
-          ) : null}
-          <View style={styles.actions}>
-            <Button title="Cancel" variant="secondary" onPress={reset} style={styles.flex} />
-            <Button title="Save floor" loading={busy} onPress={() => void save()} style={styles.flex} />
-          </View>
-        </View>
+      {editable ? (
+        <Button
+          title="+ Add floor"
+          variant="secondary"
+          accessibilityLabel="Add built-up floor"
+          onPress={openNew}
+        />
       ) : null}
-      {editable && !adding ? <Button title="+ Add floor" variant="secondary" onPress={() => setAdding(true)} /> : null}
+      <Modal visible={open} animationType="slide" transparent onRequestClose={reset}>
+        <KeyboardAvoidingView
+          style={styles.sheetHost}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <Pressable accessibilityLabel="Close floor form" style={styles.sheetDismiss} onPress={reset} />
+          <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, spacing.lg) }]}>
+            <View style={styles.handle} />
+            <Text variant="heading">{editingId ? "Edit floor" : "Add floor"}</Text>
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.sheetBody}>
+              <EnumSelect
+                label="Floor no."
+                required
+                presentation="inline"
+                options={FLOOR_POSITIONS}
+                value={position}
+                onChange={setPosition}
+              />
+              <BoundNumberField label="Floor area (sq ft)" required value={area} onCommit={setArea} />
+              {areaSqMeter !== null && areaSqMeter !== undefined ? (
+                <Text variant="caption" tone="secondary">
+                  {String(areaSqMeter)} sq m
+                </Text>
+              ) : null}
+              <CatalogSelect
+                category="USAGE_FACTOR"
+                allowed={USAGE_FACTORS}
+                label="Usage factor"
+                required
+                presentation="inline"
+                value={usageFactor}
+                onChange={setUsageFactor}
+              />
+              <CatalogSelect
+                category="USAGE_TYPE"
+                allowed={USAGE_TYPES}
+                label="Usage type"
+                required
+                presentation="inline"
+                value={usageType}
+                onChange={setUsageType}
+              />
+              <CatalogSelect
+                category="CONSTRUCTION_TYPE"
+                allowed={CONSTRUCTION_TYPES}
+                label="Construction type"
+                required
+                presentation="inline"
+                value={construction}
+                onChange={setConstruction}
+              />
+              {missing.length > 0 ? (
+                <View>
+                  {missing.map((message) => (
+                    <Text key={message} variant="caption" tone="danger">
+                      {message}
+                    </Text>
+                  ))}
+                </View>
+              ) : null}
+              {error ? (
+                <Text variant="caption" tone="danger">
+                  {error}
+                </Text>
+              ) : null}
+            </ScrollView>
+            <View style={styles.actions}>
+              <Button title="Cancel" variant="secondary" onPress={reset} style={styles.flex} />
+              <Button
+                title={editingId ? "Save floor" : "Add"}
+                loading={busy}
+                disabled={!ready || busy}
+                onPress={() => void save()}
+                style={styles.flex}
+              />
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   )
 }
@@ -256,6 +381,25 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  sheetHost: { flex: 1, justifyContent: "flex-end" },
+  sheetDismiss: { flex: 1 },
+  sheet: {
+    maxHeight: "88%",
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    backgroundColor: colors.surface,
+  },
+  sheetBody: { gap: spacing.lg, paddingBottom: spacing.lg },
+  handle: {
+    alignSelf: "center",
+    width: 40,
+    height: 4,
+    borderRadius: radius.full,
+    backgroundColor: colors.border,
   },
   actions: { flexDirection: "row", gap: spacing.md },
   flex: { flex: 1 },

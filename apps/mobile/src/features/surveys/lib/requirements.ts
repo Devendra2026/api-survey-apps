@@ -1,4 +1,5 @@
 import type { PhotoType, SurveyEditableFields } from "../types.ts"
+import { parcelNumberError, unitNumberError } from "./field-format.ts"
 
 export const STEP_IDS = [
   "start",
@@ -59,7 +60,27 @@ export function submitRequirements(s: SurveySnapshot): Requirement[] {
     out.push({ step: "gps", message: "GPS coordinates required" })
   }
   if (!s.uploadedPhotoTypes.includes("FRONT")) {
-    out.push({ step: "photos", message: "Front view photo required" })
+    out.push({ step: "photos", message: "Front photo is required." })
+  }
+  return out
+}
+
+/**
+ * Field-survey gates on top of the API submit rules.
+ * Parcel, unit, relationship, and side photo are required in the mobile wizard.
+ * The API still accepts a draft without them; submission from the app does not.
+ */
+export function mobileFieldRequirements(s: SurveySnapshot): Requirement[] {
+  const out = submitRequirements(s)
+  const parcelError = parcelNumberError(s.parcelNumber)
+  if (parcelError) out.push({ step: "property", message: parcelError })
+  const unitError = unitNumberError(s.unitSubNo)
+  if (unitError) out.push({ step: "property", message: unitError })
+  if (!filled(s.relationshipWithOwner)) {
+    out.push({ step: "owner", message: "Relationship with owner is required." })
+  }
+  if (!s.uploadedPhotoTypes.includes("SIDE")) {
+    out.push({ step: "photos", message: "Side photo is required." })
   }
   return out
 }
@@ -78,7 +99,7 @@ export type StepProgress = { filled: number; total: number; missing: string[] }
 
 /** Informational completeness per section; only `missing` (from submit rules) blocks submission. */
 export function stepProgress(s: SurveySnapshot): Record<StepId, StepProgress> {
-  const requirements = submitRequirements(s)
+  const requirements = mobileFieldRequirements(s)
   const missingFor = (step: StepId) => requirements.filter((r) => r.step === step).map((r) => r.message)
 
   const result = {} as Record<StepId, StepProgress>
@@ -90,7 +111,12 @@ export function stepProgress(s: SurveySnapshot): Record<StepId, StepProgress> {
     }
     if (step === "photos") {
       const distinct = new Set(s.uploadedPhotoTypes)
-      result.photos = { filled: distinct.size, total: 4, missing: missingFor("photos") }
+      const required: PhotoType[] = ["FRONT", "SIDE"]
+      result.photos = {
+        filled: required.filter((type) => distinct.has(type)).length,
+        total: required.length,
+        missing: missingFor("photos"),
+      }
       continue
     }
     const fields = STEP_FIELDS[step]

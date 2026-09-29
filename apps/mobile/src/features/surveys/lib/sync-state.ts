@@ -38,18 +38,28 @@ export function syncReducer(state: SyncStatus, event: SyncEvent): SyncStatus {
 
 export type SyncChipTone = "neutral" | "progress" | "success" | "warning" | "danger"
 
+function formatSavedAt(at: number): string {
+  try {
+    return new Date(at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+  } catch {
+    return ""
+  }
+}
+
 export function syncChip(state: SyncStatus): { label: string; tone: SyncChipTone; canRetry: boolean } {
   switch (state.kind) {
     case "idle":
       return { label: "Saved", tone: "neutral", canRetry: false }
     case "dirty":
-      return { label: "Saved on device", tone: "neutral", canRetry: false }
+      return { label: "Pending save…", tone: "neutral", canRetry: false }
     case "saving":
-      return { label: "Syncing…", tone: "progress", canRetry: false }
-    case "synced":
-      return { label: "Synced", tone: "success", canRetry: false }
+      return { label: "Saving…", tone: "progress", canRetry: false }
+    case "synced": {
+      const time = formatSavedAt(state.at)
+      return { label: time ? `Saved ${time}` : "Saved", tone: "success", canRetry: false }
+    }
     case "offline":
-      return { label: "Offline · saved on device", tone: "warning", canRetry: true }
+      return { label: "Offline saved locally", tone: "warning", canRetry: true }
     case "failed":
       return { label: "Sync failed", tone: "danger", canRetry: true }
     default: {

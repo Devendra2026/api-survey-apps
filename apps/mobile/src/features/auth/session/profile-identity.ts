@@ -6,11 +6,24 @@
 
 export const SESSION_MESSAGES = {
   sessionExpired: "Authentication session expired. Please sign in again.",
+  /** Clerk reports signed-in but getToken() never returned a JWT (hydration race / broken cache). */
+  sessionTokenUnavailable: "Could not obtain a session token. Tap Retry, or Sign out and sign in again.",
+  /**
+   * Nest rejected the Clerk JWT (wrong instance, web-only CLERK_AUTHORIZED_PARTIES / azp,
+   * or a genuinely invalid token). Distinct from "session expired" so operators diagnose correctly.
+   */
+  apiTokenRejected:
+    "The server rejected this session token. Sign out and sign in again. If this continues, ask an administrator to confirm the API uses the same Clerk instance as this app and that CLERK_AUTHORIZED_PARTIES allows mobile sessions.",
   profileUnavailable: "Your account profile could not be loaded. Please try again.",
   identityRefreshing: "Your authentication session and application profile do not match. Refreshing your profile...",
   identityMismatch:
     "Your authentication session and application profile do not match. Sign out and sign in again, or contact an administrator.",
 } as const
+
+/** Nest/Clerk auth failures that are not a clean "please sign in again" UX. */
+export function isApiTokenRejectedMessage(message: string): boolean {
+  return /invalid or expired token|missing bearer token/i.test(message.trim())
+}
 
 /**
  * The current Clerk userId is authoritative. A profile matches only when its clerkUserId equals it,

@@ -30,6 +30,7 @@ import {
 import {
   SESSION_MESSAGES,
   formatIdentityDiagnostics,
+  isApiTokenRejectedMessage,
   isProfileRequestCurrent,
   isTransientTokenUserMismatch,
   profileCacheKey,
@@ -76,10 +77,6 @@ function isMissingBearerError(error: unknown): boolean {
     return false;
   }
   return /missing bearer token/i.test(error.message);
-}
-
-function isExpiredSessionMessage(message: string): boolean {
-  return /invalid or expired token|missing bearer token/i.test(message);
 }
 
 function clerkPhone(user: {
@@ -357,11 +354,12 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
           return;
         }
         if (!token) {
+          // Signed in according to Clerk hooks, but no JWT yet — not the same as an expired session.
           authLog("AUTH", "No Clerk session token within timeout");
           failTransient(
             __DEV__
-              ? `${SESSION_MESSAGES.sessionExpired} (API: ${getApiBaseUrl()})`
-              : SESSION_MESSAGES.sessionExpired,
+              ? `${SESSION_MESSAGES.sessionTokenUnavailable} (API: ${getApiBaseUrl()})`
+              : SESSION_MESSAGES.sessionTokenUnavailable,
           );
           return;
         }
@@ -372,7 +370,7 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
             expectedClerkUserId,
             tokenSubject: tokenSubjectFromJwt,
             profile: null,
-            navigationState: "error:session_expired",
+            navigationState: "error:session_token_mismatch",
           });
           setProfileGate({ status: "error", message: SESSION_MESSAGES.sessionExpired });
           return;
@@ -494,12 +492,15 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
             await clerkSignOut();
             return;
           }
+          // Preserve Nest business copy (disabled / email linked / resolve failures).
+          // Map generic JWT verification failures to apiTokenRejected — not "session expired".
+          const nextMessage =
+            !message || isApiTokenRejectedMessage(message)
+              ? SESSION_MESSAGES.apiTokenRejected
+              : message;
           setProfileGate({
             status: "error",
-            message:
-              !message || isExpiredSessionMessage(message)
-                ? SESSION_MESSAGES.sessionExpired
-                : message,
+            message: nextMessage,
           });
           return;
         }
@@ -689,14 +690,31 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const refresh = useCallback(async () => {
+    if (!isLoaded) {
+      return;
+    }
+    if (!isSignedIn || !sessionUserIdRef.current) {
+      // Retry with no usable Clerk session → signed-out path (index redirects to login).
+      requestIdRef.current += 1;
+      mismatchRefetchRef.current = null;
+      setTokenSubject(null);
+      setProfileGate({ status: "idle" });
+      authLog("AUTH", "Retry with no Clerk session — clearing profile gate");
+      return;
+    }
+    // One profile reload with a fresh token alignment pass. No infinite loop.
+    await fetchProfile();
+  }, [isLoaded, isSignedIn, fetchProfile]);
+
   const value = useMemo(
     () => ({
       state,
-      refresh: fetchProfile,
+      refresh,
       signOut,
       submitRequestedRole,
     }),
-    [state, fetchProfile, signOut, submitRequestedRole],
+    [state, refresh, signOut, submitRequestedRole],
   );
 
   return (

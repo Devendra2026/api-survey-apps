@@ -87,6 +87,14 @@ Mobile never auto-assigns SURVEYOR. Role and geography are granted only via the 
 
 After Clerk sign-in the app calls Nest `GET /users/me` with the session JWT. Failures show **Unable to continue** with a status-specific message (no longer a blanket “server temporarily unavailable” for every 5xx).
 
+Important distinctions:
+
+| Message                                 | Meaning                                                                                                                                                       |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Authentication session expired…         | Clerk session / JWT subject is unusable after rotation retries                                                                                                |
+| Could not obtain a session token…       | Clerk still reports signed-in but `getToken()` returned nothing — Retry or Sign out                                                                           |
+| The server rejected this session token… | Nest 401 `Invalid or expired token` / missing bearer — often **wrong Clerk instance** or web-only `CLERK_AUTHORIZED_PARTIES` (not a soft “session timed out”) |
+
 Checklist:
 
 1. Nest API is running (`pnpm --filter api dev`) and reachable — Android emulator: `EXPO_PUBLIC_API_URL=http://10.0.2.2:4000`.

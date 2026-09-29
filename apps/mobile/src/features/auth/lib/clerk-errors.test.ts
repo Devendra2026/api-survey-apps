@@ -89,5 +89,6 @@ describe("unauthorized native redirect copy", () => {
 
   it("maps redirect_uri_mismatch to the admin allowlist message", () => {
     assert.equal(messageForClerkCode("redirect_uri_mismatch"), UNAUTHORIZED_NATIVE_REDIRECT_MESSAGE)
+    assert.match(UNAUTHORIZED_NATIVE_REDIRECT_MESSAGE, /mobile:\/\/sso-callback/)
   })
 })

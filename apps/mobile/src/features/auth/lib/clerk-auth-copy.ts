@@ -7,7 +7,7 @@ export const INVALID_VERIFICATION_CODE_MESSAGE = "Invalid verification code. Ple
 export const EXPIRED_VERIFICATION_CODE_MESSAGE = "Verification code expired. Request a new code."
 
 export const UNAUTHORIZED_NATIVE_REDIRECT_MESSAGE =
-  "Google sign-in is not fully configured for this app build. Ask an administrator to allowlist the mobile SSO redirect URI in the Clerk Dashboard (Native applications)."
+  "Google sign-in is not fully configured for this app build. Ask an administrator to allowlist the exact SSO redirect URI mobile://sso-callback in the Clerk Dashboard (Native applications → Allowlist for mobile SSO redirect) for the same Clerk instance as this build."
 
 const PASSWORD_UNAVAILABLE_GOOGLE_MESSAGE =
   "Password authentication is not available for this account. Try signing in with Google."

@@ -3,11 +3,13 @@ import { describe, it } from "node:test"
 import { canEnterAppHome, resolveAppHomeHref, type AuthenticatedProfile, type TenantRole } from "../../../types/user.ts"
 import {
   formatIdentityDiagnostics,
+  isApiTokenRejectedMessage,
   isProfileRequestCurrent,
   isTransientTokenUserMismatch,
   profileCacheKey,
   profileMatchesSession,
   resolveSsoSessionId,
+  SESSION_MESSAGES,
   shouldAutoSignOutOnProfile401,
   shouldCommitProfileResponse,
 } from "./profile-identity.ts"
@@ -209,6 +211,16 @@ describe("shouldAutoSignOutOnProfile401", () => {
 
   it("never auto-signs-out on generic 401 (keep session for Retry / Sign out)", () => {
     assert.equal(shouldAutoSignOutOnProfile401("Invalid or expired token"), false)
+  })
+})
+
+describe("session error classification", () => {
+  it("treats Nest JWT verification copy as API token rejection, not a vague expiry", () => {
+    assert.equal(isApiTokenRejectedMessage("Invalid or expired token"), true)
+    assert.equal(isApiTokenRejectedMessage("Missing Bearer token"), true)
+    assert.equal(isApiTokenRejectedMessage("This email is already linked to a different Clerk account."), false)
+    assert.notEqual(SESSION_MESSAGES.apiTokenRejected, SESSION_MESSAGES.sessionExpired)
+    assert.notEqual(SESSION_MESSAGES.sessionTokenUnavailable, SESSION_MESSAGES.sessionExpired)
   })
 })
 

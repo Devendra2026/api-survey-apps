@@ -27,6 +27,12 @@ describe("profileLoadUserMessage", () => {
     assert.match(profileLoadUserMessage({ kind: "network", statusCode: 0, message: "x" }), /Unable to reach the server/)
   })
 
+  it("surfaces API URL configuration errors without calling them unavailable", () => {
+    const msg =
+      'production builds reject non-HTTPS API URLs (got "http://localhost:4000"). Set EXPO_PUBLIC_API_URL to https://…'
+    assert.equal(profileLoadUserMessage({ kind: "config", statusCode: 0, message: msg }), msg)
+  })
+
   it("maps 404 profile missing", () => {
     assert.match(
       profileLoadUserMessage({ kind: "http", statusCode: 404, message: "" }),

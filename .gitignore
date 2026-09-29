@@ -44,6 +44,10 @@ yarn-error.log*
 !.env.development.example
 !.env.production.example
 
+# Native Firebase / Google service configs (contain project-specific IDs; keep out of git)
+**/google-services.json
+**/GoogleService-Info.plist
+
 # vercel
 .vercel
 

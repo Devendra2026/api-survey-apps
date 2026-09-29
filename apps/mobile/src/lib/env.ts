@@ -1,6 +1,12 @@
 import Constants from "expo-constants"
 import * as Device from "expo-device"
 import { Platform } from "react-native"
+import {
+  ApiUrlConfigurationError,
+  resolveApiBaseUrl,
+  rewriteAndroidEmulatorLoopback,
+  type AppBuildEnv,
+} from "./api-base-url"
 
 /**
  * Public client-safe config only. Never put secrets, Clerk secret keys,
@@ -9,7 +15,17 @@ import { Platform } from "react-native"
  * Android emulator: host machine loopback is 10.0.2.2 (not localhost).
  * iOS simulator / Expo web: localhost reaches the host machine.
  * Physical device: prefer the Expo Metro host LAN IP on port 4000.
+ *
+ * Preview / production binaries must set EXPO_PUBLIC_API_URL to HTTPS.
+ * Localhost / emulator defaults are development-only.
  */
+
+export {
+  ApiUrlConfigurationError,
+  resolveApiBaseUrl,
+  rewriteAndroidEmulatorLoopback,
+  type AppBuildEnv,
+}
 
 const API_PORT = 4000
 
@@ -50,32 +66,24 @@ function defaultApiUrl(): string {
   return `http://localhost:${API_PORT}`
 }
 
-/**
- * Android emulator cannot reach the host via localhost/127.0.0.1.
- * Rewrite only those loopback hosts; leave LAN IPs and HTTPS alone.
- */
-function rewriteAndroidEmulatorLoopback(url: string): string {
-  if (Platform.OS !== "android" || Device.isDevice) {
-    return url
+/** App env stamped by eas.json / app.config (`extra.appEnv`). Fail closed to production rules when unknown. */
+export function getAppEnv(): AppBuildEnv {
+  const fromExtra = Constants.expoConfig?.extra?.appEnv
+  if (fromExtra === "development" || fromExtra === "preview" || fromExtra === "production") {
+    return fromExtra
   }
-  try {
-    const parsed = new URL(url)
-    if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
-      parsed.hostname = "10.0.2.2"
-      return parsed.toString().replace(/\/$/, "")
-    }
-  } catch {
-    return url
-  }
-  return url
+  // Metro / unset → development. Release binary without stamp → production (strictest).
+  return __DEV__ ? "development" : "production"
 }
 
 export function getApiBaseUrl(): string {
-  const fromEnv = process.env.EXPO_PUBLIC_API_URL?.trim()
-  if (fromEnv && fromEnv.length > 0) {
-    return rewriteAndroidEmulatorLoopback(fromEnv.replace(/\/$/, ""))
-  }
-  return defaultApiUrl()
+  return resolveApiBaseUrl({
+    appEnv: getAppEnv(),
+    apiUrl: process.env.EXPO_PUBLIC_API_URL,
+    platform: Platform.OS,
+    isDevice: Device.isDevice,
+    defaultUrl: defaultApiUrl(),
+  })
 }
 
 export function getClerkPublishableKey(): string {
@@ -83,8 +91,9 @@ export function getClerkPublishableKey(): string {
   if (!key) {
     return ""
   }
-  // Fail closed: release binaries must not embed Clerk development keys.
-  if (!__DEV__ && key.startsWith("pk_test_")) {
+  // Fail closed: production must never embed Clerk development keys.
+  // Preview may use a staging Clerk instance (often pk_test_).
+  if (getAppEnv() === "production" && key.startsWith("pk_test_")) {
     return ""
   }
   return key
@@ -96,5 +105,10 @@ export function getGoogleMapsApiKey(): string {
 }
 
 export function isLocalHttpApi(): boolean {
-  return getApiBaseUrl().startsWith("http://")
+  try {
+    const base = getApiBaseUrl()
+    return base.length > 0 && base.startsWith("http://")
+  } catch {
+    return false
+  }
 }

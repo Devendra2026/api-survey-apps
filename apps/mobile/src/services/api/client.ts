@@ -1,4 +1,4 @@
-import { getApiBaseUrl } from "@/lib/env"
+import { ApiUrlConfigurationError, getApiBaseUrl } from "@/lib/env"
 import { fetch as expoFetch } from "expo/fetch"
 import { friendlyHttpMessage } from "./error-messages"
 
@@ -26,7 +26,7 @@ export function setApiTokenGetter(getter: TokenGetter): void {
 export class ApiClientError extends Error {
   readonly statusCode: number
   readonly errors: string[] | null
-  readonly kind: "http" | "network" | "timeout" | "parse"
+  readonly kind: "http" | "network" | "timeout" | "parse" | "config"
 
   constructor(
     message: string,
@@ -79,7 +79,25 @@ function resolveUrl(path: string): string {
   if (path.startsWith("http://") || path.startsWith("https://")) {
     return path
   }
-  const base = getApiBaseUrl()
+  let base: string
+  try {
+    base = getApiBaseUrl()
+  } catch (error) {
+    const message =
+      error instanceof ApiUrlConfigurationError
+        ? error.message
+        : "API URL is not configured for this build. Set EXPO_PUBLIC_API_URL to an HTTPS endpoint."
+    // status 0 + kind network would hide config bugs as "server unavailable".
+    throw new ApiClientError(message, 0, null, "config")
+  }
+  if (!base) {
+    throw new ApiClientError(
+      "API URL is not configured for this build. Set EXPO_PUBLIC_API_URL to an HTTPS endpoint.",
+      0,
+      null,
+      "config"
+    )
+  }
   const normalized = path.startsWith("/") ? path : `/${path}`
   return `${base}${normalized}`
 }

@@ -28,9 +28,21 @@ EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_…
 
 Local Expo / Metro should use a Clerk **development** publishable key (`pk_test_…`). The LogBox warning _“Clerk has been loaded with development keys”_ is **expected** in that setup — Clerk limits development instances and reminds you not to ship them to production.
 
+#### Preview vs production (EAS)
+
+`apps/mobile/eas.json` defines three build profiles bound to EAS environments:
+
+| Profile       | EAS environment | Typical API                  | Clerk key family      |
+| ------------- | --------------- | ---------------------------- | --------------------- |
+| `development` | `development`   | local / staging Nest         | `pk_test_…`           |
+| `preview`     | `preview`       | staging/preview Nest (HTTPS) | staging / `pk_test_…` |
+| `production`  | `production`    | production Nest HTTPS        | `pk_live_…`           |
+
+One-time: from `apps/mobile`, run `eas init` (project was not linked yet), then set the three `EXPO_PUBLIC_*` names in each EAS environment. Preview must not use the production API URL unless product explicitly chooses that (document if you do).
+
 #### Production / release builds
 
-Before bundling a store or other release binary, set release env (EAS secrets, CI, or a local release `.env`) so Expo inlines the production values at build time:
+Before bundling a store or other release binary, set release env (EAS environment `production`, CI, or a local release `.env`) so Expo inlines the production values at build time:
 
 ```bash
 EXPO_PUBLIC_API_URL=https://your-api.example.com
@@ -40,7 +52,7 @@ EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_live_…
 - Use the same Clerk **production** instance publishable key as web (`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` / `pk_live_…` from the Clerk Dashboard).
 - Never put `CLERK_SECRET_KEY` in the mobile app.
 - Nest API must use the matching production Clerk secret so session JWTs validate.
-- Non-dev builds reject `pk_test_` keys (see `getClerkPublishableKey` in `src/lib/env.ts`).
+- Non-dev builds reject `pk_test_` keys and reject non-HTTPS / loopback API URLs (see `src/lib/env.ts`).
 
 ### Local API URL by device
 

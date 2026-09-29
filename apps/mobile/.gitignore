@@ -30,8 +30,15 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# local env files (root .gitignore also covers .env / .env.*)
+.env
+.env.*
+!.env.example
 .env*.local
+
+# Native Google / Firebase configs (never commit; wire via EAS secrets / local only)
+google-services.json
+GoogleService-Info.plist
 
 # typescript
 *.tsbuildinfo

@@ -1,23 +1,55 @@
 import type { ConfigContext, ExpoConfig } from "expo/config"
 
+type AppBuildEnv = "development" | "preview" | "production"
+
+function resolveAppEnv(): AppBuildEnv {
+  const raw = (process.env.APP_ENV ?? process.env.EAS_BUILD_PROFILE ?? "").trim().toLowerCase()
+  if (raw === "preview" || raw === "production" || raw === "development") {
+    return raw
+  }
+  // Local Metro / unset: treat as development (cleartext allowed for emulator defaults).
+  return "development"
+}
+
 /**
- * Cleartext HTTP is only for local Nest (`http://…`).
- * Production must use HTTPS via EXPO_PUBLIC_API_URL.
+ * Cleartext HTTP is only for local Nest (`http://…`) in development.
+ * Preview and production never enable usesCleartextTraffic (HTTPS required).
  */
-function allowCleartextTraffic(): boolean {
+function allowCleartextTraffic(appEnv: AppBuildEnv): boolean {
+  if (appEnv === "production" || appEnv === "preview") {
+    return false
+  }
   const apiUrl = process.env.EXPO_PUBLIC_API_URL?.trim() ?? ""
   if (!apiUrl) {
+    // Local Metro / emulator defaults use http://10.0.2.2 or localhost.
     return true
   }
   return apiUrl.startsWith("http://")
 }
 
+function displayName(appEnv: AppBuildEnv): string {
+  switch (appEnv) {
+    case "development":
+      return "SDV Survey (Dev)"
+    case "preview":
+      return "SDV Survey (Preview)"
+    case "production":
+      // Keep the established store-facing name unless product asks to rebrand.
+      return "mobile"
+    default: {
+      const _exhaustive: never = appEnv
+      return _exhaustive
+    }
+  }
+}
+
 export default ({ config }: ConfigContext): ExpoConfig => {
-  const cleartext = allowCleartextTraffic()
+  const appEnv = resolveAppEnv()
+  const cleartext = allowCleartextTraffic(appEnv)
 
   return {
     ...config,
-    name: "mobile",
+    name: displayName(appEnv),
     slug: "mobile",
     version: "1.0.0",
     orientation: "portrait",
@@ -96,6 +128,10 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     experiments: {
       typedRoutes: true,
       reactCompiler: true,
+    },
+    extra: {
+      ...(typeof config.extra === "object" && config.extra !== null ? config.extra : {}),
+      appEnv,
     },
   }
 }

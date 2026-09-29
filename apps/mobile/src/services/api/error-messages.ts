@@ -31,10 +31,13 @@ export function friendlyHttpMessage(statusCode: number, serverMessage: string): 
 }
 
 export function profileLoadUserMessage(error: {
-  kind: "http" | "network" | "timeout" | "parse"
+  kind: "http" | "network" | "timeout" | "parse" | "config"
   statusCode: number
   message: string
 }): string {
+  if (error.kind === "config") {
+    return error.message || "This build is missing a valid API URL. Contact an administrator."
+  }
   if (error.kind === "network") {
     return "Unable to reach the server. Check your connection and API URL, then try again."
   }

@@ -1,18 +1,23 @@
-import { Button, PasswordInput, Screen, Text, TextField } from "@/components/ui";
-import { useForgotPasswordForm } from "@/features/auth/hooks/use-forgot-password-form";
-import { AuthScreenShell } from "@/features/auth/ui/AuthScreenShell";
-import { spacing } from "@/theme";
-import { Link } from "expo-router";
-import { useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Button, PasswordInput, Screen, Text, TextField } from "@/components/ui"
+import { useForgotPasswordForm } from "@/features/auth/hooks/use-forgot-password-form"
+import { AuthError } from "@/features/auth/ui/AuthError"
+import { AuthFooterLinkRow } from "@/features/auth/ui/AuthFooter"
+import { AuthScreenShell } from "@/features/auth/ui/AuthScreenShell"
+import { OtpInput, isCompleteOtp } from "@/features/auth/ui/OtpInput"
+import { PasswordStrength } from "@/features/auth/ui/PasswordStrength"
+import { spacing } from "@/theme"
+import { Link, router } from "expo-router"
+import { useState } from "react"
+import { Pressable, StyleSheet } from "react-native"
 
 export default function ForgotPasswordScreen() {
-  const [email, setEmail] = useState("");
-  const [code, setCode] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("")
+  const [code, setCode] = useState("")
+  const [password, setPassword] = useState("")
   const {
     isLoaded,
     step,
+    emailUsed,
     error,
     loading,
     resending,
@@ -20,36 +25,55 @@ export default function ForgotPasswordScreen() {
     resendCode,
     resetPassword,
     backToRequest,
-  } = useForgotPasswordForm();
+  } = useForgotPasswordForm()
 
-  const isRequest = step === "request";
-  const busy = loading || resending;
+  const isRequest = step === "request"
+  const isSuccess = step === "success"
+  const busy = loading || resending
+
+  if (isSuccess) {
+    return (
+      <Screen scroll>
+        <AuthScreenShell
+          title="Password reset"
+          caption="Your password was updated successfully. Sign in with your new password."
+        >
+          <Button
+            title="Sign in"
+            onPress={() => {
+              router.replace("/(auth)/sign-in")
+            }}
+          />
+        </AuthScreenShell>
+      </Screen>
+    )
+  }
 
   return (
     <Screen scroll keyboard>
       <AuthScreenShell
-        title={isRequest ? "Reset password" : "Set new password"}
+        title={isRequest ? "Forgot password?" : "Reset password"}
         caption={
           isRequest
             ? "Enter your work email and we will send a one-time reset code."
-            : "Enter the code from your email and choose a new password."
+            : `Enter the code sent to ${emailUsed || "your email"} and choose a new password.`
         }
         footer={
-          <View style={styles.footerRow}>
-            <Text variant="body" tone="secondary">
-              Remember your password?{" "}
-            </Text>
-            <Link href="/(auth)/sign-in">
-              <Text variant="bodyStrong" tone="primary">
-                Sign in
-              </Text>
-            </Link>
-          </View>
+          <AuthFooterLinkRow
+            prompt="Remember your password?"
+            action={
+              <Link href="/(auth)/sign-in">
+                <Text variant="bodyStrong" tone="primary">
+                  Sign in
+                </Text>
+              </Link>
+            }
+          />
         }
       >
         {isRequest ? (
           <TextField
-            label="Email"
+            label="Email *"
             value={email}
             onChangeText={setEmail}
             keyboardType="email-address"
@@ -60,17 +84,9 @@ export default function ForgotPasswordScreen() {
           />
         ) : (
           <>
-            <TextField
-              label="Reset code"
-              value={code}
-              onChangeText={setCode}
-              keyboardType="number-pad"
-              textContentType="oneTimeCode"
-              placeholder="123456"
-              editable={!busy}
-            />
+            <OtpInput value={code} onChange={setCode} disabled={busy} />
             <PasswordInput
-              label="New password"
+              label="New password *"
               value={password}
               onChangeText={setPassword}
               textContentType="newPassword"
@@ -78,29 +94,34 @@ export default function ForgotPasswordScreen() {
               placeholder="At least 8 characters"
               editable={!busy}
             />
+            <PasswordStrength password={password} />
           </>
         )}
 
-        {error ? (
-          <Text variant="caption" tone="danger">
-            {error}
-          </Text>
-        ) : null}
+        {error ? <AuthError message={error} /> : null}
 
         <Button
-          title={isRequest ? "Send reset code" : "Update password"}
+          title={
+            loading
+              ? isRequest
+                ? "Sending…"
+                : "Resetting password…"
+              : isRequest
+                ? "Send reset code"
+                : "Update password"
+          }
           loading={loading}
           disabled={
             !isLoaded ||
             resending ||
-            (isRequest ? !email.trim() : !code.trim() || !password)
+            (isRequest ? !email.trim() : !isCompleteOtp(code) || !password)
           }
           onPress={() => {
             if (isRequest) {
-              void requestCode(email);
-              return;
+              void requestCode(email)
+              return
             }
-            void resetPassword(code, password);
+            void resetPassword(code, password)
           }}
         />
 
@@ -112,7 +133,7 @@ export default function ForgotPasswordScreen() {
               loading={resending}
               disabled={!isLoaded || loading}
               onPress={() => {
-                void resendCode();
+                void resendCode()
               }}
             />
             <Pressable
@@ -129,17 +150,12 @@ export default function ForgotPasswordScreen() {
         ) : null}
       </AuthScreenShell>
     </Screen>
-  );
+  )
 }
 
 const styles = StyleSheet.create({
-  footerRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-  },
   backLink: {
     alignItems: "center",
     paddingVertical: spacing.sm,
   },
-});
+})

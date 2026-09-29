@@ -1,5 +1,5 @@
+import { BrandLogo } from "@/features/auth/ui/BrandLogo";
 import { colors, spacing, typography } from "@/theme";
-import { Image } from "expo-image";
 import { StyleSheet, Text, View } from "react-native";
 
 type Props = {
@@ -11,13 +11,10 @@ type Props = {
 export function AuthBrandHeader({ caption, title }: Props) {
   return (
     <View style={styles.wrap}>
-      <Image
-        source={require("../../../../assets/logo.png")}
-        style={styles.logo}
-        contentFit="contain"
-        accessibilityLabel="SDV EduTech"
-      />
-      <Text style={styles.brand}>SDV EduTech</Text>
+      <BrandLogo />
+      <Text style={styles.brand}>SDV EDUTECH</Text>
+      <Text style={styles.product}>Property Survey</Text>
+      <Text style={styles.subtitle}>Nagar Panchayat · GIS field operations</Text>
       {title ? <Text style={styles.title}>{title}</Text> : null}
       <Text style={styles.caption}>{caption}</Text>
     </View>
@@ -31,10 +28,6 @@ const styles = StyleSheet.create({
     marginTop: spacing.xl,
     marginBottom: spacing.xl,
   },
-  logo: {
-    width: 180,
-    height: 64,
-  },
   brand: {
     color: colors.primary,
     fontSize: 22,
@@ -42,10 +35,21 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
     lineHeight: 28,
   },
-  title: {
+  product: {
     ...typography.heading,
     color: colors.text,
     marginTop: spacing.xs,
+  },
+  subtitle: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
+  },
+  title: {
+    ...typography.heading,
+    color: colors.text,
+    marginTop: spacing.md,
   },
   caption: {
     color: colors.textSecondary,

@@ -4,6 +4,7 @@ import { isAuthenticatedProfile, type AuthenticatedProfile } from "@/types/user"
 export type SyncUserInput = {
   fullName?: string
   phone?: string
+  requestedRole?: "SURVEYOR" | "FIELD_SUPERVISOR"
 }
 
 /** Bare user fields returned by POST /users/sync (no permissions / roles). */
@@ -15,6 +16,7 @@ export type SyncedUserFields = {
   fullName: string
   isActive: boolean
   lastLoginAt?: string | null
+  requestedRole?: string | null
 }
 
 /**

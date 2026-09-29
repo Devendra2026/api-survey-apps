@@ -93,6 +93,8 @@ export interface AppUser {
   lastLoginAt?: string | null
   createdAt?: string
   updatedAt?: string
+  /** Signup intent (SURVEYOR | FIELD_SUPERVISOR) — not authorization. */
+  requestedRole?: string | null
   /** Clerk identity providers when loaded via GET /users/:id (e.g. email, google). */
   authProviders?: string[]
   tenantRoles?: TenantRole[]

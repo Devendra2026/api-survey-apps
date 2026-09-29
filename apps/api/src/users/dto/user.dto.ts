@@ -39,6 +39,10 @@ function toOptionalBoolean({ value }: TransformFnParams): boolean | string | und
   return "invalid"
 }
 
+/** Roles a field user may request at signup. Not authorization — Admin assigns real roles. */
+export const REQUESTABLE_ROLES = ["SURVEYOR", "FIELD_SUPERVISOR"] as const
+export type RequestableRole = (typeof REQUESTABLE_ROLES)[number]
+
 export class SyncUserDto {
   @ApiPropertyOptional()
   @IsOptional()
@@ -51,6 +55,11 @@ export class SyncUserDto {
   @IsString()
   @MaxLength(32)
   phone?: string
+
+  @ApiPropertyOptional({ enum: REQUESTABLE_ROLES })
+  @IsOptional()
+  @IsIn([...REQUESTABLE_ROLES])
+  requestedRole?: RequestableRole
 }
 
 export class UpdateUserDto {

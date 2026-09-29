@@ -1,193 +1,155 @@
-import { Button, PasswordInput, Screen, Text, TextField } from "@/components/ui";
-import { useGoogleAuth } from "@/features/auth/hooks/use-google-auth";
-import { useSignUpForm } from "@/features/auth/hooks/use-sign-up-form";
-import { AuthScreenShell } from "@/features/auth/ui/AuthScreenShell";
-import { colors, spacing } from "@/theme";
-import { Link } from "expo-router";
-import { useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Button, PasswordInput, Screen, Text, TextField } from "@/components/ui"
+import { useGoogleAuth } from "@/features/auth/hooks/use-google-auth"
+import { useSignUpForm } from "@/features/auth/hooks/use-sign-up-form"
+import { setSignupRequestedRole } from "@/features/auth/lib/signup-intent"
+import { AuthDivider } from "@/features/auth/ui/AuthDivider"
+import { AuthError } from "@/features/auth/ui/AuthError"
+import { AuthFooterLinkRow } from "@/features/auth/ui/AuthFooter"
+import { AuthScreenShell } from "@/features/auth/ui/AuthScreenShell"
+import { GoogleSignInButton } from "@/features/auth/ui/GoogleSignInButton"
+import { PasswordStrength } from "@/features/auth/ui/PasswordStrength"
+import { RoleRequestPicker } from "@/features/auth/ui/RoleRequestPicker"
+import type { RequestableRole } from "@/types/user"
+import { Link, router } from "expo-router"
+import { useState } from "react"
 
 export default function SignUpScreen() {
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [code, setCode] = useState("");
+  const [fullName, setFullName] = useState("")
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [requestedRole, setRequestedRole] = useState<RequestableRole | null>(null)
   const {
     isLoaded,
-    pendingVerification,
     error,
     loading,
-    resending,
     signUpWithDetails,
-    verifyCode,
-    resendCode,
     setError,
-  } = useSignUpForm();
+  } = useSignUpForm()
   const {
     error: googleError,
     loading: googleLoading,
     signInWithGoogle,
     setError: setGoogleError,
-  } = useGoogleAuth();
+  } = useGoogleAuth()
 
-  const busy = loading || resending || googleLoading;
-  const displayError = googleError ?? error;
+  const busy = loading || googleLoading
+  const displayError = googleError ?? error
+  const canSubmit =
+    Boolean(fullName.trim()) &&
+    Boolean(email.trim()) &&
+    Boolean(password) &&
+    Boolean(confirmPassword) &&
+    Boolean(requestedRole) &&
+    isLoaded &&
+    !googleLoading
 
   return (
     <Screen scroll keyboard>
       <AuthScreenShell
-        title={pendingVerification ? "Verify email" : "Create account"}
-        caption={
-          pendingVerification
-            ? "Enter the code we sent to your email to finish registration."
-            : "Request field access. An administrator must approve your role before surveys unlock."
-        }
+        title="Create account"
+        caption="Request field access. An administrator must approve your role before surveys unlock."
         footer={
-          <View style={styles.footerRow}>
-            <Text variant="body" tone="secondary">
-              Already have an account?{" "}
-            </Text>
-            <Link href="/(auth)/sign-in">
-              <Text variant="bodyStrong" tone="primary">
-                Sign in
-              </Text>
-            </Link>
-          </View>
+          <AuthFooterLinkRow
+            prompt="Already have an account?"
+            action={
+              <Link href="/(auth)/sign-in">
+                <Text variant="bodyStrong" tone="primary">
+                  Sign in
+                </Text>
+              </Link>
+            }
+          />
         }
       >
-        {pendingVerification ? (
-          <TextField
-            label="Verification code"
-            value={code}
-            onChangeText={setCode}
-            keyboardType="number-pad"
-            textContentType="oneTimeCode"
-            placeholder="123456"
-            editable={!busy}
-          />
-        ) : (
-          <>
-            <TextField
-              label="Full name"
-              value={fullName}
-              onChangeText={setFullName}
-              autoCapitalize="words"
-              textContentType="name"
-              autoComplete="name"
-              placeholder="Your name"
-              editable={!busy}
-            />
-            <TextField
-              label="Email"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              textContentType="emailAddress"
-              autoComplete="email"
-              placeholder="you@example.com"
-              editable={!busy}
-            />
-            <PasswordInput
-              label="Password"
-              value={password}
-              onChangeText={setPassword}
-              textContentType="newPassword"
-              autoComplete="new-password"
-              placeholder="At least 8 characters"
-              editable={!busy}
-            />
-            <PasswordInput
-              label="Confirm password"
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              textContentType="newPassword"
-              autoComplete="new-password"
-              placeholder="Re-enter password"
-              editable={!busy}
-            />
-          </>
-        )}
+        <TextField
+          label="Full name *"
+          value={fullName}
+          onChangeText={setFullName}
+          autoCapitalize="words"
+          textContentType="name"
+          autoComplete="name"
+          placeholder="Your name"
+          editable={!busy}
+        />
+        <TextField
+          label="Work email *"
+          value={email}
+          onChangeText={setEmail}
+          keyboardType="email-address"
+          textContentType="emailAddress"
+          autoComplete="email"
+          placeholder="you@example.com"
+          editable={!busy}
+        />
+        <PasswordInput
+          label="Password *"
+          value={password}
+          onChangeText={setPassword}
+          textContentType="newPassword"
+          autoComplete="new-password"
+          placeholder="At least 8 characters"
+          editable={!busy}
+        />
+        <PasswordStrength password={password} />
+        <PasswordInput
+          label="Confirm password *"
+          value={confirmPassword}
+          onChangeText={setConfirmPassword}
+          textContentType="newPassword"
+          autoComplete="new-password"
+          placeholder="Re-enter password"
+          editable={!busy}
+        />
 
-        {displayError ? (
-          <Text variant="caption" tone="danger">
-            {displayError}
-          </Text>
-        ) : null}
+        <RoleRequestPicker
+          value={requestedRole}
+          onChange={setRequestedRole}
+          disabled={busy}
+        />
+
+        {displayError ? <AuthError message={displayError} /> : null}
 
         <Button
-          title={pendingVerification ? "Verify and continue" : "Create account"}
+          title={loading ? "Creating account…" : "Continue"}
           loading={loading}
-          disabled={
-            !isLoaded ||
-            googleLoading ||
-            resending ||
-            (pendingVerification
-              ? !code.trim()
-              : !email.trim() || !password || !confirmPassword || !fullName.trim())
-          }
+          disabled={!canSubmit}
           onPress={() => {
-            if (pendingVerification) {
-              setGoogleError(null);
-              void verifyCode(code);
-              return;
-            }
-            setGoogleError(null);
-            void signUpWithDetails(fullName, email, password, confirmPassword);
+            setGoogleError(null)
+            void (async () => {
+              const ok = await signUpWithDetails(
+                fullName,
+                email,
+                password,
+                requestedRole,
+                confirmPassword,
+              )
+              if (ok) {
+                router.push({
+                  pathname: "/(auth)/verify",
+                  params: { email: email.trim() },
+                })
+              }
+            })()
           }}
         />
 
-        {pendingVerification ? (
-          <Button
-            title="Resend code"
-            variant="ghost"
-            loading={resending}
-            disabled={!isLoaded || loading || googleLoading}
-            onPress={() => {
-              setGoogleError(null);
-              void resendCode();
-            }}
-          />
-        ) : (
-          <>
-            <View style={styles.dividerRow}>
-              <View style={styles.dividerLine} />
-              <Text variant="caption" tone="secondary">
-                or
-              </Text>
-              <View style={styles.dividerLine} />
-            </View>
-            <Button
-              title="Continue with Google"
-              variant="secondary"
-              loading={googleLoading}
-              disabled={!isLoaded || loading}
-              onPress={() => {
-                setError(null);
-                void signInWithGoogle();
-              }}
-            />
-          </>
-        )}
+        <AuthDivider />
+
+        <GoogleSignInButton
+          loading={googleLoading}
+          disabled={!isLoaded || loading || !requestedRole}
+          onPress={() => {
+            if (!requestedRole) {
+              setError("Select Surveyor or Supervisor before continuing with Google.")
+              return
+            }
+            setError(null)
+            setSignupRequestedRole(requestedRole)
+            void signInWithGoogle()
+          }}
+        />
       </AuthScreenShell>
     </Screen>
-  );
+  )
 }
-
-const styles = StyleSheet.create({
-  footerRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-  },
-  dividerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-  },
-  dividerLine: {
-    flex: 1,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: colors.border,
-  },
-});

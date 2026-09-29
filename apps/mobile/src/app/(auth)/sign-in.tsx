@@ -1,46 +1,121 @@
-import { Button, PasswordInput, Screen, Text, TextField } from "@/components/ui";
-import { useGoogleAuth } from "@/features/auth/hooks/use-google-auth";
-import { useSignInForm } from "@/features/auth/hooks/use-sign-in-form";
-import { AuthScreenShell } from "@/features/auth/ui/AuthScreenShell";
-import { colors, spacing } from "@/theme";
-import { Link } from "expo-router";
-import { useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Button, PasswordInput, Screen, Text, TextField } from "@/components/ui"
+import { useGoogleAuth } from "@/features/auth/hooks/use-google-auth"
+import { useSignInForm } from "@/features/auth/hooks/use-sign-in-form"
+import { isValidEmail } from "@/features/auth/lib/clerk-errors"
+import { AuthDivider } from "@/features/auth/ui/AuthDivider"
+import { AuthError } from "@/features/auth/ui/AuthError"
+import { AuthFooterLinkRow } from "@/features/auth/ui/AuthFooter"
+import { AuthScreenShell } from "@/features/auth/ui/AuthScreenShell"
+import { GoogleSignInButton } from "@/features/auth/ui/GoogleSignInButton"
+import { OtpInput, isCompleteOtp } from "@/features/auth/ui/OtpInput"
+import { spacing } from "@/theme"
+import { Link } from "expo-router"
+import { useState } from "react"
+import { Pressable, StyleSheet, View } from "react-native"
 
 export default function SignInScreen() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const { isLoaded, error, loading, submit, setError } = useSignInForm();
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [code, setCode] = useState("")
+  const {
+    isLoaded,
+    error,
+    loading,
+    resending,
+    step,
+    emailUsed,
+    submit,
+    submitEmailCode,
+    resendEmailCode,
+    backToCredentials,
+    setError,
+  } = useSignInForm()
   const {
     error: googleError,
     loading: googleLoading,
     signInWithGoogle,
     setError: setGoogleError,
-  } = useGoogleAuth();
+  } = useGoogleAuth()
 
-  const busy = loading || googleLoading;
-  const displayError = googleError ?? error;
+  const busy = loading || resending || googleLoading
+  const displayError = googleError ?? error
+  const canSubmitCredentials = isValidEmail(email) && Boolean(password) && isLoaded && !googleLoading
+
+  if (step === "email_code") {
+    return (
+      <Screen scroll keyboard>
+        <AuthScreenShell
+          title="Verify sign-in"
+          caption={
+            emailUsed
+              ? `Enter the 6-digit code we sent to ${emailUsed} to finish signing in.`
+              : "Enter the 6-digit code from your email to finish signing in."
+          }
+          footer={
+            <AuthFooterLinkRow
+              prompt=""
+              action={
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={busy}
+                  onPress={() => {
+                    setCode("")
+                    backToCredentials()
+                  }}
+                >
+                  <Text variant="bodyStrong" tone="primary">
+                    Back to sign in
+                  </Text>
+                </Pressable>
+              }
+            />
+          }
+        >
+          <OtpInput value={code} onChange={setCode} disabled={busy} />
+          {displayError ? <AuthError message={displayError} /> : null}
+          <Button
+            title={loading ? "Verifying…" : "Verify"}
+            loading={loading}
+            disabled={!isLoaded || resending || !isCompleteOtp(code)}
+            onPress={() => {
+              setGoogleError(null)
+              void submitEmailCode(code)
+            }}
+          />
+          <Button
+            title="Resend code"
+            variant="ghost"
+            loading={resending}
+            disabled={!isLoaded || loading}
+            onPress={() => {
+              void resendEmailCode()
+            }}
+          />
+        </AuthScreenShell>
+      </Screen>
+    )
+  }
 
   return (
     <Screen scroll keyboard>
       <AuthScreenShell
-        title="Welcome back"
+        title="Sign in"
         caption="Municipal survey field access — sign in with your assigned email or Google account."
         footer={
-          <View style={styles.footerRow}>
-            <Text variant="body" tone="secondary">
-              Need an account?{" "}
-            </Text>
-            <Link href="/(auth)/sign-up">
-              <Text variant="bodyStrong" tone="primary">
-                Create account
-              </Text>
-            </Link>
-          </View>
+          <AuthFooterLinkRow
+            prompt="Do not have an account?"
+            action={
+              <Link href="/(auth)/sign-up">
+                <Text variant="bodyStrong" tone="primary">
+                  Sign up
+                </Text>
+              </Link>
+            }
+          />
         }
       >
         <TextField
-          label="Email"
+          label="Email *"
           value={email}
           onChangeText={setEmail}
           keyboardType="email-address"
@@ -50,7 +125,7 @@ export default function SignInScreen() {
           editable={!busy}
         />
         <PasswordInput
-          label="Password"
+          label="Password *"
           value={password}
           onChangeText={setPassword}
           textContentType="password"
@@ -67,51 +142,34 @@ export default function SignInScreen() {
           </Link>
         </View>
 
-        {displayError ? (
-          <Text variant="caption" tone="danger">
-            {displayError}
-          </Text>
-        ) : null}
+        {displayError ? <AuthError message={displayError} /> : null}
 
         <Button
-          title="Sign in"
+          title={loading ? "Signing in…" : "Sign in"}
           loading={loading}
-          disabled={!email.trim() || !password || !isLoaded || googleLoading}
+          disabled={!canSubmitCredentials}
           onPress={() => {
-            setGoogleError(null);
-            void submit(email, password);
+            setGoogleError(null)
+            void submit(email, password)
           }}
         />
 
-        <View style={styles.dividerRow}>
-          <View style={styles.dividerLine} />
-          <Text variant="caption" tone="secondary">
-            or
-          </Text>
-          <View style={styles.dividerLine} />
-        </View>
+        <AuthDivider />
 
-        <Button
-          title="Continue with Google"
-          variant="secondary"
+        <GoogleSignInButton
           loading={googleLoading}
           disabled={!isLoaded || loading}
           onPress={() => {
-            setError(null);
-            void signInWithGoogle();
+            setError(null)
+            void signInWithGoogle()
           }}
         />
       </AuthScreenShell>
     </Screen>
-  );
+  )
 }
 
 const styles = StyleSheet.create({
-  footerRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-  },
   forgotRow: {
     alignItems: "flex-end",
     marginTop: -spacing.sm,
@@ -119,14 +177,4 @@ const styles = StyleSheet.create({
   forgotLink: {
     fontSize: 14,
   },
-  dividerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-  },
-  dividerLine: {
-    flex: 1,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: colors.border,
-  },
-});
+})

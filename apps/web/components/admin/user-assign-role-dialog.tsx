@@ -177,6 +177,15 @@ export function UserAssignRoleDialog({
             {user
               ? `Update access for ${user.fullName}. Previous active assignments are replaced.`
               : "Select a role and geographic scope."}
+            {user?.requestedRole
+              ? ` Requested at signup: ${
+                  user.requestedRole === "FIELD_SUPERVISOR"
+                    ? "Supervisor"
+                    : user.requestedRole === "SURVEYOR"
+                      ? "Surveyor"
+                      : user.requestedRole
+                }.`
+              : null}
           </DialogDescription>
         </DialogHeader>
 

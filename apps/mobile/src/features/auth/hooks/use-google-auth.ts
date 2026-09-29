@@ -46,7 +46,7 @@ export function useGoogleAuth() {
       )
 
       if (browserType === "cancel" || browserType === "dismiss") {
-        setError("Google sign-in was cancelled.")
+        setError("Google sign-in cancelled.")
         return
       }
 

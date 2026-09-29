@@ -136,6 +136,18 @@ export function UserProfileDrawer({
                     <div className="space-y-2.5 text-sm">
                       <Row label="Mobile" value={user.phone ?? "—"} />
                       <Row label="Role" value={assignment ? tenantRoleDisplayName(assignment) : "—"} />
+                      {user.requestedRole ? (
+                        <Row
+                          label="Requested role"
+                          value={
+                            user.requestedRole === "FIELD_SUPERVISOR"
+                              ? "Supervisor"
+                              : user.requestedRole === "SURVEYOR"
+                                ? "Surveyor"
+                                : user.requestedRole
+                          }
+                        />
+                      ) : null}
                       <Row
                         label="Auth provider"
                         value={

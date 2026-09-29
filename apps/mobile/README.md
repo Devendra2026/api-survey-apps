@@ -73,15 +73,18 @@ Mobile never auto-assigns SURVEYOR. Role and geography are granted only via the 
 
 ### Session verification errors (“Unable to continue”)
 
-After Clerk sign-in the app calls Nest `GET /users/me` with the session JWT. A **401** shows **Unable to continue** / session could not be verified.
+After Clerk sign-in the app calls Nest `GET /users/me` with the session JWT. Failures show **Unable to continue** with a status-specific message (no longer a blanket “server temporarily unavailable” for every 5xx).
 
 Checklist:
 
 1. Nest API is running (`pnpm --filter api dev`) and reachable — Android emulator: `EXPO_PUBLIC_API_URL=http://10.0.2.2:4000`.
-2. Mobile `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` and API `CLERK_SECRET_KEY` are from the **same** Clerk instance (`pk_test_` with `sk_test_`).
-3. Local API: leave `CLERK_AUTHORIZED_PARTIES` **empty**. A web-only value such as `http://localhost:3000` will 401 mobile after Clerk login with **Invalid or expired token**.
-4. Production: if you set `CLERK_AUTHORIZED_PARTIES`, include the mobile JWT `azp` (decode a session token) in addition to web origins — web-only lists break native clients.
-5. In `__DEV__`, the error screen includes the Nest message and API base URL to speed up diagnosis.
+2. Database migrations are applied after pulling schema changes: `pnpm db:deploy` (includes `User.requestedRole`). A missing column returns HTTP 500 with a schema message — apply migrations, then Retry.
+3. Mobile `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` and API `CLERK_SECRET_KEY` are from the **same** Clerk instance (`pk_test_` with `sk_test_`).
+4. Local API: leave `CLERK_AUTHORIZED_PARTIES` **empty**. A web-only value such as `http://localhost:3000` will 401 mobile after Clerk login with **Invalid or expired token**.
+5. Production: if you set `CLERK_AUTHORIZED_PARTIES`, include the mobile JWT `azp` (decode a session token) in addition to web origins — web-only lists break native clients.
+6. In `__DEV__`, network/timeout errors include the API base URL to speed up diagnosis.
+
+If sign-in asks for a **verification code**, that is Clerk second-factor / email verification — enter the code on mobile (do not treat it as a dead-end “use web admin” unless TOTP/SMS is required).
 
 The Clerk LogBox toast about **development keys** is expected for local Expo and is not this error.
 

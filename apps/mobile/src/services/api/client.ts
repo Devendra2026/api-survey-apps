@@ -1,5 +1,6 @@
 import { getApiBaseUrl } from "@/lib/env"
 import { fetch as expoFetch } from "expo/fetch"
+import { friendlyHttpMessage } from "./error-messages"
 
 export type ApiEnvelope<T> = {
   success: boolean
@@ -56,27 +57,6 @@ export function getApiErrorMessage(error: unknown, fallback = "Something went wr
     return error.message
   }
   return fallback
-}
-
-function friendlyHttpMessage(statusCode: number, serverMessage: string): string {
-  switch (statusCode) {
-    case 401:
-      return serverMessage || "Your session expired or the account is not allowed."
-    case 403:
-      return serverMessage || "You do not have permission for this action."
-    case 404:
-      return serverMessage || "The requested resource was not found."
-    case 422:
-      return serverMessage || "Please check the form and try again."
-    case 429:
-      return "Too many requests. Please wait a moment and try again."
-    case 500:
-    case 502:
-    case 503:
-      return "The server is temporarily unavailable. Please try again."
-    default:
-      return serverMessage || `Request failed (${statusCode})`
-  }
 }
 
 async function buildHeaders(init?: HeadersInit, body?: RequestInit["body"]): Promise<Headers> {

@@ -133,10 +133,41 @@ export class UsersService {
 
   async sync(user: AuthenticatedUser, dto: SyncUserDto) {
     this.logger.log(`User sync ${user.clerkUserId}`)
-    return this.usersRepository.update(user.id, {
-      fullName: dto.fullName,
-      phone: dto.phone,
-    })
+    const patch: {
+      fullName?: string
+      phone?: string
+      requestedRole?: string
+    } = {}
+
+    if (dto.fullName !== undefined) {
+      patch.fullName = dto.fullName
+    }
+    if (dto.phone !== undefined) {
+      patch.phone = dto.phone
+    }
+
+    // Signup intent only while waiting for Admin onboarding. Never overwrite after a working role.
+    if (dto.requestedRole !== undefined) {
+      if (this.canSetRequestedRole(user)) {
+        patch.requestedRole = dto.requestedRole
+      } else {
+        this.logger.log(`User sync ignored requestedRole for onboarded user ${user.clerkUserId}`)
+      }
+    }
+
+    return this.usersRepository.update(user.id, patch)
+  }
+
+  /** True when the user has no working permissions (PENDING_APPROVAL / empty). */
+  private canSetRequestedRole(user: AuthenticatedUser): boolean {
+    if (user.permissions.length > 0) {
+      return false
+    }
+    const active = user.tenantRoles.filter((r) => r.isActive)
+    if (active.length === 0) {
+      return true
+    }
+    return active.every((r) => r.roleName === "PENDING_APPROVAL")
   }
 
   syncFromClerk() {

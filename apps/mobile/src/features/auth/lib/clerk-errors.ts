@@ -74,8 +74,14 @@ export function getClerkErrorMessage(error: unknown, fallback = "Authentication 
 export function incompleteAuthMessage(kind: "sign_in" | "sign_up", status: string | null | undefined): string {
   const normalized = status?.trim() || "unknown"
   if (kind === "sign_in") {
-    if (normalized === "needs_first_factor" || normalized === "needs_second_factor") {
-      return "Your account requires additional verification. Complete sign-in on the web admin, then return here."
+    if (normalized === "needs_second_factor") {
+      return "Additional verification is required. Enter the code we sent to your email."
+    }
+    if (normalized === "needs_first_factor") {
+      return "Additional verification is required to complete sign-in."
+    }
+    if (normalized === "needs_client_trust") {
+      return "This device must be verified. Enter the email code, or finish trust verification on the web admin once."
     }
     return "Sign-in could not be completed. Try again, or finish verification on the web admin."
   }
@@ -95,13 +101,37 @@ export function getGoogleAuthErrorMessage(error: unknown): string {
       lower.includes("user_cancelled") ||
       lower.includes("access_denied")
     ) {
-      return "Google sign-in was cancelled."
+      return "Google sign-in cancelled."
+    }
+    if (
+      lower.includes("already linked") ||
+      lower.includes("account linking") ||
+      lower.includes("identifier already") ||
+      lower.includes("external_account")
+    ) {
+      return "Your Google account is linked to a different application account. Sign in with the original account or contact your administrator."
     }
     if (isNetworkLikeMessage(error.message)) {
-      return "Unable to connect. Please check your internet connection."
+      return "No internet connection. Check your connection and try again."
     }
   }
-  return getClerkErrorMessage(error, "Google sign-in failed")
+  if (isClerkAPIResponseError(error)) {
+    const code = error.errors[0]?.code
+    if (code === "external_account_exists" || code === "identifier_already_signed_in") {
+      return "Your Google account is linked to a different application account. Sign in with the original account or contact your administrator."
+    }
+  }
+  return getClerkErrorMessage(error, "We could not complete Google sign-in. Please try again.")
+}
+
+export function validateRequestedRole(role: string | null | undefined): string | null {
+  if (!role) {
+    return "Select Surveyor or Supervisor."
+  }
+  if (role !== "SURVEYOR" && role !== "FIELD_SUPERVISOR") {
+    return "Select Surveyor or Supervisor."
+  }
+  return null
 }
 
 export const MIN_PASSWORD_LENGTH = 8

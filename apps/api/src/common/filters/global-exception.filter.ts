@@ -64,7 +64,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         status = HttpStatus.INTERNAL_SERVER_ERROR
         if (/column .* does not exist|P2022/i.test(raw)) {
           message =
-            "Database schema is behind the API. Run `prisma migrate deploy` (survey_audits legacy fields), then retry."
+            "Database schema is behind the API. Run `pnpm db:deploy` (or `prisma migrate deploy`) so migrations such as User.requestedRole are applied, then retry."
         } else {
           message = "A database operation failed. Check API logs for details."
         }

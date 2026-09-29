@@ -16,6 +16,14 @@ export type TenantRole = {
   ward?: { id: string; wardNumber: string; wardName: string } | null
 }
 
+/** Roles a field user may request at signup. Not authorization. */
+export const REQUESTABLE_ROLES = ["SURVEYOR", "FIELD_SUPERVISOR"] as const
+export type RequestableRole = (typeof REQUESTABLE_ROLES)[number]
+
+export function isRequestableRole(value: unknown): value is RequestableRole {
+  return value === "SURVEYOR" || value === "FIELD_SUPERVISOR"
+}
+
 export type AuthenticatedProfile = {
   id: string
   clerkUserId: string
@@ -24,6 +32,9 @@ export type AuthenticatedProfile = {
   fullName: string
   isActive: boolean
   lastLoginAt?: string | null
+  createdAt?: string | null
+  /** Signup intent — SURVEYOR | FIELD_SUPERVISOR. Null after admin assigns a working role (may remain for audit). */
+  requestedRole?: string | null
   permissions: string[]
   tenantRoles?: TenantRole[]
 }
@@ -55,9 +66,6 @@ export const ROLE_LABELS: Record<string, string> = {
   FIELD_SUPERVISOR: "Supervisor",
   QC_SUPERVISOR: "QC supervisor",
   ADMIN: "Admin",
-  DEPT_ADMIN: "Department admin",
-  DEPT_CLERK: "Department clerk",
-  DEPT_OPERATOR: "Department operator",
 }
 
 const ADMIN_HOME_ROLES = new Set(["ADMIN"])
@@ -67,9 +75,6 @@ const SURVEY_HOME_ROLES = new Set([
   "SURVEYOR",
   "FIELD_SUPERVISOR",
   "QC_SUPERVISOR",
-  "DEPT_ADMIN",
-  "DEPT_CLERK",
-  "DEPT_OPERATOR",
 ])
 
 export function tenantRoleCode(role: TenantRole): string {

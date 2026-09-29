@@ -54,7 +54,7 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types src/types/user.test.ts src/features/auth/lib/sign-in-factors.test.ts src/features/auth/session/profile-identity.test.ts src/features/surveys/lib/survey-lib.test.ts"
+    "test": "node --test --experimental-strip-types src/types/user.test.ts src/features/auth/lib/sign-in-factors.test.ts src/features/auth/lib/otp.test.ts src/features/auth/session/profile-identity.test.ts src/services/api/error-messages.test.ts src/features/surveys/lib/survey-lib.test.ts"
   },
   "private": true
 }

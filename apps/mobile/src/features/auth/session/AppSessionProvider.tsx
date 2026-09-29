@@ -1,10 +1,13 @@
 import { getApiBaseUrl } from "@/lib/env";
 import { ApiClientError, isApiClientError, setApiTokenGetter } from "@/services/api/client";
+import { profileLoadUserMessage } from "@/services/api/error-messages";
 import { getMe, syncUser } from "@/services/api/users";
 import {
   canEnterAppHome,
+  isRequestableRole,
   primaryRoleName,
   type AuthenticatedProfile,
+  type RequestableRole,
 } from "@/types/user";
 import { useAuth, useUser } from "@clerk/expo";
 import { useQueryClient } from "@tanstack/react-query";
@@ -19,6 +22,11 @@ import {
   type ReactNode,
 } from "react";
 import { AppState, type AppStateStatus } from "react-native";
+import {
+  clearSignupRequestedRole,
+  consumeSignupRequestedRole,
+  peekSignupRequestedRole,
+} from "../lib/signup-intent";
 import {
   SESSION_MESSAGES,
   formatIdentityDiagnostics,
@@ -44,6 +52,8 @@ type AppSessionContextValue = {
   state: AppSessionState;
   refresh: () => Promise<void>;
   signOut: () => Promise<void>;
+  /** Persist signup role intent while still pending approval. */
+  submitRequestedRole: (role: RequestableRole) => Promise<void>;
 };
 
 const AppSessionContext = createContext<AppSessionContextValue | null>(null);
@@ -52,6 +62,7 @@ const MISSING_BEARER_RETRY_MS = 250;
 const TOKEN_ALIGN_RETRY_MS = 400;
 const TOKEN_ALIGN_ATTEMPTS = 6;
 const GET_TOKEN_TIMEOUT_MS = 12_000;
+const PENDING_POLL_MS = 20_000;
 
 function isDisabledAccountError(error: unknown): boolean {
   if (!isApiClientError(error) || error.statusCode !== 401) {
@@ -76,6 +87,13 @@ function clerkPhone(user: {
 } | null | undefined): string | undefined {
   const phone = user?.primaryPhoneNumber?.phoneNumber?.trim();
   return phone && phone.length > 0 ? phone : undefined;
+}
+
+function readClerkRequestedRole(user: {
+  unsafeMetadata?: Record<string, unknown> | null;
+} | null | undefined): RequestableRole | null {
+  const value = user?.unsafeMetadata?.requestedRole;
+  return isRequestableRole(value) ? value : null;
 }
 
 function authLog(scope: "AUTH" | "API" | "ROLE" | "CACHE", message: string): void {
@@ -119,15 +137,16 @@ function logIdentity(
 
 /**
  * POST /users/sync returns the bare User row (no permissions / tenantRoles).
- * Merge name/phone only so authorization from GET /users/me is preserved.
+ * Merge name/phone/requestedRole only so authorization from GET /users/me is preserved.
  */
 async function maybeSyncProfile(
   profile: AuthenticatedProfile,
   clerkFullName: string | null | undefined,
   clerkPhoneNumber: string | undefined,
+  clerkRequestedRole: RequestableRole | null,
 ): Promise<AuthenticatedProfile> {
   const nextName = clerkFullName?.trim();
-  const patch: { fullName?: string; phone?: string } = {};
+  const patch: { fullName?: string; phone?: string; requestedRole?: RequestableRole } = {};
 
   if (nextName && nextName !== profile.fullName) {
     patch.fullName = nextName;
@@ -136,16 +155,25 @@ async function maybeSyncProfile(
     patch.phone = clerkPhoneNumber;
   }
 
-  if (!patch.fullName && !patch.phone) {
+  const stagedRole = peekSignupRequestedRole() ?? clerkRequestedRole;
+  if (!profile.requestedRole && stagedRole && !canEnterAppHome(profile) && profile.isActive) {
+    patch.requestedRole = stagedRole;
+  }
+
+  if (!patch.fullName && !patch.phone && !patch.requestedRole) {
     return profile;
   }
 
   try {
     const synced = await syncUser(patch);
+    if (patch.requestedRole) {
+      consumeSignupRequestedRole();
+    }
     return {
       ...profile,
       fullName: synced.fullName ?? profile.fullName,
       phone: synced.phone !== undefined ? synced.phone : profile.phone,
+      requestedRole: synced.requestedRole !== undefined ? synced.requestedRole : profile.requestedRole,
     };
   } catch {
     return profile;
@@ -390,7 +418,12 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        const profile = await maybeSyncProfile(loaded, userFullName, userPhone);
+        const profile = await maybeSyncProfile(
+          loaded,
+          userFullName,
+          userPhone,
+          readClerkRequestedRole(user),
+        );
 
         if (
           !shouldCommitProfileResponse({
@@ -402,6 +435,14 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
           })
         ) {
           authLog("CACHE", `Dropped stale profile after sync profile=${profile.clerkUserId}`);
+          return;
+        }
+
+        if (!profile.isActive) {
+          setProfileGate({
+            status: "disabled",
+            message: "Your account has been disabled. Please contact the system administrator.",
+          });
           return;
         }
 
@@ -465,14 +506,19 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
         const status = isApiClientError(error) ? ` status=${error.statusCode}` : "";
         const detail = error instanceof Error ? error.message : String(error);
         authLog("API", `Profile load failed${status} detail=${detail}`);
+        const userMessage = isApiClientError(error)
+          ? profileLoadUserMessage(error)
+          : SESSION_MESSAGES.profileUnavailable;
         failTransient(
-          __DEV__ ? `${SESSION_MESSAGES.profileUnavailable} (${detail})` : SESSION_MESSAGES.profileUnavailable,
+          __DEV__ && isApiClientError(error) && (error.kind === "network" || error.kind === "timeout")
+            ? `${userMessage} (API: ${getApiBaseUrl()})`
+            : userMessage,
         );
       }
     };
 
     await load({ allowMissingBearerRetry: true, allowIdentityRefetch: true, forceFreshToken: false });
-  }, [userFullName, userPhone, clerkSignOut, sessionId]);
+  }, [userFullName, userPhone, user, clerkSignOut, sessionId]);
 
   useEffect(() => {
     if (!isLoaded) {
@@ -518,6 +564,20 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
       sub.remove();
     };
   }, [isLoaded, isSignedIn, sessionUserId, fetchProfile]);
+
+  // While awaiting admin approval, poll so PENDING → ACTIVE does not require reinstall.
+  useEffect(() => {
+    if (profileGate.status !== "pending") {
+      return;
+    }
+    authLog("AUTH", `Pending poll started intervalMs=${PENDING_POLL_MS}`);
+    const timer = setInterval(() => {
+      void fetchProfile({ background: true });
+    }, PENDING_POLL_MS);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [profileGate.status, fetchProfile]);
 
   // Clerk user id changed after a profile was loaded — clear it and refetch once, then error.
   useEffect(() => {
@@ -590,6 +650,7 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
     requestIdRef.current += 1;
     mismatchRefetchRef.current = null;
     sessionUserIdRef.current = null;
+    clearSignupRequestedRole();
     setTokenSubject(null);
     setProfileGate({ status: "idle" });
     await queryClient.cancelQueries();
@@ -598,13 +659,44 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
     await clerkSignOut();
   }, [clerkSignOut, queryClient]);
 
+  const submitRequestedRole = useCallback(
+    async (role: RequestableRole) => {
+      if (!isRequestableRole(role)) {
+        return;
+      }
+      try {
+        const synced = await syncUser({ requestedRole: role });
+        consumeSignupRequestedRole();
+        setProfileGate((prev) => {
+          if (prev.status !== "pending" && prev.status !== "ready") {
+            return prev;
+          }
+          return {
+            ...prev,
+            profile: {
+              ...prev.profile,
+              requestedRole: synced.requestedRole ?? role,
+            },
+          };
+        });
+        authLog("ROLE", `requestedRole synced=${role}`);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        authLog("ROLE", `requestedRole sync failed detail=${detail}`);
+        throw error;
+      }
+    },
+    [],
+  );
+
   const value = useMemo(
     () => ({
       state,
       refresh: fetchProfile,
       signOut,
+      submitRequestedRole,
     }),
-    [state, fetchProfile, signOut],
+    [state, fetchProfile, signOut, submitRequestedRole],
   );
 
   return (

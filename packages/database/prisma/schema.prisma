@@ -481,15 +481,17 @@ model ConfigAuditLog {
 /// Application user synced from Clerk. No password — identity is clerkUserId.
 /// Roles are assigned only via UserTenantRole (never a direct role FK).
 model User {
-  id          String    @id @default(cuid())
-  clerkUserId String    @unique
-  email       String    @unique
-  phone       String?
-  fullName    String
-  isActive    Boolean   @default(true)
-  lastLoginAt DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id            String    @id @default(cuid())
+  clerkUserId   String    @unique
+  email         String    @unique
+  phone         String?
+  fullName      String
+  /// Signup intent only: SURVEYOR | FIELD_SUPERVISOR. Not authorization — Admin assigns real roles.
+  requestedRole String?
+  isActive      Boolean   @default(true)
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   surveysCreated      Survey[]         @relation("SurveyCreatedBy")
   surveysAssigned     Survey[]         @relation("SurveyAssignedTo")

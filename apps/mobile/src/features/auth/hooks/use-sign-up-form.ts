@@ -1,23 +1,44 @@
+import type { RequestableRole } from "@/types/user"
 import { useSignUp } from "@clerk/expo/legacy"
 import { useState } from "react"
-import { getClerkErrorMessage, incompleteAuthMessage, validateSignUpInput } from "../lib/clerk-errors"
+import {
+  getClerkErrorMessage,
+  incompleteAuthMessage,
+  validateRequestedRole,
+  validateSignUpInput,
+} from "../lib/clerk-errors"
+import { setSignupRequestedRole } from "../lib/signup-intent"
 
 export function useSignUpForm() {
   const { isLoaded, signUp, setActive } = useSignUp()
   const [pendingVerification, setPendingVerification] = useState(false)
+  const [emailForVerify, setEmailForVerify] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [resending, setResending] = useState(false)
+  const [resendCooldownUntil, setResendCooldownUntil] = useState(0)
 
-  async function signUpWithDetails(fullName: string, email: string, password: string, confirmPassword: string) {
+  async function signUpWithDetails(
+    fullName: string,
+    email: string,
+    password: string,
+    requestedRole: RequestableRole | null,
+    confirmPassword?: string
+  ) {
     if (!isLoaded || !signUp) {
-      return
+      return false
     }
 
     const validationError = validateSignUpInput(fullName, email, password, confirmPassword)
     if (validationError) {
       setError(validationError)
-      return
+      return false
+    }
+
+    const roleError = validateRequestedRole(requestedRole)
+    if (roleError || !requestedRole) {
+      setError(roleError ?? "Select Surveyor or Supervisor.")
+      return false
     }
 
     setError(null)
@@ -27,17 +48,26 @@ export function useSignUpForm() {
       const firstName = nameParts[0]
       const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : undefined
 
+      setSignupRequestedRole(requestedRole)
+
       await signUp.create({
         emailAddress: email.trim(),
         password,
         ...(firstName ? { firstName } : {}),
         ...(lastName ? { lastName } : {}),
+        unsafeMetadata: {
+          requestedRole,
+        },
       })
 
       await signUp.prepareEmailAddressVerification({ strategy: "email_code" })
+      setEmailForVerify(email.trim())
       setPendingVerification(true)
+      setResendCooldownUntil(Date.now() + 30_000)
+      return true
     } catch (err) {
       setError(getClerkErrorMessage(err, "Sign up failed"))
+      return false
     } finally {
       setLoading(false)
     }
@@ -45,12 +75,12 @@ export function useSignUpForm() {
 
   async function verifyCode(code: string) {
     if (!isLoaded || !signUp) {
-      return
+      return false
     }
 
     if (!code.trim()) {
       setError("Enter the verification code from your email.")
-      return
+      return false
     }
 
     setError(null)
@@ -62,12 +92,14 @@ export function useSignUpForm() {
 
       if (result.status === "complete" && result.createdSessionId) {
         await setActive({ session: result.createdSessionId })
-        return
+        return true
       }
 
       setError(incompleteAuthMessage("sign_up", result.status))
+      return false
     } catch (err) {
       setError(getClerkErrorMessage(err, "Verification failed"))
+      return false
     } finally {
       setLoading(false)
     }
@@ -77,11 +109,16 @@ export function useSignUpForm() {
     if (!isLoaded || !signUp || !pendingVerification) {
       return
     }
+    if (Date.now() < resendCooldownUntil) {
+      setError("Please wait a moment before requesting another code.")
+      return
+    }
 
     setError(null)
     setResending(true)
     try {
       await signUp.prepareEmailAddressVerification({ strategy: "email_code" })
+      setResendCooldownUntil(Date.now() + 30_000)
     } catch (err) {
       setError(getClerkErrorMessage(err, "Could not resend verification code"))
     } finally {
@@ -92,12 +129,16 @@ export function useSignUpForm() {
   return {
     isLoaded,
     pendingVerification,
+    emailForVerify,
     error,
     loading,
     resending,
+    resendCooldownUntil,
     signUpWithDetails,
     verifyCode,
     resendCode,
     setError,
+    setPendingVerification,
+    setEmailForVerify,
   }
 }

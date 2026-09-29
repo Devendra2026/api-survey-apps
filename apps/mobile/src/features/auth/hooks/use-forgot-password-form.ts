@@ -8,10 +8,10 @@ import {
 } from "../lib/clerk-errors"
 import { hasPasswordFactor, passwordResetUnavailableMessage, type SignInFactorLike } from "../lib/sign-in-factors"
 
-export type ForgotPasswordStep = "request" | "reset"
+export type ForgotPasswordStep = "request" | "reset" | "success"
 
 export function useForgotPasswordForm() {
-  const { isLoaded, signIn, setActive } = useSignIn()
+  const { isLoaded, signIn } = useSignIn()
   const [step, setStep] = useState<ForgotPasswordStep>("request")
   const [emailUsed, setEmailUsed] = useState("")
   const [error, setError] = useState<string | null>(null)
@@ -108,8 +108,9 @@ export function useForgotPasswordForm() {
         password,
       })
 
-      if (result.status === "complete" && result.createdSessionId) {
-        await setActive({ session: result.createdSessionId })
+      if (result.status === "complete") {
+        // Do not setActive — user should explicitly sign in with the new password.
+        setStep("success")
         return
       }
 
@@ -130,6 +131,7 @@ export function useForgotPasswordForm() {
   return {
     isLoaded,
     step,
+    emailUsed,
     error,
     loading,
     resending,

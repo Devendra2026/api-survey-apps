@@ -210,7 +210,7 @@ export class UsersRepository {
     return this.prisma.db.user.create({ data })
   }
 
-  async update(id: string, data: UpdateUserDto) {
+  async update(id: string, data: UpdateUserDto & { requestedRole?: string | null }) {
     await this.findById(id)
     return this.prisma.db.user.update({ where: { id }, data })
   }

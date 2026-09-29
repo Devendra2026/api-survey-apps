@@ -5,9 +5,11 @@
     "allowImportingTsExtensions": true,
     "paths": {
       "@/*": ["./src/*"],
-      "@/assets/*": ["./assets/*"]
+      "@/assets/*": ["./assets/*"],
+      "node:assert/strict": ["./node_modules/@types/node/assert/strict.d.ts"],
+      "node:test": ["./node_modules/@types/node/test.d.ts"]
     }
   },
   "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"],
-  "exclude": ["**/node_modules", "**/*.test.ts"]
+  "exclude": ["**/node_modules"]
 }

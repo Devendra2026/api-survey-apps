@@ -1,32 +1,24 @@
 import { isClerkAPIResponseError } from "@clerk/expo"
+import {
+  extractClerkRetryAfterSeconds,
+  incompleteAuthMessage,
+  isUnauthorizedNativeRedirectMessage,
+  messageForClerkCode,
+  UNAUTHORIZED_NATIVE_REDIRECT_MESSAGE,
+} from "./clerk-auth-copy"
 import { PASSWORD_UNAVAILABLE_GOOGLE_MESSAGE } from "./sign-in-factors"
 
-const CODE_MESSAGES: Record<string, string> = {
-  form_identifier_not_found: "Invalid email or password.",
-  form_password_incorrect: "Invalid email or password.",
-  form_identifier_exists: "An account with this email already exists. Sign in instead.",
-  form_password_pwned: "This password appears in a data breach. Choose a different password.",
-  form_password_length_too_short: "Password is too short. Use at least 8 characters.",
-  form_code_incorrect: "That verification code is incorrect. Check the email and try again.",
-  form_password_validation_failed: "That password does not meet security requirements. Try a stronger password.",
-  verification_expired: "That verification code has expired. Request a new code.",
-  verification_failed: "Verification failed. Request a new code and try again.",
-  session_exists: "You are already signed in on this device.",
-  captcha_invalid: "Bot protection blocked this request. Ask an admin to check Clerk captcha settings for mobile.",
-  captcha_missing_token:
-    "Bot protection blocked this request. Ask an admin to check Clerk captcha settings for mobile.",
-  /** Password (or other) strategy not valid for this Clerk user — typically Google-only accounts. */
-  strategy_for_user_invalid: PASSWORD_UNAVAILABLE_GOOGLE_MESSAGE,
+export { extractClerkRetryAfterSeconds, incompleteAuthMessage }
+
+type ClerkErrorLike = {
+  clerkError: true
+  code: string
+  message: string
+  longMessage?: string
+  cause?: unknown
 }
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
-function messageForCode(code: string | undefined): string | null {
-  if (!code) {
-    return null
-  }
-  return CODE_MESSAGES[code] ?? null
-}
 
 function isNetworkLikeMessage(message: string): boolean {
   const lower = message.toLowerCase()
@@ -40,55 +32,76 @@ function isNetworkLikeMessage(message: string): boolean {
   )
 }
 
+function isClerkErrorLike(error: unknown): error is ClerkErrorLike {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "clerkError" in error &&
+    (error as { clerkError: unknown }).clerkError === true &&
+    "code" in error &&
+    typeof (error as { code: unknown }).code === "string" &&
+    "message" in error &&
+    typeof (error as { message: unknown }).message === "string"
+  )
+}
+
+function messageFromClerkCodeAndCopy(code: string | undefined, message?: string, longMessage?: string): string | null {
+  const fromCode = messageForClerkCode(code)
+  if (fromCode) {
+    return fromCode
+  }
+  const strategyCopy = `${longMessage ?? ""} ${message ?? ""}`.toLowerCase()
+  if (strategyCopy.includes("verification strategy is not valid")) {
+    return PASSWORD_UNAVAILABLE_GOOGLE_MESSAGE
+  }
+  if (isUnauthorizedNativeRedirectMessage(longMessage) || isUnauthorizedNativeRedirectMessage(message)) {
+    return UNAUTHORIZED_NATIVE_REDIRECT_MESSAGE
+  }
+  if (longMessage) {
+    return longMessage
+  }
+  if (message) {
+    return message
+  }
+  return null
+}
+
+/**
+ * Maps Clerk future-API `{ error }` values (ClerkError) and thrown API errors to user-safe copy.
+ */
 export function getClerkErrorMessage(error: unknown, fallback = "Authentication failed"): string {
   if (isClerkAPIResponseError(error)) {
     const first = error.errors[0]
     if (__DEV__ && first?.code) {
       console.warn("[clerk-auth]", first.code, first.longMessage ?? first.message)
     }
-    const fromCode = messageForCode(first?.code)
-    if (fromCode) {
-      return fromCode
+    const mapped = messageFromClerkCodeAndCopy(first?.code, first?.message, first?.longMessage)
+    if (mapped) {
+      return mapped
     }
-    // Clerk's human-readable copy for an invalid strategy — map without treating as wrong password.
-    const strategyCopy = `${first?.longMessage ?? ""} ${first?.message ?? ""}`.toLowerCase()
-    if (strategyCopy.includes("verification strategy is not valid")) {
-      return PASSWORD_UNAVAILABLE_GOOGLE_MESSAGE
+  }
+  if (isClerkErrorLike(error)) {
+    if (__DEV__) {
+      console.warn("[clerk-auth]", error.code, error.longMessage ?? error.message)
     }
-    if (first?.longMessage) {
-      return first.longMessage
+    const mapped = messageFromClerkCodeAndCopy(error.code, error.message, error.longMessage)
+    if (mapped) {
+      return mapped
     }
-    if (first?.message) {
-      return first.message
+    if (error.cause) {
+      return getClerkErrorMessage(error.cause, fallback)
     }
   }
   if (error instanceof Error && error.message) {
     if (isNetworkLikeMessage(error.message)) {
       return "Unable to connect. Please check your internet connection."
     }
+    if (isUnauthorizedNativeRedirectMessage(error.message)) {
+      return UNAUTHORIZED_NATIVE_REDIRECT_MESSAGE
+    }
     return error.message
   }
   return fallback
-}
-
-export function incompleteAuthMessage(kind: "sign_in" | "sign_up", status: string | null | undefined): string {
-  const normalized = status?.trim() || "unknown"
-  if (kind === "sign_in") {
-    if (normalized === "needs_second_factor") {
-      return "Additional verification is required. Enter the code we sent to your email."
-    }
-    if (normalized === "needs_first_factor") {
-      return "Additional verification is required to complete sign-in."
-    }
-    if (normalized === "needs_client_trust") {
-      return "This device must be verified. Enter the email code, or finish trust verification on the web admin once."
-    }
-    return "Sign-in could not be completed. Try again, or finish verification on the web admin."
-  }
-  if (normalized === "missing_requirements") {
-    return "Sign-up is missing required fields. Complete your profile on the web, then sign in here."
-  }
-  return "Verification could not be completed. Request a new code or contact support."
 }
 
 export function getGoogleAuthErrorMessage(error: unknown): string {
@@ -103,6 +116,9 @@ export function getGoogleAuthErrorMessage(error: unknown): string {
     ) {
       return "Google sign-in cancelled."
     }
+    if (isUnauthorizedNativeRedirectMessage(error.message)) {
+      return UNAUTHORIZED_NATIVE_REDIRECT_MESSAGE
+    }
     if (
       lower.includes("already linked") ||
       lower.includes("account linking") ||
@@ -116,7 +132,14 @@ export function getGoogleAuthErrorMessage(error: unknown): string {
     }
   }
   if (isClerkAPIResponseError(error)) {
-    const code = error.errors[0]?.code
+    const first = error.errors[0]
+    if (
+      isUnauthorizedNativeRedirectMessage(first?.longMessage) ||
+      isUnauthorizedNativeRedirectMessage(first?.message)
+    ) {
+      return UNAUTHORIZED_NATIVE_REDIRECT_MESSAGE
+    }
+    const code = first?.code
     if (code === "external_account_exists" || code === "identifier_already_signed_in") {
       return "Your Google account is linked to a different application account. Sign in with the original account or contact your administrator."
     }

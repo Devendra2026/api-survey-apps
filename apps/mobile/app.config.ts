@@ -46,6 +46,12 @@ function displayName(appEnv: AppBuildEnv): string {
 export default ({ config }: ConfigContext): ExpoConfig => {
   const appEnv = resolveAppEnv()
   const cleartext = allowCleartextTraffic(appEnv)
+  // Public client vars only — stamped into `extra` so runtime can fall back when
+  // Metro inlining of process.env.EXPO_PUBLIC_* is missing (common on EAS if
+  // env was unset at bundle time). Never put CLERK_SECRET_KEY here.
+  const apiUrl = process.env.EXPO_PUBLIC_API_URL?.trim() ?? ""
+  const clerkPublishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim() ?? ""
+  const googleMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() ?? ""
 
   return {
     ...config,
@@ -60,7 +66,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       bundleIdentifier: "com.sdvedutech.surveymobile",
       icon: "./assets/expo.icon",
       config: {
-        googleMapsApiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY,
+        googleMapsApiKey: googleMapsApiKey || undefined,
       },
       ...(cleartext
         ? {
@@ -76,7 +82,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       package: "com.sdvedutech.surveymobile",
       config: {
         googleMaps: {
-          apiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY,
+          apiKey: googleMapsApiKey || undefined,
         },
       },
       adaptiveIcon: {
@@ -132,6 +138,11 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     extra: {
       ...(typeof config.extra === "object" && config.extra !== null ? config.extra : {}),
       appEnv,
+      expoPublic: {
+        apiUrl,
+        clerkPublishableKey,
+        googleMapsApiKey,
+      },
       eas: {
         projectId: "63ac0139-08a9-4ca8-b5e0-d0640a496c57",
       },

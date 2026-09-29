@@ -491,6 +491,9 @@ importers:
         specifier: 0.10.1
         version: 0.10.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(bufferutil@4.1.0)(supports-color@8.1.1)(utf-8-validate@6.0.6))(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(bufferutil@4.1.0)(supports-color@8.1.1)(utf-8-validate@6.0.6))(@types/react@19.2.17)(bufferutil@4.1.0)(react@19.2.3)(supports-color@8.1.1)(utf-8-validate@6.0.6))(react@19.2.3)(supports-color@8.1.1)
     devDependencies:
+      "@types/node":
+        specifier: ^22.20.4
+        version: 22.20.4
       "@types/react":
         specifier: 19.2.17
         version: 19.2.17
@@ -5539,6 +5542,10 @@ packages:
   "@types/node@20.19.41":
     resolution:
       { integrity: sha512-ECymXOukMnOoVkC2bb1Vc/w/836DXncOg5m8Xj1RH7xSHZJWNYY6Zh7EH477vcnD5egKNNfy2RpNOmuChhFPgQ== }
+
+  "@types/node@22.20.4":
+    resolution:
+      { integrity: sha512-zJRE40jpHtKqE/C4fgHrAKQLJuSpzEnP9ff9Y7YtoR3Wd2pwqzlekDeEuUQXjRd+QCYnVnNwuJYmhdk9XV8gvA== }
 
   "@types/node@26.1.1":
     resolution:
@@ -18083,6 +18090,10 @@ snapshots:
   "@types/node@14.18.63": {}
 
   "@types/node@20.19.41":
+    dependencies:
+      undici-types: 6.21.0
+
+  "@types/node@22.20.4":
     dependencies:
       undici-types: 6.21.0
 

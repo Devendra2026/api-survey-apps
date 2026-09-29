@@ -66,6 +66,35 @@ function defaultApiUrl(): string {
   return `http://localhost:${API_PORT}`
 }
 
+type ExpoPublicExtra = {
+  apiUrl?: unknown
+  clerkPublishableKey?: unknown
+  googleMapsApiKey?: unknown
+}
+
+function readExpoPublicExtra(): ExpoPublicExtra {
+  const extra = Constants.expoConfig?.extra
+  if (!extra || typeof extra !== "object") {
+    return {}
+  }
+  const expoPublic = (extra as { expoPublic?: unknown }).expoPublic
+  if (!expoPublic || typeof expoPublic !== "object") {
+    return {}
+  }
+  return expoPublic as ExpoPublicExtra
+}
+
+function readPublicString(
+  fromProcess: string | undefined,
+  fromExtra: unknown
+): string {
+  const envValue = fromProcess?.trim() ?? ""
+  if (envValue.length > 0) {
+    return envValue
+  }
+  return typeof fromExtra === "string" ? fromExtra.trim() : ""
+}
+
 /** App env stamped by eas.json / app.config (`extra.appEnv`). Fail closed to production rules when unknown. */
 export function getAppEnv(): AppBuildEnv {
   const fromExtra = Constants.expoConfig?.extra?.appEnv
@@ -77,9 +106,10 @@ export function getAppEnv(): AppBuildEnv {
 }
 
 export function getApiBaseUrl(): string {
+  const stamped = readExpoPublicExtra()
   return resolveApiBaseUrl({
     appEnv: getAppEnv(),
-    apiUrl: process.env.EXPO_PUBLIC_API_URL,
+    apiUrl: readPublicString(process.env.EXPO_PUBLIC_API_URL, stamped.apiUrl),
     platform: Platform.OS,
     isDevice: Device.isDevice,
     defaultUrl: defaultApiUrl(),
@@ -87,7 +117,11 @@ export function getApiBaseUrl(): string {
 }
 
 export function getClerkPublishableKey(): string {
-  const key = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim() ?? ""
+  const stamped = readExpoPublicExtra()
+  const key = readPublicString(
+    process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY,
+    stamped.clerkPublishableKey
+  )
   if (!key) {
     return ""
   }
@@ -101,7 +135,11 @@ export function getClerkPublishableKey(): string {
 
 /** Public Maps SDK key. Empty when unset — never invent or commit a key. */
 export function getGoogleMapsApiKey(): string {
-  return process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() ?? ""
+  const stamped = readExpoPublicExtra()
+  return readPublicString(
+    process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY,
+    stamped.googleMapsApiKey
+  )
 }
 
 export function isLocalHttpApi(): boolean {

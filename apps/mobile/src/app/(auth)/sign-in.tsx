@@ -1,6 +1,7 @@
 import { Button, PasswordInput, Screen, Text, TextField } from "@/components/ui"
 import { useGoogleAuth } from "@/features/auth/hooks/use-google-auth"
 import { useSignInForm } from "@/features/auth/hooks/use-sign-in-form"
+import { ENTER_DEVICE_TRUST_CODE_MESSAGE } from "@/features/auth/lib/clerk-auth-copy"
 import { isValidEmail } from "@/features/auth/lib/clerk-errors"
 import { AuthDivider } from "@/features/auth/ui/AuthDivider"
 import { AuthError } from "@/features/auth/ui/AuthError"
@@ -22,8 +23,10 @@ export default function SignInScreen() {
     error,
     loading,
     resending,
+    cooldownSeconds,
     step,
     emailUsed,
+    trustChannel,
     submit,
     submitEmailCode,
     resendEmailCode,
@@ -33,24 +36,49 @@ export default function SignInScreen() {
   const {
     error: googleError,
     loading: googleLoading,
+    resending: googleResending,
+    cooldownSeconds: googleCooldownSeconds,
+    step: googleStep,
+    emailUsed: googleEmailUsed,
+    trustChannel: googleTrustChannel,
     signInWithGoogle,
+    submitDeviceTrustCode: submitGoogleDeviceTrustCode,
+    resendDeviceTrustCode: resendGoogleDeviceTrustCode,
+    cancelDeviceTrust: cancelGoogleDeviceTrust,
     setError: setGoogleError,
   } = useGoogleAuth()
 
-  const busy = loading || resending || googleLoading
+  const busy = loading || resending || googleLoading || googleResending
   const displayError = googleError ?? error
   const canSubmitCredentials = isValidEmail(email) && Boolean(password) && isLoaded && !googleLoading
 
-  if (step === "email_code") {
+  const isGoogleDeviceTrust = googleStep === "device_trust"
+  const isDeviceTrust = step === "device_trust" || isGoogleDeviceTrust
+  const isMfaEmailCode = step === "email_code"
+
+  if (isDeviceTrust || isMfaEmailCode) {
+    const verificationEmail = isGoogleDeviceTrust ? googleEmailUsed : emailUsed
+    const activeChannel = isGoogleDeviceTrust ? googleTrustChannel : trustChannel
+    const activeCooldown = isGoogleDeviceTrust ? googleCooldownSeconds : cooldownSeconds
+    const activeResending = isGoogleDeviceTrust ? googleResending : resending
+    const activeLoading = isGoogleDeviceTrust ? googleLoading : loading
+    const cooldownActive = activeCooldown > 0
+    const title = isDeviceTrust ? "Verify this device" : "Verify sign-in"
+    const deviceTrustBody =
+      activeChannel === "phone_code"
+        ? "For security, verify this device using the code sent to your phone."
+        : "For security, verify this device using the code sent to your email."
+    const caption = isDeviceTrust
+      ? `${deviceTrustBody} ${ENTER_DEVICE_TRUST_CODE_MESSAGE}`
+      : verificationEmail
+        ? `Enter the 6-digit code we sent to ${verificationEmail} to finish signing in.`
+        : "Enter the 6-digit code from your email to finish signing in."
+
     return (
       <Screen scroll keyboard>
         <AuthScreenShell
-          title="Verify sign-in"
-          caption={
-            emailUsed
-              ? `Enter the 6-digit code we sent to ${emailUsed} to finish signing in.`
-              : "Enter the 6-digit code from your email to finish signing in."
-          }
+          title={title}
+          caption={caption}
           footer={
             <AuthFooterLinkRow
               prompt=""
@@ -60,7 +88,11 @@ export default function SignInScreen() {
                   disabled={busy}
                   onPress={() => {
                     setCode("")
-                    backToCredentials()
+                    if (isGoogleDeviceTrust) {
+                      cancelGoogleDeviceTrust()
+                    } else {
+                      backToCredentials()
+                    }
                   }}
                 >
                   <Text variant="bodyStrong" tone="primary">
@@ -71,24 +103,43 @@ export default function SignInScreen() {
             />
           }
         >
+          {verificationEmail ? (
+            <Text variant="body" tone="secondary">
+              {verificationEmail}
+            </Text>
+          ) : null}
           <OtpInput value={code} onChange={setCode} disabled={busy} />
           {displayError ? <AuthError message={displayError} /> : null}
           <Button
-            title={loading ? "Verifying…" : "Verify"}
-            loading={loading}
-            disabled={!isLoaded || resending || !isCompleteOtp(code)}
+            title={activeLoading ? "Verifying…" : "Verify"}
+            loading={activeLoading}
+            disabled={!isLoaded || activeResending || !isCompleteOtp(code)}
             onPress={() => {
               setGoogleError(null)
-              void submitEmailCode(code)
+              if (isGoogleDeviceTrust) {
+                void submitGoogleDeviceTrustCode(code)
+              } else {
+                void submitEmailCode(code)
+              }
             }}
           />
           <Button
-            title="Resend code"
+            title={
+              cooldownActive
+                ? `Resend code (${activeCooldown}s)`
+                : activeResending
+                  ? "Sending…"
+                  : "Resend code"
+            }
             variant="ghost"
-            loading={resending}
-            disabled={!isLoaded || loading}
+            loading={activeResending}
+            disabled={!isLoaded || activeLoading || cooldownActive}
             onPress={() => {
-              void resendEmailCode()
+              if (isGoogleDeviceTrust) {
+                void resendGoogleDeviceTrustCode()
+              } else {
+                void resendEmailCode()
+              }
             }}
           />
         </AuthScreenShell>

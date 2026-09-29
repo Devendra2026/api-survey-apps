@@ -7,6 +7,8 @@ import {
   PASSWORD_UNAVAILABLE_GOOGLE_MESSAGE,
   passwordResetUnavailableMessage,
   passwordUnavailableMessage,
+  resolveClientTrustChannel,
+  unsupportedClientTrustMessage,
 } from "./sign-in-factors.ts"
 
 describe("hasPasswordFactor", () => {
@@ -55,5 +57,31 @@ describe("passwordResetUnavailableMessage", () => {
       passwordResetUnavailableMessage([{ strategy: "oauth_google" }]),
       PASSWORD_RESET_UNAVAILABLE_GOOGLE_MESSAGE
     )
+  })
+})
+
+describe("resolveClientTrustChannel", () => {
+  it("selects email_code when Clerk lists it for needs_client_trust", () => {
+    assert.equal(resolveClientTrustChannel([{ strategy: "email_code" }, { strategy: "phone_code" }]), "email_code")
+  })
+
+  it("falls back to phone_code when email_code is absent", () => {
+    assert.equal(resolveClientTrustChannel([{ strategy: "phone_code" }]), "phone_code")
+  })
+
+  it("returns null for email_link-only factors", () => {
+    assert.equal(resolveClientTrustChannel([{ strategy: "email_link" }]), null)
+  })
+
+  it("returns null when no factors are listed", () => {
+    assert.equal(resolveClientTrustChannel([]), null)
+    assert.equal(resolveClientTrustChannel(null), null)
+  })
+})
+
+describe("unsupportedClientTrustMessage", () => {
+  it("explains email_link is unavailable in the mobile app", () => {
+    assert.match(unsupportedClientTrustMessage([{ strategy: "email_link" }]), /email link/i)
+    assert.doesNotMatch(unsupportedClientTrustMessage([{ strategy: "email_link" }]), /web admin/i)
   })
 })

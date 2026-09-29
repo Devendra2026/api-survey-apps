@@ -1,59 +1,121 @@
-import { useSignIn } from "@clerk/expo/legacy"
-import { useState } from "react"
-import { getClerkErrorMessage, incompleteAuthMessage, validateSignInInput } from "../lib/clerk-errors"
+import { useAuth, useSignIn } from "@clerk/expo"
+import { useCallback, useEffect, useState } from "react"
+import {
+  DEVICE_MUST_BE_VERIFIED_MESSAGE,
+  ENTER_DEVICE_TRUST_CODE_MESSAGE,
+  EXPIRED_VERIFICATION_CODE_MESSAGE,
+} from "../lib/clerk-auth-copy"
+import {
+  extractClerkRetryAfterSeconds,
+  getClerkErrorMessage,
+  incompleteAuthMessage,
+  validateSignInInput,
+} from "../lib/clerk-errors"
 import {
   findEmailCodeFactor,
-  hasPasswordFactor,
-  passwordUnavailableMessage,
+  resolveClientTrustChannel,
+  unsupportedClientTrustMessage,
   unsupportedSecondFactorMessage,
+  type ClientTrustChannel,
   type SignInFactorLike,
 } from "../lib/sign-in-factors"
 
-export type SignInStep = "credentials" | "email_code"
-
-type SignInAttemptResult = {
-  status: string | null
-  createdSessionId: string | null
-  supportedSecondFactors?: SignInFactorLike[] | null
-  supportedFirstFactors?: SignInFactorLike[] | null
-}
+export type SignInStep = "credentials" | "email_code" | "device_trust"
 
 /**
- * Email/password sign-in with Clerk-supported email_code second factor.
- * Session navigation is owned by root redirects after `setActive`.
+ * Email/password sign-in using Clerk's Signal-based SignInFuture API.
+ * Handles Device Trust (`needs_client_trust`) separately from MFA (`needs_second_factor`).
+ * Session navigation is owned by root redirects after `finalize()`.
  */
 export function useSignInForm() {
-  const { isLoaded, signIn, setActive } = useSignIn()
+  const { isLoaded } = useAuth()
+  const { signIn, fetchStatus } = useSignIn()
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [resending, setResending] = useState(false)
   const [step, setStep] = useState<SignInStep>("credentials")
   const [emailUsed, setEmailUsed] = useState("")
+  const [trustChannel, setTrustChannel] = useState<ClientTrustChannel>("email_code")
+  const [cooldownSeconds, setCooldownSeconds] = useState(0)
 
-  async function activateSession(sessionId: string) {
-    if (!setActive) {
-      throw new Error("Clerk session activation is not available yet. Try again.")
+  useEffect(() => {
+    if (cooldownSeconds <= 0) {
+      return
     }
-    await setActive({ session: sessionId })
+    const timer = setTimeout(() => {
+      setCooldownSeconds((seconds) => Math.max(0, seconds - 1))
+    }, 1000)
+    return () => {
+      clearTimeout(timer)
+    }
+  }, [cooldownSeconds])
+
+  const applyRetryAfterFromError = useCallback((err: unknown) => {
+    const seconds = extractClerkRetryAfterSeconds(err)
+    if (seconds !== null) {
+      setCooldownSeconds(seconds)
+    }
+  }, [])
+
+  async function finalizeIfComplete(): Promise<boolean> {
+    if (signIn.status !== "complete") {
+      return false
+    }
+    const { error: finalizeError } = await signIn.finalize()
+    if (finalizeError) {
+      setError(getClerkErrorMessage(finalizeError, "Could not activate your session. Try again."))
+      return false
+    }
+    return true
   }
 
-  async function beginEmailCodeSecondFactor(factors: SignInFactorLike[] | null | undefined) {
+  function verificationExpiredOnSignIn(): boolean {
+    return signIn.secondFactorVerification.status === "expired"
+  }
+
+  async function beginDeviceTrust(factors: SignInFactorLike[] | null | undefined): Promise<boolean> {
+    const channel = resolveClientTrustChannel(factors)
+    if (!channel) {
+      setError(unsupportedClientTrustMessage(factors))
+      return false
+    }
+
+    const sendResult = channel === "phone_code" ? await signIn.mfa.sendPhoneCode() : await signIn.mfa.sendEmailCode()
+
+    if (sendResult.error) {
+      setError(getClerkErrorMessage(sendResult.error, "Could not send the verification code."))
+      applyRetryAfterFromError(sendResult.error)
+      return false
+    }
+
+    setTrustChannel(channel)
+    setStep("device_trust")
+    setError(null)
+    return true
+  }
+
+  async function beginMfaEmailCode(factors: SignInFactorLike[] | null | undefined): Promise<boolean> {
     const emailFactor = findEmailCodeFactor(factors)
-    if (!emailFactor || !signIn) {
+    if (!emailFactor) {
       setError(unsupportedSecondFactorMessage(factors))
       return false
     }
 
-    await signIn.prepareSecondFactor({
-      strategy: "email_code",
-    })
+    const { error: sendError } = await signIn.mfa.sendEmailCode()
+    if (sendError) {
+      setError(getClerkErrorMessage(sendError, "Could not send the verification code."))
+      applyRetryAfterFromError(sendError)
+      return false
+    }
+
+    setTrustChannel("email_code")
     setStep("email_code")
     setError(null)
     return true
   }
 
   async function submit(email: string, password: string) {
-    if (!isLoaded || !signIn) {
+    if (!isLoaded) {
       return
     }
 
@@ -66,59 +128,42 @@ export function useSignInForm() {
     setError(null)
     setLoading(true)
     try {
-      const created = await signIn.create({
-        identifier: email.trim(),
+      const trimmedEmail = email.trim()
+      const { error: passwordError } = await signIn.password({
+        emailAddress: trimmedEmail,
+        password,
       })
 
-      const factors = (created.supportedFirstFactors ?? []) as SignInFactorLike[]
-
-      if (!hasPasswordFactor(factors)) {
-        setError(passwordUnavailableMessage(factors))
+      if (passwordError) {
+        setError(getClerkErrorMessage(passwordError, "Sign in failed"))
         return
       }
 
-      const result = (await signIn.attemptFirstFactor({
-        strategy: "password",
-        password,
-      })) as SignInAttemptResult
-
-      if (result.status === "complete" && result.createdSessionId) {
-        await activateSession(result.createdSessionId)
+      if (signIn.status === "complete") {
+        await finalizeIfComplete()
         return
       }
 
-      if (result.status === "needs_second_factor") {
-        setEmailUsed(email.trim())
-        const started = await beginEmailCodeSecondFactor(
-          (result.supportedSecondFactors ?? signIn.supportedSecondFactors ?? []) as SignInFactorLike[]
-        )
+      if (signIn.status === "needs_client_trust") {
+        setEmailUsed(trimmedEmail)
+        setError(DEVICE_MUST_BE_VERIFIED_MESSAGE)
+        const started = await beginDeviceTrust(signIn.supportedSecondFactors as SignInFactorLike[])
         if (started) {
-          return
+          setError(null)
         }
         return
       }
 
-      // Rare: password accepted path still needs an email_code first factor (org policies).
-      if (result.status === "needs_first_factor") {
-        const emailFactor = findEmailCodeFactor(
-          (result.supportedFirstFactors ?? signIn.supportedFirstFactors ?? factors) as SignInFactorLike[]
-        )
-        if (emailFactor?.emailAddressId) {
-          await signIn.prepareFirstFactor({
-            strategy: "email_code",
-            emailAddressId: emailFactor.emailAddressId,
-          })
-          setEmailUsed(email.trim())
-          setStep("email_code")
-          setError(null)
-          return
-        }
+      if (signIn.status === "needs_second_factor") {
+        setEmailUsed(trimmedEmail)
+        await beginMfaEmailCode(signIn.supportedSecondFactors as SignInFactorLike[])
+        return
       }
 
       setError(
         __DEV__
-          ? `${incompleteAuthMessage("sign_in", result.status)} (status=${result.status ?? "unknown"})`
-          : incompleteAuthMessage("sign_in", result.status)
+          ? `${incompleteAuthMessage("sign_in", signIn.status)} (status=${signIn.status ?? "unknown"})`
+          : incompleteAuthMessage("sign_in", signIn.status)
       )
     } catch (err) {
       setError(getClerkErrorMessage(err, "Sign in failed"))
@@ -128,48 +173,54 @@ export function useSignInForm() {
   }
 
   async function submitEmailCode(code: string) {
-    if (!isLoaded || !signIn) {
+    if (!isLoaded) {
       return
     }
     if (!code.trim()) {
-      setError("Enter the verification code from your email.")
+      setError(
+        step === "device_trust" ? ENTER_DEVICE_TRUST_CODE_MESSAGE : "Enter the verification code from your email."
+      )
       return
     }
 
     setError(null)
     setLoading(true)
     try {
-      const secondFactors = (signIn.supportedSecondFactors ?? []) as SignInFactorLike[]
-      const useSecondFactor = Boolean(findEmailCodeFactor(secondFactors))
-
-      const result = (
-        useSecondFactor
-          ? await signIn.attemptSecondFactor({
-              strategy: "email_code",
-              code: code.trim(),
-            })
-          : await signIn.attemptFirstFactor({
-              strategy: "email_code",
-              code: code.trim(),
-            })
-      ) as SignInAttemptResult
-
-      if (result.status === "complete" && result.createdSessionId) {
-        await activateSession(result.createdSessionId)
+      if (verificationExpiredOnSignIn()) {
+        setError(EXPIRED_VERIFICATION_CODE_MESSAGE)
         return
       }
 
-      if (result.status === "needs_second_factor") {
-        const started = await beginEmailCodeSecondFactor(
-          (result.supportedSecondFactors ?? signIn.supportedSecondFactors ?? []) as SignInFactorLike[]
-        )
+      const verifyResult =
+        step === "device_trust" && trustChannel === "phone_code"
+          ? await signIn.mfa.verifyPhoneCode({ code: code.trim() })
+          : await signIn.mfa.verifyEmailCode({ code: code.trim() })
+
+      if (verifyResult.error) {
+        setError(getClerkErrorMessage(verifyResult.error, "Verification failed"))
+        return
+      }
+
+      if (signIn.status === "complete") {
+        await finalizeIfComplete()
+        return
+      }
+
+      // Device trust can complete first; MFA may still be required.
+      if (signIn.status === "needs_second_factor") {
+        const started = await beginMfaEmailCode(signIn.supportedSecondFactors as SignInFactorLike[])
         if (started) {
           return
         }
         return
       }
 
-      setError(incompleteAuthMessage("sign_in", result.status))
+      if (signIn.status === "needs_client_trust") {
+        setError(`${DEVICE_MUST_BE_VERIFIED_MESSAGE} ${ENTER_DEVICE_TRUST_CODE_MESSAGE}`)
+        return
+      }
+
+      setError(incompleteAuthMessage("sign_in", signIn.status))
     } catch (err) {
       setError(getClerkErrorMessage(err, "Verification failed"))
     } finally {
@@ -178,48 +229,52 @@ export function useSignInForm() {
   }
 
   async function resendEmailCode() {
-    if (!isLoaded || !signIn || step !== "email_code") {
+    if (!isLoaded || (step !== "email_code" && step !== "device_trust")) {
+      return
+    }
+    if (cooldownSeconds > 0 || resending || loading) {
       return
     }
 
     setError(null)
     setResending(true)
     try {
-      const secondFactors = (signIn.supportedSecondFactors ?? []) as SignInFactorLike[]
-      if (findEmailCodeFactor(secondFactors)) {
-        await signIn.prepareSecondFactor({ strategy: "email_code" })
+      const sendResult =
+        step === "device_trust" && trustChannel === "phone_code"
+          ? await signIn.mfa.sendPhoneCode()
+          : await signIn.mfa.sendEmailCode()
+
+      if (sendResult.error) {
+        setError(getClerkErrorMessage(sendResult.error, "Could not resend verification code"))
+        applyRetryAfterFromError(sendResult.error)
         return
       }
-      const firstFactors = (signIn.supportedFirstFactors ?? []) as SignInFactorLike[]
-      const emailFactor = findEmailCodeFactor(firstFactors)
-      if (emailFactor?.emailAddressId) {
-        await signIn.prepareFirstFactor({
-          strategy: "email_code",
-          emailAddressId: emailFactor.emailAddressId,
-        })
-        return
-      }
-      setError("Could not resend the verification code. Try signing in again.")
     } catch (err) {
       setError(getClerkErrorMessage(err, "Could not resend verification code"))
+      applyRetryAfterFromError(err)
     } finally {
       setResending(false)
     }
   }
 
   function backToCredentials() {
+    void signIn.reset()
     setStep("credentials")
     setError(null)
     setEmailUsed("")
+    setTrustChannel("email_code")
+    setCooldownSeconds(0)
   }
 
   return {
     isLoaded,
     error,
-    loading,
+    loading: loading || fetchStatus === "fetching",
     resending,
+    cooldownSeconds,
     step,
     emailUsed,
+    trustChannel,
     submit,
     submitEmailCode,
     resendEmailCode,

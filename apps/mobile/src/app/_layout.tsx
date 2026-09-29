@@ -31,7 +31,7 @@ function MissingClerkConfig() {
       <StatusView
         variant="error"
         title="Clerk is not configured"
-        description="Set EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY in apps/mobile/.env (publishable key only). Local: pk_test_…. Release builds must use pk_live_…. See deploy/env/mobile.env.example."
+        description="Set EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY (publishable key only). Local Metro: apps/mobile/.env with pk_test_…. EAS preview/production: set the same name in the matching EAS environment (pk_live_… for production), then rebuild. See deploy/env/mobile.env.example."
       />
     </Screen>
   );

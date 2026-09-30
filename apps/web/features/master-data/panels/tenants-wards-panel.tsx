@@ -23,6 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@workspace/ui/components/dialog"
+import { isZeroWardName } from "@workspace/validation"
 import { GitMerge, MapPin, Plus, RefreshCw } from "lucide-react"
 import Link from "next/link"
 import { useMemo, useState } from "react"
@@ -31,6 +32,13 @@ import { toast } from "sonner"
 type DrawerKind = "state" | "district" | "ulb" | "ward" | null
 
 const WARD_NAME_CONFLICT = "A ward with this name already exists. Please use a different name."
+const ZERO_WARD_DELETE_BLOCKED = "Zero Ward is created automatically for this ULB. Delete the ULB to remove it."
+
+function blockingWardCount(counts: Record<string, number> | undefined): number {
+  if (!counts) return 0
+  if (typeof counts.geographicWards === "number") return counts.geographicWards
+  return counts.wards ?? 0
+}
 
 function statesToTreeNodes(items: Array<{ id: string; name: string; code: string }>): GeographyTreeNode[] {
   return items.map((s) => ({
@@ -231,8 +239,9 @@ export function TenantsWardsPanel() {
     if (deleteTarget === "state" && selected.type !== "state") return
     if (deleteTarget === "ulb" && selected.type !== "ulb") return
     if (deleteTarget === "district" && selected.type !== "district") return
+    if (deleteTarget === "ward" && selected.type === "ward" && isZeroWardName(selected.name)) return
     if (deleteTarget === "ulb" && selected.type === "ulb") {
-      const wardCount = selected.counts?.wards ?? 0
+      const wardCount = blockingWardCount(selected.counts)
       const surveyCount = selected.counts?.surveys ?? 0
       if (wardCount > 0 || surveyCount > 0) return
     }
@@ -286,14 +295,17 @@ export function TenantsWardsPanel() {
     selected?.type === "state" && stateDistrictCount > 0
       ? `This state has ${stateDistrictCount} district(s). Keep Uttar Pradesh (09); only delete empty duplicates.`
       : null
-  const ulbWardCount = selected?.type === "ulb" ? (selected.counts?.wards ?? 0) : 0
+  const ulbWardCount = selected?.type === "ulb" ? blockingWardCount(selected.counts) : 0
   const ulbSurveyCount = selected?.type === "ulb" ? (selected.counts?.surveys ?? 0) : 0
+  const ulbOnlySystemZeroWard =
+    selected?.type === "ulb" && ulbWardCount === 0 && (selected.counts?.wards ?? 0) > 0 && ulbSurveyCount === 0
   const ulbDeleteBlocked =
     selected?.type === "ulb" && (ulbWardCount > 0 || ulbSurveyCount > 0)
       ? ulbWardCount > 0
         ? `This ULB has ${ulbWardCount} ward(s). Remove wards before deleting it.`
         : "Surveys are linked to this ULB."
       : null
+  const wardDeleteBlocked = selected?.type === "ward" && isZeroWardName(selected.name) ? ZERO_WARD_DELETE_BLOCKED : null
   const districtUlbCount = selected?.type === "district" ? (selected.counts?.ulbs ?? selected.children?.length ?? 0) : 0
   const districtSurveyCount = selected?.type === "district" ? (selected.counts?.surveys ?? 0) : 0
   const districtDeleteBlocked =
@@ -590,6 +602,7 @@ export function TenantsWardsPanel() {
         saving={saving}
         canDelete={canDeleteWard && drawerMode === "edit"}
         deleting={deleting}
+        deleteBlockedReason={wardDeleteBlocked}
         onDelete={() => {
           setDeleteTarget("ward")
           setDeleteConfirmOpen(true)
@@ -667,7 +680,9 @@ export function TenantsWardsPanel() {
                 ) : (
                   <>
                     Permanently delete this ULB from {deleteUlbDistrictLabel || "its district"}? This cannot be undone.
-                    Wards and surveys that belong to it must be removed first.
+                    {ulbOnlySystemZeroWard
+                      ? " The system Zero Ward is removed with the ULB."
+                      : " Wards and surveys that belong to it must be removed first."}
                   </>
                 )
               ) : (
@@ -699,7 +714,7 @@ export function TenantsWardsPanel() {
               disabled={
                 deleting ||
                 !selected ||
-                (deleteTarget === "ward" && selected.type !== "ward") ||
+                (deleteTarget === "ward" && (selected.type !== "ward" || Boolean(wardDeleteBlocked))) ||
                 (deleteTarget === "state" && selected.type !== "state") ||
                 (deleteTarget === "ulb" && (selected.type !== "ulb" || Boolean(ulbDeleteBlocked))) ||
                 (deleteTarget === "district" && (selected.type !== "district" || Boolean(districtDeleteBlocked)))

@@ -409,6 +409,7 @@ export function WardDrawer({
   canDelete,
   onDelete,
   deleting,
+  deleteBlockedReason,
   existingWardNames = [],
   excludeWardName,
   nameError,
@@ -423,6 +424,8 @@ export function WardDrawer({
   canDelete?: boolean
   onDelete?: () => void
   deleting?: boolean
+  /** When set, Delete stays visible but disabled (system Zero Ward). */
+  deleteBlockedReason?: string | null
   /** Active ward names in the same ULB (for client-side duplicate check). */
   existingWardNames?: string[]
   /** When editing, the current ward name is allowed. */
@@ -470,15 +473,18 @@ export function WardDrawer({
       }}
       footerStart={
         mode === "edit" && canDelete && onDelete ? (
-          <Button
-            type="button"
-            variant="destructive"
-            className="cursor-pointer"
-            disabled={saving || deleting}
-            onClick={() => onDelete()}
-          >
-            {deleting ? "Deleting…" : "Delete Ward"}
-          </Button>
+          <div className="flex w-full flex-col gap-1.5">
+            <Button
+              type="button"
+              variant="destructive"
+              className="cursor-pointer"
+              disabled={saving || deleting || Boolean(deleteBlockedReason)}
+              onClick={() => onDelete()}
+            >
+              {deleting ? "Deleting…" : "Delete Ward"}
+            </Button>
+            {deleteBlockedReason ? <p className="text-xs text-muted-foreground">{deleteBlockedReason}</p> : null}
+          </div>
         ) : undefined
       }
     >

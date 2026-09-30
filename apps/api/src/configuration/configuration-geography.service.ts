@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common"
+import { WardKind } from "@workspace/database"
 import { sortWardsByNumberAsc } from "@workspace/validation"
 import { PrismaService } from "../prisma/prisma.service.js"
 
@@ -11,30 +12,38 @@ export class ConfigurationGeographyService {
    * are loaded on demand via GET /wards?ulbId=… (keeps this payload small).
    */
   async getTree(stateId?: string) {
-    const states = await this.prisma.db.state.findMany({
-      where: stateId ? { id: stateId } : undefined,
-      orderBy: { name: "asc" },
-      include: {
-        _count: { select: { districts: true, surveys: true } },
-        districts: {
-          orderBy: { name: "asc" },
-          include: {
-            _count: { select: { ulbs: true, surveys: true } },
-            ulbs: {
-              orderBy: { name: "asc" },
-              include: {
-                _count: {
-                  select: {
-                    wards: { where: { deletedAt: null } },
-                    surveys: true,
+    const [states, geographicWardCounts] = await Promise.all([
+      this.prisma.db.state.findMany({
+        where: stateId ? { id: stateId } : undefined,
+        orderBy: { name: "asc" },
+        include: {
+          _count: { select: { districts: true, surveys: true } },
+          districts: {
+            orderBy: { name: "asc" },
+            include: {
+              _count: { select: { ulbs: true, surveys: true } },
+              ulbs: {
+                orderBy: { name: "asc" },
+                include: {
+                  _count: {
+                    select: {
+                      wards: { where: { deletedAt: null } },
+                      surveys: true,
+                    },
                   },
                 },
               },
             },
           },
         },
-      },
-    })
+      }),
+      this.prisma.db.ward.groupBy({
+        by: ["ulbId"],
+        where: { deletedAt: null, kind: { not: WardKind.ZERO } },
+        _count: { _all: true },
+      }),
+    ])
+    const geographicWardsByUlb = new Map(geographicWardCounts.map((row) => [row.ulbId, row._count._all]))
 
     return states.map((state) => ({
       id: state.id,
@@ -67,6 +76,7 @@ export class ConfigurationGeographyService {
           parentId: district.id,
           counts: {
             wards: ulb._count.wards,
+            geographicWards: geographicWardsByUlb.get(ulb.id) ?? 0,
             surveys: ulb._count.surveys,
           },
           // Wards loaded on expand via /configuration/geography/ulbs/:id/wards

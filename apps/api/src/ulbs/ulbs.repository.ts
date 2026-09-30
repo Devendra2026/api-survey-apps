@@ -181,23 +181,48 @@ export class UlbsRepository {
 
   async delete(id: string, user: AuthenticatedUser) {
     await this.findById(id, user)
-    const [wardCount, surveyCount, roleCount, apiKeyCount] = await Promise.all([
-      this.prisma.db.ward.count({ where: { ulbId: id } }),
+    const wards = await this.prisma.db.ward.findMany({
+      where: { ulbId: id },
+      select: { id: true, kind: true, deletedAt: true },
+    })
+    const activeGeographic = wards.filter((ward) => ward.deletedAt == null && ward.kind !== "ZERO")
+    if (activeGeographic.length > 0) {
+      throw new ConflictException(
+        `Cannot delete this ULB — it has ${activeGeographic.length} ward(s). Remove wards first.`
+      )
+    }
+    const [surveyCount, roleCount, apiKeyCount] = await Promise.all([
       this.prisma.db.survey.count({ where: { ulbId: id } }),
       this.prisma.db.userTenantRole.count({ where: { ulbId: id } }),
       this.prisma.db.ulbApiKey.count({ where: { ulbId: id } }),
     ])
-    if (wardCount > 0) {
-      throw new ConflictException(`Cannot delete this ULB — it has ${wardCount} ward(s). Remove wards first.`)
-    }
     if (surveyCount > 0) {
       throw new ConflictException("Cannot delete this ULB — surveys are linked to it.")
     }
     if (roleCount > 0 || apiKeyCount > 0) {
       throw new ConflictException("Cannot delete this ULB — related records still reference it.")
     }
+    const wardIds = wards.map((ward) => ward.id)
+    if (wardIds.length > 0) {
+      const [surveysOnWard, surveysOnOriginalWard, rolesOnWard] = await Promise.all([
+        this.prisma.db.survey.count({ where: { wardId: { in: wardIds } } }),
+        this.prisma.db.survey.count({ where: { originalWardId: { in: wardIds } } }),
+        this.prisma.db.userTenantRole.count({ where: { wardId: { in: wardIds } } }),
+      ])
+      if (surveysOnWard > 0 || surveysOnOriginalWard > 0) {
+        throw new ConflictException("Cannot delete this ULB — surveys are linked to it.")
+      }
+      if (rolesOnWard > 0) {
+        throw new ConflictException("Cannot delete this ULB — related records still reference it.")
+      }
+    }
     try {
-      return await this.prisma.db.ulb.delete({ where: { id } })
+      return await this.prisma.db.$transaction(async (tx) => {
+        if (wardIds.length > 0) {
+          await tx.ward.deleteMany({ where: { id: { in: wardIds } } })
+        }
+        return tx.ulb.delete({ where: { id } })
+      })
     } catch (error) {
       if (isPrismaCode(error, "P2003")) {
         throw new ConflictException("Cannot delete this ULB — related records still reference it.")

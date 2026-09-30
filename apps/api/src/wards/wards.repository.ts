@@ -1,9 +1,9 @@
 import { ConflictException, Injectable, NotFoundException } from "@nestjs/common"
 import type { Prisma } from "@workspace/database"
 import { isZeroWardName, normalizeWardNumber } from "@workspace/validation"
-import { ensureZeroWard } from "../common/services/zero-ward.service.js"
 import type { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
+import { ensureZeroWard } from "../common/services/zero-ward.service.js"
 import { buildOrderBy, getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
 import { resolveTenantScope } from "../common/utils/tenant-scope.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
@@ -179,7 +179,10 @@ export class WardsRepository {
   }
 
   async delete(id: string, user: AuthenticatedUser) {
-    await this.findById(id, user)
+    const existing = await this.findById(id, user)
+    if (existing.kind === "ZERO" || isZeroWardName(existing.wardName)) {
+      throw new ConflictException("Zero Ward is created automatically for this ULB. Delete the ULB to remove it.")
+    }
     return this.prisma.db.ward.update({
       where: { id },
       data: { deletedAt: new Date() },

@@ -138,6 +138,22 @@ describe("WardsRepository soft delete and duplicate names", () => {
     expect(update).not.toHaveBeenCalled()
   })
 
+  it("rejects deleting the system Zero Ward", async () => {
+    findFirst.mockResolvedValueOnce({
+      id: "zero-1",
+      ulbId: "ulb1",
+      wardName: "Zero Ward",
+      wardNumber: "0",
+      kind: "ZERO",
+      deletedAt: null,
+    })
+
+    await expect(repo.delete("zero-1", admin)).rejects.toThrow(
+      "Zero Ward is created automatically for this ULB. Delete the ULB to remove it."
+    )
+    expect(update).not.toHaveBeenCalled()
+  })
+
   it("throws NotFound when deleting an already soft-deleted ward", async () => {
     findFirst.mockResolvedValueOnce(null)
     await expect(repo.delete("ward1", admin)).rejects.toBeInstanceOf(NotFoundException)

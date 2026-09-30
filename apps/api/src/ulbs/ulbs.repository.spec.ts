@@ -120,6 +120,29 @@ describe("UlbsRepository district scope and duplicates", () => {
     )
   })
 
+  it("rejects create when another ULB already uses the code", async () => {
+    districtFindFirst.mockResolvedValueOnce({ id: "district-1", stateId: "state-1", state: { id: "state-1" } })
+    ulbFindFirst.mockResolvedValueOnce(null)
+    ulbFindFirst.mockResolvedValueOnce({ id: "existing" })
+
+    await expect(
+      repo.create(
+        { districtId: "district-1", name: "Nagar Palika", code: " eta ", type: UlbType.MUNICIPAL_COUNCIL },
+        admin
+      )
+    ).rejects.toThrow("A ULB with this code already exists.")
+
+    expect(ulbCreate).not.toHaveBeenCalled()
+    expect(ulbFindFirst).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        where: expect.objectContaining({
+          code: { equals: "eta", mode: "insensitive" },
+        }),
+      })
+    )
+  })
+
   it("rejects moving a ULB to another district", async () => {
     ulbFindFirst.mockResolvedValueOnce({ id: "ulb-1", districtId: "district-1", name: "Etah", code: "ETA" })
 

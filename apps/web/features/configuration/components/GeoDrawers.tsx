@@ -206,6 +206,19 @@ export function DistrictDrawer({
 }
 
 const ULB_NAME_CONFLICT = "A ULB with this name already exists in this district."
+const ULB_CODE_CONFLICT = "A ULB with this code already exists in this district."
+
+function matchesSiblingValue(value: string, existing: string[], exclude?: string) {
+  const normalized = value.trim().toLowerCase()
+  if (!normalized) return false
+  const excluded = exclude?.trim().toLowerCase()
+  return existing.some((entry) => {
+    const current = entry.trim().toLowerCase()
+    if (!current) return false
+    if (excluded && current === excluded) return false
+    return current === normalized
+  })
+}
 
 export function ULBDrawer({
   open,
@@ -220,7 +233,9 @@ export function ULBDrawer({
   deleting,
   deleteBlockedReason,
   existingUlbNames = [],
+  existingUlbCodes = [],
   excludeUlbName,
+  excludeUlbCode,
   nameError,
   codeError,
   onNameErrorChange,
@@ -238,8 +253,12 @@ export function ULBDrawer({
   onDelete?: () => void
   deleting?: boolean
   deleteBlockedReason?: string | null
+  /** ULB names already used in the selected district, excluding the record being edited. */
   existingUlbNames?: string[]
+  /** ULB codes already used in the selected district, excluding the record being edited. */
+  existingUlbCodes?: string[]
   excludeUlbName?: string
+  excludeUlbCode?: string
   nameError?: string | null
   codeError?: string | null
   onNameErrorChange?: (error: string | null) => void
@@ -257,18 +276,6 @@ export function ULBDrawer({
     }
   }, [open, initial])
 
-  const isDuplicateName = (value: string) => {
-    const normalized = value.trim().toLowerCase()
-    if (!normalized) return false
-    const excluded = excludeUlbName?.trim().toLowerCase()
-    return existingUlbNames.some((existing) => {
-      const current = existing.trim().toLowerCase()
-      if (!current) return false
-      if (excluded && current === excluded) return false
-      return current === normalized
-    })
-  }
-
   const title = mode === "create" ? "Create ULB" : mode === "view" ? "View ULB" : "Edit ULB"
 
   return (
@@ -280,12 +287,13 @@ export function ULBDrawer({
       saving={saving || deleting}
       readOnly={readOnly}
       onSubmit={() => {
-        if (isDuplicateName(name)) {
-          onNameErrorChange?.(ULB_NAME_CONFLICT)
-          return
-        }
-        onNameErrorChange?.(null)
-        onCodeErrorChange?.(null)
+        const duplicateName = matchesSiblingValue(name, existingUlbNames, excludeUlbName)
+        const duplicateCode = matchesSiblingValue(code, existingUlbCodes, excludeUlbCode)
+        if (duplicateName) onNameErrorChange?.(ULB_NAME_CONFLICT)
+        else onNameErrorChange?.(null)
+        if (duplicateCode) onCodeErrorChange?.(ULB_CODE_CONFLICT)
+        else onCodeErrorChange?.(null)
+        if (duplicateName || duplicateCode) return
         onSubmit({ name: name.trim(), code: code.trim(), type })
       }}
       footerStart={

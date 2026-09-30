@@ -162,14 +162,14 @@ export function TenantsWardsPanel() {
 
   const districtLabel = ulbDistrict ? `${ulbDistrict.name}${ulbDistrict.code ? ` (${ulbDistrict.code})` : ""}` : ""
 
-  const siblingUlbNames = useMemo(() => {
+  const siblingUlbs = useMemo(() => {
     if (drawer !== "ulb" || !ulbDistrict) return []
-    const names = (ulbDistrict.children ?? []).filter((child) => child.type === "ulb").map((child) => child.name)
-    if ((drawerMode === "edit" || drawerMode === "view") && selected?.type === "ulb") {
-      return names.filter((name) => name !== selected.name)
-    }
-    return names
+    const currentId = (drawerMode === "edit" || drawerMode === "view") && selected?.type === "ulb" ? selected.id : null
+    return (ulbDistrict.children ?? []).filter((child) => child.type === "ulb" && child.id !== currentId)
   }, [drawer, drawerMode, selected, ulbDistrict])
+
+  const siblingUlbNames = useMemo(() => siblingUlbs.map((child) => child.name), [siblingUlbs])
+  const siblingUlbCodes = useMemo(() => siblingUlbs.map((child) => child.code ?? ""), [siblingUlbs])
 
   const invalidate = async () => {
     await qc.invalidateQueries({ queryKey: ["configuration", "geography-tree"] })
@@ -230,6 +230,10 @@ export function TenantsWardsPanel() {
     if (deleteTarget === "ward" && selected.type !== "ward") return
     if (deleteTarget === "state" && selected.type !== "state") return
     if (deleteTarget === "ulb" && selected.type !== "ulb") return
+    if (deleteTarget === "ulb" && !ulbDistrict) {
+      toast.error("This ULB is not linked to a district.")
+      return
+    }
 
     setDeleting(true)
     try {
@@ -490,7 +494,7 @@ export function TenantsWardsPanel() {
           setDeleteConfirmOpen(true)
         }}
         existingUlbNames={siblingUlbNames}
-        excludeUlbName={drawerMode === "edit" && selected?.type === "ulb" ? selected.name : undefined}
+        existingUlbCodes={siblingUlbCodes}
         nameError={ulbNameError}
         codeError={ulbCodeError}
         onNameErrorChange={setUlbNameError}
@@ -500,10 +504,18 @@ export function TenantsWardsPanel() {
           setUlbNameError(null)
           setUlbCodeError(null)
           try {
-            if (drawerMode === "create" && parent?.type === "district") {
+            if (drawerMode === "create") {
+              if (parent?.type !== "district") {
+                toast.error("Select a district before saving this ULB.")
+                return
+              }
               await apiPost("/ulbs", { ...values, districtId: parent.id })
             } else if (selected && drawerMode === "edit") {
-              await apiPatch(endpointFor(selected), values)
+              if (!ulbDistrict) {
+                toast.error("This ULB is not linked to a district.")
+                return
+              }
+              await apiPatch(endpointFor(selected), { ...values, districtId: ulbDistrict.id })
             } else {
               return
             }

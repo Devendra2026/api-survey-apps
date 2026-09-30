@@ -8,8 +8,12 @@ import { resolveTenantScope } from "../common/utils/tenant-scope.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import type { CreateDistrictDto, UpdateDistrictDto } from "../states/dto/geo.dto.js"
 
+function isPrismaCode(error: unknown, code: string): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code: string }).code === code
+}
+
 function isUniqueViolation(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && (error as { code: string }).code === "P2002"
+  return isPrismaCode(error, "P2002")
 }
 
 function uniqueTargetIncludesCode(error: unknown): boolean {
@@ -109,6 +113,27 @@ export class DistrictsRepository {
 
   async delete(id: string, user: AuthenticatedUser) {
     await this.findById(id, user)
-    return this.prisma.db.district.delete({ where: { id } })
+    const [ulbCount, surveyCount, roleCount] = await Promise.all([
+      this.prisma.db.ulb.count({ where: { districtId: id } }),
+      this.prisma.db.survey.count({ where: { districtId: id } }),
+      this.prisma.db.userTenantRole.count({ where: { districtId: id } }),
+    ])
+    if (ulbCount > 0) {
+      throw new ConflictException(`Cannot delete this district — it has ${ulbCount} ULB(s). Remove them first.`)
+    }
+    if (surveyCount > 0) {
+      throw new ConflictException("Cannot delete this district — surveys are linked to it.")
+    }
+    if (roleCount > 0) {
+      throw new ConflictException("Cannot delete this district — user roles still reference it.")
+    }
+    try {
+      return await this.prisma.db.district.delete({ where: { id } })
+    } catch (error) {
+      if (isPrismaCode(error, "P2003")) {
+        throw new ConflictException("Cannot delete this district — related records still reference it.")
+      }
+      throw error
+    }
   }
 }

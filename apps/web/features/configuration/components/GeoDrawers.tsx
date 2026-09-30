@@ -149,6 +149,10 @@ export function DistrictDrawer({
   initial,
   saving,
   onSubmit,
+  canDelete,
+  onDelete,
+  deleting,
+  deleteBlockedReason,
 }: {
   open: boolean
   onOpenChange: (o: boolean) => void
@@ -156,6 +160,11 @@ export function DistrictDrawer({
   initial?: { name: string; code: string }
   saving?: boolean
   onSubmit: (values: { name: string; code: string }) => void
+  canDelete?: boolean
+  onDelete?: () => void
+  deleting?: boolean
+  /** When set, Delete stays visible but disabled (district still has ULBs or surveys). */
+  deleteBlockedReason?: string | null
 }) {
   const [name, setName] = useState("")
   const [code, setCode] = useState("")
@@ -172,7 +181,7 @@ export function DistrictDrawer({
       onOpenChange={onOpenChange}
       title={mode === "create" ? "Create District" : "Edit District"}
       description="District within the selected state"
-      saving={saving}
+      saving={saving || deleting}
       onSubmit={() => {
         const normalized = code.trim().toUpperCase()
         if (!/^[A-Z]{3}$/.test(normalized)) {
@@ -180,6 +189,22 @@ export function DistrictDrawer({
         }
         onSubmit({ name, code: normalized })
       }}
+      footerStart={
+        mode === "edit" && canDelete && onDelete ? (
+          <div className="flex w-full flex-col gap-1.5">
+            <Button
+              type="button"
+              variant="destructive"
+              className="cursor-pointer"
+              disabled={saving || deleting || Boolean(deleteBlockedReason)}
+              onClick={() => onDelete()}
+            >
+              {deleting ? "Deleting…" : "Delete District"}
+            </Button>
+            {deleteBlockedReason ? <p className="text-xs text-muted-foreground">{deleteBlockedReason}</p> : null}
+          </div>
+        ) : undefined
+      }
     >
       <div className="space-y-2">
         <Label htmlFor="district-name">Name</Label>

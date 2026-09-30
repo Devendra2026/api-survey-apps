@@ -4,7 +4,7 @@ import { getApiErrorMessage } from "@/lib/api/client"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
-import { ChevronDown, ChevronRight, Eye, Pencil, Plus } from "lucide-react"
+import { ChevronDown, ChevronRight, Eye, Pencil, Plus, Trash2 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { useGeographyUlbWards } from "../hooks/use-configuration"
 import { ulbTypeBadge } from "../lib/geo-display"
@@ -58,6 +58,7 @@ export function GeographyAccordion({
   onAddUlb,
   onAddWard,
   onWardClick,
+  onDelete,
 }: {
   nodes: GeographyTreeNode[]
   loading?: boolean
@@ -68,6 +69,7 @@ export function GeographyAccordion({
   onAddUlb: (district: GeographyTreeNode) => void
   onAddWard: (ulb: GeographyTreeNode) => void
   onWardClick: (ward: GeographyTreeNode) => void
+  onDelete: (node: GeographyTreeNode) => void
 }) {
   const [query, setQuery] = useState("")
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
@@ -117,6 +119,7 @@ export function GeographyAccordion({
             onAddUlb={onAddUlb}
             onAddWard={onAddWard}
             onWardClick={onWardClick}
+            onDelete={onDelete}
           />
         ))}
         {filtered.length === 0 ? <p className="p-4 text-sm text-muted-foreground">No geography nodes match.</p> : null}
@@ -136,6 +139,7 @@ function StateCard({
   onAddUlb,
   onAddWard,
   onWardClick,
+  onDelete,
 }: {
   state: GeographyTreeNode
   expanded: Set<string>
@@ -147,6 +151,7 @@ function StateCard({
   onAddUlb: (district: GeographyTreeNode) => void
   onAddWard: (ulb: GeographyTreeNode) => void
   onWardClick: (ward: GeographyTreeNode) => void
+  onDelete: (node: GeographyTreeNode) => void
 }) {
   const open = expanded.has(state.id)
   const districts = state.children ?? []
@@ -216,6 +221,7 @@ function StateCard({
                 onAddUlb={onAddUlb}
                 onAddWard={onAddWard}
                 onWardClick={onWardClick}
+                onDelete={onDelete}
               />
             ))
           )}
@@ -236,6 +242,7 @@ function DistrictCard({
   onAddUlb,
   onAddWard,
   onWardClick,
+  onDelete,
 }: {
   district: GeographyTreeNode
   stateName: string
@@ -247,6 +254,7 @@ function DistrictCard({
   onAddUlb: (district: GeographyTreeNode) => void
   onAddWard: (ulb: GeographyTreeNode) => void
   onWardClick: (ward: GeographyTreeNode) => void
+  onDelete: (node: GeographyTreeNode) => void
 }) {
   const open = expanded.has(district.id)
   const ulbs = district.children ?? []
@@ -289,6 +297,18 @@ function DistrictCard({
             <Pencil className="size-3.5" />
           </Button>
         ) : null}
+        {canManage ? (
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="size-8 cursor-pointer text-destructive"
+            aria-label="Delete district"
+            onClick={() => onDelete(district)}
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
+        ) : null}
       </div>
       {open ? (
         <div className="space-y-2 border-t border-border/50 bg-muted/20 px-3 py-3">
@@ -322,6 +342,7 @@ function DistrictCard({
                   onViewUlb={onViewUlb}
                   onAddWard={onAddWard}
                   onWardClick={onWardClick}
+                  onDelete={onDelete}
                 />
               ))}
             </div>
@@ -341,6 +362,7 @@ function UlbCard({
   onViewUlb,
   onAddWard,
   onWardClick,
+  onDelete,
 }: {
   ulb: GeographyTreeNode
   expanded: Set<string>
@@ -350,6 +372,7 @@ function UlbCard({
   onViewUlb: (ulb: GeographyTreeNode) => void
   onAddWard: (ulb: GeographyTreeNode) => void
   onWardClick: (ward: GeographyTreeNode) => void
+  onDelete: (node: GeographyTreeNode) => void
 }) {
   const open = expanded.has(ulb.id)
   const {
@@ -404,6 +427,18 @@ function UlbCard({
             onClick={() => onEdit(ulb)}
           >
             <Pencil className="size-3.5" />
+          </Button>
+        ) : null}
+        {canManage ? (
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="size-7 cursor-pointer text-destructive"
+            aria-label="Delete ULB"
+            onClick={() => onDelete(ulb)}
+          >
+            <Trash2 className="size-3.5" />
           </Button>
         ) : null}
       </div>

@@ -25,6 +25,7 @@ function GeoDrawerShell({
   saving,
   onSubmit,
   footerStart,
+  readOnly,
 }: {
   open: boolean
   onOpenChange: (o: boolean) => void
@@ -34,6 +35,7 @@ function GeoDrawerShell({
   saving?: boolean
   onSubmit: () => void
   footerStart?: React.ReactNode
+  readOnly?: boolean
 }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -46,6 +48,7 @@ function GeoDrawerShell({
           className="mt-6 space-y-4"
           onSubmit={(e) => {
             e.preventDefault()
+            if (readOnly) return
             onSubmit()
           }}
         >
@@ -54,11 +57,13 @@ function GeoDrawerShell({
             <div className="flex flex-1 flex-wrap gap-2">{footerStart}</div>
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" className="cursor-pointer" onClick={() => onOpenChange(false)}>
-                Cancel
+                {readOnly ? "Close" : "Cancel"}
               </Button>
-              <Button type="submit" className="cursor-pointer" disabled={saving}>
-                {saving ? "Saving…" : "Save"}
-              </Button>
+              {readOnly ? null : (
+                <Button type="submit" className="cursor-pointer" disabled={saving}>
+                  {saving ? "Saving…" : "Save"}
+                </Button>
+              )}
             </div>
           </SheetFooter>
         </form>
@@ -200,24 +205,50 @@ export function DistrictDrawer({
   )
 }
 
+const ULB_NAME_CONFLICT = "A ULB with this name already exists in this district."
+
 export function ULBDrawer({
   open,
   onOpenChange,
   mode,
   initial,
+  districtLabel,
   saving,
   onSubmit,
+  canDelete,
+  onDelete,
+  deleting,
+  deleteBlockedReason,
+  existingUlbNames = [],
+  excludeUlbName,
+  nameError,
+  codeError,
+  onNameErrorChange,
+  onCodeErrorChange,
 }: {
   open: boolean
   onOpenChange: (o: boolean) => void
-  mode: GeoDrawerMode
+  mode: GeoDrawerMode | "view"
   initial?: { name: string; code: string; type: string }
+  /** District this ULB belongs to. Always shown and not editable. */
+  districtLabel: string
   saving?: boolean
   onSubmit: (values: { name: string; code: string; type: string }) => void
+  canDelete?: boolean
+  onDelete?: () => void
+  deleting?: boolean
+  deleteBlockedReason?: string | null
+  existingUlbNames?: string[]
+  excludeUlbName?: string
+  nameError?: string | null
+  codeError?: string | null
+  onNameErrorChange?: (error: string | null) => void
+  onCodeErrorChange?: (error: string | null) => void
 }) {
   const [name, setName] = useState("")
   const [code, setCode] = useState("")
   const [type, setType] = useState("MUNICIPAL_COUNCIL")
+  const readOnly = mode === "view"
   useEffect(() => {
     if (open) {
       setName(initial?.name ?? "")
@@ -226,27 +257,103 @@ export function ULBDrawer({
     }
   }, [open, initial])
 
+  const isDuplicateName = (value: string) => {
+    const normalized = value.trim().toLowerCase()
+    if (!normalized) return false
+    const excluded = excludeUlbName?.trim().toLowerCase()
+    return existingUlbNames.some((existing) => {
+      const current = existing.trim().toLowerCase()
+      if (!current) return false
+      if (excluded && current === excluded) return false
+      return current === normalized
+    })
+  }
+
+  const title = mode === "create" ? "Create ULB" : mode === "view" ? "View ULB" : "Edit ULB"
+
   return (
     <GeoDrawerShell
       open={open}
       onOpenChange={onOpenChange}
-      title={mode === "create" ? "Create ULB" : "Edit ULB"}
+      title={title}
       description="Urban Local Body under the selected district"
-      saving={saving}
-      onSubmit={() => onSubmit({ name, code, type })}
+      saving={saving || deleting}
+      readOnly={readOnly}
+      onSubmit={() => {
+        if (isDuplicateName(name)) {
+          onNameErrorChange?.(ULB_NAME_CONFLICT)
+          return
+        }
+        onNameErrorChange?.(null)
+        onCodeErrorChange?.(null)
+        onSubmit({ name: name.trim(), code: code.trim(), type })
+      }}
+      footerStart={
+        mode === "edit" && canDelete && onDelete ? (
+          <div className="flex w-full flex-col gap-1.5">
+            <Button
+              type="button"
+              variant="destructive"
+              className="cursor-pointer"
+              disabled={saving || deleting || Boolean(deleteBlockedReason)}
+              onClick={() => onDelete()}
+            >
+              {deleting ? "Deleting…" : "Delete ULB"}
+            </Button>
+            {deleteBlockedReason ? <p className="text-xs text-muted-foreground">{deleteBlockedReason}</p> : null}
+          </div>
+        ) : undefined
+      }
     >
       <div className="space-y-2">
+        <Label htmlFor="ulb-district">District</Label>
+        <Input id="ulb-district" value={districtLabel} disabled readOnly />
+      </div>
+      <div className="space-y-2">
         <Label htmlFor="ulb-name">Name</Label>
-        <Input id="ulb-name" value={name} onChange={(e) => setName(e.target.value)} required />
+        <Input
+          id="ulb-name"
+          value={name}
+          onChange={(e) => {
+            setName(e.target.value)
+            if (nameError) onNameErrorChange?.(null)
+          }}
+          required
+          disabled={readOnly}
+          aria-invalid={Boolean(nameError)}
+          aria-describedby={nameError ? "ulb-name-error" : undefined}
+        />
+        {nameError ? (
+          <p id="ulb-name-error" className="text-sm text-destructive" role="alert">
+            {nameError}
+          </p>
+        ) : null}
       </div>
       <div className="space-y-2">
         <Label htmlFor="ulb-code">Code</Label>
-        <Input id="ulb-code" value={code} onChange={(e) => setCode(e.target.value)} required className="font-mono" />
+        <Input
+          id="ulb-code"
+          value={code}
+          onChange={(e) => {
+            setCode(e.target.value)
+            if (codeError) onCodeErrorChange?.(null)
+          }}
+          required
+          disabled={readOnly}
+          className="font-mono"
+          aria-invalid={Boolean(codeError)}
+          aria-describedby={codeError ? "ulb-code-error" : undefined}
+        />
+        {codeError ? (
+          <p id="ulb-code-error" className="text-sm text-destructive" role="alert">
+            {codeError}
+          </p>
+        ) : null}
       </div>
       <div className="space-y-2">
         <Label>Type</Label>
-        <Select value={type} onValueChange={setType}>
-          <SelectTrigger className="cursor-pointer">
+        <Select value={type} onValueChange={setType} disabled={readOnly}>
+          <SelectTrigger className="cursor-pointer" disabled={readOnly}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

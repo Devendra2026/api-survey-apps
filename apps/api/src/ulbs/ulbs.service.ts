@@ -16,8 +16,8 @@ export class UlbsService {
     return this.ulbsRepository.findById(id, user)
   }
 
-  create(dto: CreateUlbDto) {
-    return this.ulbsRepository.create(dto)
+  create(dto: CreateUlbDto, user: AuthenticatedUser) {
+    return this.ulbsRepository.create(dto, user)
   }
 
   update(id: string, dto: UpdateUlbDto, user: AuthenticatedUser) {

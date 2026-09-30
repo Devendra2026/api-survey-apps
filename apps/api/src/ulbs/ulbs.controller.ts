@@ -57,8 +57,8 @@ export class UlbsController {
 
   @Post()
   @RequirePermission(PERMISSIONS.SETTINGS_MANAGE)
-  create(@Body() dto: CreateUlbDto) {
-    return this.ulbsService.create(dto)
+  create(@Body() dto: CreateUlbDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.ulbsService.create(dto, user)
   }
 
   @Patch(":id")

@@ -4,7 +4,7 @@ import { getApiErrorMessage } from "@/lib/api/client"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
-import { ChevronDown, ChevronRight, Pencil, Plus } from "lucide-react"
+import { ChevronDown, ChevronRight, Eye, Pencil, Plus } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { useGeographyUlbWards } from "../hooks/use-configuration"
 import { ulbTypeBadge } from "../lib/geo-display"
@@ -53,6 +53,7 @@ export function GeographyAccordion({
   loading,
   canManage,
   onEdit,
+  onViewUlb,
   onAddDistrict,
   onAddUlb,
   onAddWard,
@@ -62,6 +63,7 @@ export function GeographyAccordion({
   loading?: boolean
   canManage: boolean
   onEdit: (node: GeographyTreeNode) => void
+  onViewUlb: (ulb: GeographyTreeNode) => void
   onAddDistrict: (state: GeographyTreeNode) => void
   onAddUlb: (district: GeographyTreeNode) => void
   onAddWard: (ulb: GeographyTreeNode) => void
@@ -110,6 +112,7 @@ export function GeographyAccordion({
             onToggle={toggle}
             canManage={canManage}
             onEdit={onEdit}
+            onViewUlb={onViewUlb}
             onAddDistrict={onAddDistrict}
             onAddUlb={onAddUlb}
             onAddWard={onAddWard}
@@ -128,6 +131,7 @@ function StateCard({
   onToggle,
   canManage,
   onEdit,
+  onViewUlb,
   onAddDistrict,
   onAddUlb,
   onAddWard,
@@ -138,6 +142,7 @@ function StateCard({
   onToggle: (id: string) => void
   canManage: boolean
   onEdit: (node: GeographyTreeNode) => void
+  onViewUlb: (ulb: GeographyTreeNode) => void
   onAddDistrict: (state: GeographyTreeNode) => void
   onAddUlb: (district: GeographyTreeNode) => void
   onAddWard: (ulb: GeographyTreeNode) => void
@@ -207,6 +212,7 @@ function StateCard({
                 onToggle={onToggle}
                 canManage={canManage}
                 onEdit={onEdit}
+                onViewUlb={onViewUlb}
                 onAddUlb={onAddUlb}
                 onAddWard={onAddWard}
                 onWardClick={onWardClick}
@@ -226,6 +232,7 @@ function DistrictCard({
   onToggle,
   canManage,
   onEdit,
+  onViewUlb,
   onAddUlb,
   onAddWard,
   onWardClick,
@@ -236,6 +243,7 @@ function DistrictCard({
   onToggle: (id: string) => void
   canManage: boolean
   onEdit: (node: GeographyTreeNode) => void
+  onViewUlb: (ulb: GeographyTreeNode) => void
   onAddUlb: (district: GeographyTreeNode) => void
   onAddWard: (ulb: GeographyTreeNode) => void
   onWardClick: (ward: GeographyTreeNode) => void
@@ -311,6 +319,7 @@ function DistrictCard({
                   onToggle={onToggle}
                   canManage={canManage}
                   onEdit={onEdit}
+                  onViewUlb={onViewUlb}
                   onAddWard={onAddWard}
                   onWardClick={onWardClick}
                 />
@@ -329,6 +338,7 @@ function UlbCard({
   onToggle,
   canManage,
   onEdit,
+  onViewUlb,
   onAddWard,
   onWardClick,
 }: {
@@ -337,6 +347,7 @@ function UlbCard({
   onToggle: (id: string) => void
   canManage: boolean
   onEdit: (node: GeographyTreeNode) => void
+  onViewUlb: (ulb: GeographyTreeNode) => void
   onAddWard: (ulb: GeographyTreeNode) => void
   onWardClick: (ward: GeographyTreeNode) => void
 }) {
@@ -373,6 +384,16 @@ function UlbCard({
         <span className="text-xs text-muted-foreground tabular-nums">
           {wardCount} {wardCount === 1 ? "ward" : "wards"}
         </span>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="size-7 cursor-pointer"
+          aria-label="View ULB"
+          onClick={() => onViewUlb(ulb)}
+        >
+          <Eye className="size-3.5" />
+        </Button>
         {canManage ? (
           <Button
             type="button"

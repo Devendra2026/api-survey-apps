@@ -73,13 +73,15 @@ export function TenantsWardsPanel() {
   const [selected, setSelected] = useState<GeographyTreeNode | null>(null)
   const [parent, setParent] = useState<GeographyTreeNode | null>(null)
   const [drawer, setDrawer] = useState<DrawerKind>(null)
-  const [drawerMode, setDrawerMode] = useState<"create" | "edit">("create")
+  const [drawerMode, setDrawerMode] = useState<"create" | "edit" | "view">("create")
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
-  const [deleteTarget, setDeleteTarget] = useState<"ward" | "state" | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<"ward" | "state" | "ulb" | null>(null)
   const [fixDupesOpen, setFixDupesOpen] = useState(false)
   const [wardNameError, setWardNameError] = useState<string | null>(null)
+  const [ulbNameError, setUlbNameError] = useState<string | null>(null)
+  const [ulbCodeError, setUlbCodeError] = useState<string | null>(null)
   const qc = useQueryClient()
 
   /** Prefer full tree; if it fails or is empty, fall back to /states so existing UP still appears. */
@@ -149,10 +151,31 @@ export function TenantsWardsPanel() {
     return names
   }, [drawer, drawerMode, selected, siblingWards])
 
+  const ulbDistrict =
+    drawer === "ulb"
+      ? drawerMode === "create" && parent?.type === "district"
+        ? parent
+        : selected?.type === "ulb" && selected.parentId
+          ? findNodeById(tree, selected.parentId)
+          : null
+      : null
+
+  const districtLabel = ulbDistrict ? `${ulbDistrict.name}${ulbDistrict.code ? ` (${ulbDistrict.code})` : ""}` : ""
+
+  const siblingUlbNames = useMemo(() => {
+    if (drawer !== "ulb" || !ulbDistrict) return []
+    const names = (ulbDistrict.children ?? []).filter((child) => child.type === "ulb").map((child) => child.name)
+    if ((drawerMode === "edit" || drawerMode === "view") && selected?.type === "ulb") {
+      return names.filter((name) => name !== selected.name)
+    }
+    return names
+  }, [drawer, drawerMode, selected, ulbDistrict])
+
   const invalidate = async () => {
     await qc.invalidateQueries({ queryKey: ["configuration", "geography-tree"] })
     await qc.invalidateQueries({ queryKey: ["configuration", "geography-ulb-wards"] })
     await qc.invalidateQueries({ queryKey: ["states"] })
+    await qc.invalidateQueries({ queryKey: ["ulbs"] })
     await qc.invalidateQueries({ queryKey: ["wards"] })
     await refetch()
   }
@@ -176,7 +199,19 @@ export function TenantsWardsPanel() {
     setSelected(node)
     setDrawerMode("edit")
     setWardNameError(null)
+    setUlbNameError(null)
+    setUlbCodeError(null)
     setDrawer(node.type)
+  }
+
+  const openView = (node: GeographyTreeNode) => {
+    if (node.type !== "ulb") return
+    setParent(null)
+    setSelected(node)
+    setDrawerMode("view")
+    setUlbNameError(null)
+    setUlbCodeError(null)
+    setDrawer("ulb")
   }
 
   const openCreate = (kind: Exclude<DrawerKind, null>, parentNode: GeographyTreeNode | null) => {
@@ -185,6 +220,8 @@ export function TenantsWardsPanel() {
     setParent(parentNode)
     setDrawerMode("create")
     setWardNameError(null)
+    setUlbNameError(null)
+    setUlbCodeError(null)
     setDrawer(kind)
   }
 
@@ -192,12 +229,16 @@ export function TenantsWardsPanel() {
     if (!selected || deleting || !deleteTarget) return
     if (deleteTarget === "ward" && selected.type !== "ward") return
     if (deleteTarget === "state" && selected.type !== "state") return
+    if (deleteTarget === "ulb" && selected.type !== "ulb") return
 
     setDeleting(true)
     try {
       if (deleteTarget === "ward") {
         await apiDelete(`/wards/${selected.id}`)
         toast.success("Ward deleted")
+      } else if (deleteTarget === "ulb") {
+        await apiDelete(`/ulbs/${selected.id}`)
+        toast.success("ULB deleted")
       } else {
         await apiDelete(`/states/${selected.id}`)
         toast.success("State deleted")
@@ -215,6 +256,8 @@ export function TenantsWardsPanel() {
   }
 
   const deleteWardLabel = selected?.type === "ward" ? selected.name?.trim() || selected.wardNumber || "Ward" : "Ward"
+  const deleteUlbLabel =
+    selected?.type === "ulb" ? `${selected.name}${selected.code ? ` (${selected.code})` : ""}` : "ULB"
   const deleteStateLabel =
     selected?.type === "state" ? `${selected.name}${selected.code ? ` (${selected.code})` : ""}` : "State"
   const stateDistrictCount =
@@ -223,6 +266,16 @@ export function TenantsWardsPanel() {
     selected?.type === "state" && stateDistrictCount > 0
       ? `This state has ${stateDistrictCount} district(s). Keep Uttar Pradesh (09); only delete empty duplicates.`
       : null
+  const ulbWardCount = selected?.type === "ulb" ? (selected.counts?.wards ?? 0) : 0
+  const ulbSurveyCount = selected?.type === "ulb" ? (selected.counts?.surveys ?? 0) : 0
+  const ulbDeleteBlocked =
+    selected?.type === "ulb" && (ulbWardCount > 0 || ulbSurveyCount > 0)
+      ? ulbWardCount > 0
+        ? `This ULB has ${ulbWardCount} ward(s). Remove wards before deleting it.`
+        : "Surveys are linked to this ULB."
+      : null
+
+  const formMode = drawerMode === "view" ? "edit" : drawerMode
 
   const firstState = tree.find((n) => n.type === "state") ?? null
 
@@ -343,6 +396,7 @@ export function TenantsWardsPanel() {
         loading={isLoading}
         canManage={canManage}
         onEdit={openEdit}
+        onViewUlb={openView}
         onAddDistrict={(state) => openCreate("district", state)}
         onAddUlb={(district) => openCreate("ulb", district)}
         onAddWard={(ulb) => openCreate("ward", ulb)}
@@ -356,7 +410,7 @@ export function TenantsWardsPanel() {
       <StateDrawer
         open={drawer === "state"}
         onOpenChange={(o) => !o && setDrawer(null)}
-        mode={drawerMode}
+        mode={formMode}
         initial={
           drawerMode === "edit" && selected?.type === "state"
             ? { name: selected.name, code: selected.code ?? "" }
@@ -388,7 +442,7 @@ export function TenantsWardsPanel() {
       <DistrictDrawer
         open={drawer === "district"}
         onOpenChange={(o) => !o && setDrawer(null)}
-        mode={drawerMode}
+        mode={formMode}
         initial={
           drawerMode === "edit" && selected?.type === "district"
             ? { name: selected.name, code: selected.code ?? "" }
@@ -413,25 +467,55 @@ export function TenantsWardsPanel() {
       />
       <ULBDrawer
         open={drawer === "ulb"}
-        onOpenChange={(o) => !o && setDrawer(null)}
+        onOpenChange={(o) => {
+          if (!o) {
+            setDrawer(null)
+            setUlbNameError(null)
+            setUlbCodeError(null)
+          }
+        }}
         mode={drawerMode}
+        districtLabel={districtLabel}
         initial={
-          drawerMode === "edit" && selected?.type === "ulb"
+          (drawerMode === "edit" || drawerMode === "view") && selected?.type === "ulb"
             ? { name: selected.name, code: selected.code ?? "", type: selected.ulbType ?? "MUNICIPAL_COUNCIL" }
             : undefined
         }
         saving={saving}
+        canDelete={canManage && drawerMode === "edit"}
+        deleting={deleting}
+        deleteBlockedReason={ulbDeleteBlocked}
+        onDelete={() => {
+          setDeleteTarget("ulb")
+          setDeleteConfirmOpen(true)
+        }}
+        existingUlbNames={siblingUlbNames}
+        excludeUlbName={drawerMode === "edit" && selected?.type === "ulb" ? selected.name : undefined}
+        nameError={ulbNameError}
+        codeError={ulbCodeError}
+        onNameErrorChange={setUlbNameError}
+        onCodeErrorChange={setUlbCodeError}
         onSubmit={async (values) => {
           setSaving(true)
+          setUlbNameError(null)
+          setUlbCodeError(null)
           try {
             if (drawerMode === "create" && parent?.type === "district") {
               await apiPost("/ulbs", { ...values, districtId: parent.id })
-            } else if (selected) await apiPatch(endpointFor(selected), values)
-            toast.success("ULB saved")
+            } else if (selected && drawerMode === "edit") {
+              await apiPatch(endpointFor(selected), values)
+            } else {
+              return
+            }
+            toast.success(drawerMode === "create" ? "ULB created" : "ULB saved")
             setDrawer(null)
             await invalidate()
           } catch (err) {
-            toast.error(getApiErrorMessage(err))
+            const message = getApiErrorMessage(err)
+            const lower = message.toLowerCase()
+            if (lower.includes("already exists") && lower.includes("name")) setUlbNameError(message)
+            if (lower.includes("already exists") && lower.includes("code")) setUlbCodeError(message)
+            toast.error(message)
           } finally {
             setSaving(false)
           }
@@ -445,7 +529,7 @@ export function TenantsWardsPanel() {
             setWardNameError(null)
           }
         }}
-        mode={drawerMode}
+        mode={formMode}
         initial={
           drawerMode === "edit" && selected?.type === "ward"
             ? { wardNumber: selected.wardNumber ?? "", wardName: selected.name }
@@ -502,13 +586,22 @@ export function TenantsWardsPanel() {
         >
           <DialogHeader>
             <DialogTitle>
-              {deleteTarget === "state" ? `Delete State: ${deleteStateLabel}` : `Delete Ward: ${deleteWardLabel}`}
+              {deleteTarget === "state"
+                ? `Delete State: ${deleteStateLabel}`
+                : deleteTarget === "ulb"
+                  ? `Delete ULB: ${deleteUlbLabel}`
+                  : `Delete Ward: ${deleteWardLabel}`}
             </DialogTitle>
             <DialogDescription>
               {deleteTarget === "state" ? (
                 <>
                   Permanently delete this empty state? Keep <strong>Uttar Pradesh (09)</strong> — only remove duplicate
                   empty states (01, UP, UP-01). This cannot be undone.
+                </>
+              ) : deleteTarget === "ulb" ? (
+                <>
+                  Permanently delete this ULB from {districtLabel || "its district"}? This cannot be undone. Wards and
+                  surveys that belong to it must be removed first.
                 </>
               ) : (
                 <>
@@ -540,7 +633,8 @@ export function TenantsWardsPanel() {
                 deleting ||
                 !selected ||
                 (deleteTarget === "ward" && selected.type !== "ward") ||
-                (deleteTarget === "state" && selected.type !== "state")
+                (deleteTarget === "state" && selected.type !== "state") ||
+                (deleteTarget === "ulb" && (selected.type !== "ulb" || Boolean(ulbDeleteBlocked)))
               }
               onClick={() => void confirmDelete()}
             >

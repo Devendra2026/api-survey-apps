@@ -29,7 +29,7 @@ export class PublicStorageController {
 
   @Public()
   @Get("*path")
-  @Throttle({ default: { limit: 120, ttl: 60_000 } })
+  @Throttle({ default: { limit: 12000, ttl: 60_000 } })
   @ApiOperation({
     summary: "Stream a private survey photo by object key (Excel / public hyperlinks)",
   })

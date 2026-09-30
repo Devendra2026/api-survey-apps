@@ -21,6 +21,7 @@ import { StorageService } from "./storage.service.js"
  * Matches the link design used by ward survey exports (backend host + /api/storage/<object-path>).
  */
 @ApiTags("storage")
+@Throttle({ default: { limit: 10_000, ttl: 60_000 } })
 @Controller("api/storage")
 export class PublicStorageController {
   private readonly logger = new Logger(PublicStorageController.name)
@@ -29,7 +30,6 @@ export class PublicStorageController {
 
   @Public()
   @Get("*path")
-  @Throttle({ default: { limit: 12000, ttl: 60_000 } })
   @ApiOperation({
     summary: "Stream a private survey photo by object key (Excel / public hyperlinks)",
   })

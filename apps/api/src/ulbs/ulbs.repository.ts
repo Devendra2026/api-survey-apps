@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common"
 import type { Prisma } from "@workspace/database"
+import { isZeroWardName } from "@workspace/validation"
 import type { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { buildOrderBy, getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
@@ -183,41 +184,35 @@ export class UlbsRepository {
     await this.findById(id, user)
     const wards = await this.prisma.db.ward.findMany({
       where: { ulbId: id },
-      select: { id: true, kind: true, deletedAt: true },
+      select: { id: true, kind: true, wardName: true, deletedAt: true },
     })
-    const activeGeographic = wards.filter((ward) => ward.deletedAt == null && ward.kind !== "ZERO")
+    const activeGeographic = wards.filter(
+      (ward) => ward.deletedAt == null && ward.kind !== "ZERO" && !isZeroWardName(ward.wardName)
+    )
     if (activeGeographic.length > 0) {
       throw new ConflictException(
         `Cannot delete this ULB — it has ${activeGeographic.length} ward(s). Remove wards first.`
       )
     }
-    const [surveyCount, roleCount, apiKeyCount] = await Promise.all([
-      this.prisma.db.survey.count({ where: { ulbId: id } }),
-      this.prisma.db.userTenantRole.count({ where: { ulbId: id } }),
-      this.prisma.db.ulbApiKey.count({ where: { ulbId: id } }),
-    ])
-    if (surveyCount > 0) {
-      throw new ConflictException("Cannot delete this ULB — surveys are linked to it.")
-    }
-    if (roleCount > 0 || apiKeyCount > 0) {
-      throw new ConflictException("Cannot delete this ULB — related records still reference it.")
-    }
     const wardIds = wards.map((ward) => ward.id)
-    if (wardIds.length > 0) {
-      const [surveysOnWard, surveysOnOriginalWard, rolesOnWard] = await Promise.all([
-        this.prisma.db.survey.count({ where: { wardId: { in: wardIds } } }),
-        this.prisma.db.survey.count({ where: { originalWardId: { in: wardIds } } }),
-        this.prisma.db.userTenantRole.count({ where: { wardId: { in: wardIds } } }),
-      ])
-      if (surveysOnWard > 0 || surveysOnOriginalWard > 0) {
-        throw new ConflictException("Cannot delete this ULB — surveys are linked to it.")
-      }
-      if (rolesOnWard > 0) {
-        throw new ConflictException("Cannot delete this ULB — related records still reference it.")
-      }
+    const [surveyCount, surveysOnWard, surveysOnOriginalWard] = await Promise.all([
+      this.prisma.db.survey.count({ where: { ulbId: id } }),
+      wardIds.length > 0 ? this.prisma.db.survey.count({ where: { wardId: { in: wardIds } } }) : Promise.resolve(0),
+      wardIds.length > 0
+        ? this.prisma.db.survey.count({ where: { originalWardId: { in: wardIds } } })
+        : Promise.resolve(0),
+    ])
+    if (surveyCount > 0 || surveysOnWard > 0 || surveysOnOriginalWard > 0) {
+      throw new ConflictException("Cannot delete this ULB — surveys are linked to it.")
     }
     try {
       return await this.prisma.db.$transaction(async (tx) => {
+        await tx.ulbApiKey.deleteMany({ where: { ulbId: id } })
+        await tx.userTenantRole.deleteMany({
+          where: {
+            OR: [{ ulbId: id }, ...(wardIds.length > 0 ? [{ wardId: { in: wardIds } }] : [])],
+          },
+        })
         if (wardIds.length > 0) {
           await tx.ward.deleteMany({ where: { id: { in: wardIds } } })
         }

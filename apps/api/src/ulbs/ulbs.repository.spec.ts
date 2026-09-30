@@ -13,8 +13,8 @@ describe("UlbsRepository district scope and duplicates", () => {
   const wardFindMany = jest.fn<(...args: unknown[]) => Promise<unknown>>()
   const wardDeleteMany = jest.fn<(...args: unknown[]) => Promise<unknown>>()
   const surveyCount = jest.fn<(...args: unknown[]) => Promise<unknown>>()
-  const roleCount = jest.fn<(...args: unknown[]) => Promise<unknown>>()
-  const apiKeyCount = jest.fn<(...args: unknown[]) => Promise<unknown>>()
+  const roleDeleteMany = jest.fn<(...args: unknown[]) => Promise<unknown>>()
+  const apiKeyDeleteMany = jest.fn<(...args: unknown[]) => Promise<unknown>>()
 
   const prisma = {
     db: {
@@ -22,12 +22,14 @@ describe("UlbsRepository district scope and duplicates", () => {
       ulb: { findFirst: ulbFindFirst, create: ulbCreate, update: ulbUpdate, delete: ulbDelete },
       ward: { findMany: wardFindMany, deleteMany: wardDeleteMany },
       survey: { count: surveyCount },
-      userTenantRole: { count: roleCount },
-      ulbApiKey: { count: apiKeyCount },
+      userTenantRole: { deleteMany: roleDeleteMany },
+      ulbApiKey: { deleteMany: apiKeyDeleteMany },
       $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
         fn({
           ward: { deleteMany: wardDeleteMany },
           ulb: { delete: ulbDelete },
+          userTenantRole: { deleteMany: roleDeleteMany },
+          ulbApiKey: { deleteMany: apiKeyDeleteMany },
         })
       ),
     },
@@ -84,8 +86,8 @@ describe("UlbsRepository district scope and duplicates", () => {
     wardFindMany.mockReset()
     wardDeleteMany.mockReset()
     surveyCount.mockReset()
-    roleCount.mockReset()
-    apiKeyCount.mockReset()
+    roleDeleteMany.mockReset()
+    apiKeyDeleteMany.mockReset()
     repo = new UlbsRepository(prisma as never)
   })
 
@@ -172,7 +174,7 @@ describe("UlbsRepository district scope and duplicates", () => {
 
     expect(wardFindMany).toHaveBeenCalledWith({
       where: { ulbId: "ulb-1" },
-      select: { id: true, kind: true, deletedAt: true },
+      select: { id: true, kind: true, wardName: true, deletedAt: true },
     })
     expect(ulbDelete).not.toHaveBeenCalled()
     expect(wardDeleteMany).not.toHaveBeenCalled()
@@ -180,16 +182,34 @@ describe("UlbsRepository district scope and duplicates", () => {
 
   it("deletes an ULB whose only ward is the system Zero Ward", async () => {
     ulbFindFirst.mockResolvedValueOnce({ id: "ulb-1", districtId: "district-1" })
-    wardFindMany.mockResolvedValueOnce([{ id: "zero-1", kind: "ZERO", deletedAt: null }])
+    wardFindMany.mockResolvedValueOnce([{ id: "zero-1", kind: "ZERO", wardName: "Zero Ward", deletedAt: null }])
     surveyCount.mockResolvedValue(0)
-    roleCount.mockResolvedValue(0)
-    apiKeyCount.mockResolvedValue(0)
+    apiKeyDeleteMany.mockResolvedValue({ count: 0 })
+    roleDeleteMany.mockResolvedValue({ count: 0 })
     wardDeleteMany.mockResolvedValue({ count: 1 })
     ulbDelete.mockResolvedValue({ id: "ulb-1" })
 
     await repo.delete("ulb-1", admin)
 
+    expect(apiKeyDeleteMany).toHaveBeenCalledWith({ where: { ulbId: "ulb-1" } })
+    expect(roleDeleteMany).toHaveBeenCalledWith({
+      where: { OR: [{ ulbId: "ulb-1" }, { wardId: { in: ["zero-1"] } }] },
+    })
     expect(wardDeleteMany).toHaveBeenCalledWith({ where: { id: { in: ["zero-1"] } } })
+    expect(ulbDelete).toHaveBeenCalledWith({ where: { id: "ulb-1" } })
+  })
+
+  it("deletes an ULB whose only ward is named Zero Ward even when kind is geographic", async () => {
+    ulbFindFirst.mockResolvedValueOnce({ id: "ulb-1", districtId: "district-1" })
+    wardFindMany.mockResolvedValueOnce([{ id: "zero-1", kind: "GEOGRAPHIC", wardName: "Zero Ward", deletedAt: null }])
+    surveyCount.mockResolvedValue(0)
+    apiKeyDeleteMany.mockResolvedValue({ count: 1 })
+    roleDeleteMany.mockResolvedValue({ count: 1 })
+    wardDeleteMany.mockResolvedValue({ count: 1 })
+    ulbDelete.mockResolvedValue({ id: "ulb-1" })
+
+    await repo.delete("ulb-1", admin)
+
     expect(ulbDelete).toHaveBeenCalledWith({ where: { id: "ulb-1" } })
   })
 })

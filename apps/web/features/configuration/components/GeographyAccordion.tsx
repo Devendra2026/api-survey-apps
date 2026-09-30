@@ -4,6 +4,7 @@ import { getApiErrorMessage } from "@/lib/api/client"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
+import { isZeroWardName } from "@workspace/validation"
 import { ChevronDown, ChevronRight, Eye, Pencil, Plus, Trash2 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { useGeographyUlbWards } from "../hooks/use-configuration"
@@ -436,7 +437,22 @@ function UlbCard({
             variant="ghost"
             className="size-7 cursor-pointer text-destructive"
             aria-label="Delete ULB"
-            onClick={() => onDelete(ulb)}
+            onClick={() => {
+              const wardsReady = open && !wardsLoading && !wardsError
+              if (!wardsReady) {
+                onDelete(ulb)
+                return
+              }
+              const geographicWards = wards.filter((ward) => !isZeroWardName(ward.name)).length
+              onDelete({
+                ...ulb,
+                counts: {
+                  ...ulb.counts,
+                  wards: wards.length,
+                  geographicWards,
+                },
+              })
+            }}
           >
             <Trash2 className="size-3.5" />
           </Button>

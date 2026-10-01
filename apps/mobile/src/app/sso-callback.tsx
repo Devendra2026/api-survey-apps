@@ -4,7 +4,7 @@ import { Redirect } from "expo-router";
 import { useEffect, useState } from "react";
 
 /**
- * Landing route for Clerk Google SSO (`mobile://sso-callback`).
+ * Landing route for Clerk Google SSO (`surveyapp://sso-callback`).
  *
  * Session activation is owned by `useSSO` / `setActive` in the sign-in flow.
  * Do NOT immediately treat an unsigned-in deep-link as "go to Login" — that

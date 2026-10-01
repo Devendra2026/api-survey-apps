@@ -7,7 +7,7 @@ export const INVALID_VERIFICATION_CODE_MESSAGE = "Invalid verification code. Ple
 export const EXPIRED_VERIFICATION_CODE_MESSAGE = "Verification code expired. Request a new code."
 
 export const UNAUTHORIZED_NATIVE_REDIRECT_MESSAGE =
-  "Google sign-in is not fully configured for this app build. Ask an administrator to allowlist the exact SSO redirect URI mobile://sso-callback in the Clerk Dashboard (Native applications → Allowlist for mobile SSO redirect) for the same Clerk instance as this build."
+  "Google sign-in is not fully configured for this app build. Ask an administrator to allowlist the exact SSO redirect URI surveyapp://sso-callback in the Clerk Dashboard (Native applications → Allowlist for mobile SSO redirect) for the same Clerk instance as this build."
 
 const PASSWORD_UNAVAILABLE_GOOGLE_MESSAGE =
   "Password authentication is not available for this account. Try signing in with Google."
@@ -31,11 +31,48 @@ const CODE_MESSAGES: Record<string, string> = {
   redirect_uri_mismatch: UNAUTHORIZED_NATIVE_REDIRECT_MESSAGE,
 }
 
+const EXISTING_ACCOUNT_CLERK_CODE = "form_identifier_exists"
+
 export function messageForClerkCode(code: string | undefined): string | null {
   if (!code) {
     return null
   }
   return CODE_MESSAGES[code] ?? null
+}
+
+/** Same identity key as API `normalizeEmail`: trim, then lowercase. */
+export function normalizeAuthEmail(email: string): string {
+  return email.trim().toLowerCase()
+}
+
+function clerkErrorCode(error: unknown): string | null {
+  if (typeof error !== "object" || error === null) {
+    return null
+  }
+  if ("errors" in error && Array.isArray(error.errors)) {
+    const first = error.errors[0]
+    if (typeof first === "object" && first !== null && "code" in first && typeof first.code === "string") {
+      return first.code
+    }
+  }
+  if ("code" in error && typeof error.code === "string") {
+    return error.code
+  }
+  return null
+}
+
+/** True only for Clerk's duplicate-identifier signup rejection. */
+export function isExistingAccountClerkError(error: unknown): boolean {
+  if (clerkErrorCode(error) === EXISTING_ACCOUNT_CLERK_CODE) {
+    return true
+  }
+  if (typeof error === "object" && error !== null && "cause" in error) {
+    const cause = error.cause
+    if (cause !== undefined && cause !== error) {
+      return isExistingAccountClerkError(cause)
+    }
+  }
+  return false
 }
 
 /** True when Clerk rejected the native SSO redirect URI as unauthorized. */

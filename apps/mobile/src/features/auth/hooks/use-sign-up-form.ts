@@ -4,6 +4,8 @@ import { useState } from "react"
 import {
   getClerkErrorMessage,
   incompleteAuthMessage,
+  isExistingAccountClerkError,
+  normalizeAuthEmail,
   validateRequestedRole,
   validateSignUpInput,
 } from "../lib/clerk-errors"
@@ -13,7 +15,8 @@ export function useSignUpForm() {
   const { isLoaded, signUp, setActive } = useSignUp()
   const [pendingVerification, setPendingVerification] = useState(false)
   const [emailForVerify, setEmailForVerify] = useState("")
-  const [error, setError] = useState<string | null>(null)
+  const [error, setErrorState] = useState<string | null>(null)
+  const [existingAccount, setExistingAccount] = useState(false)
   const [loading, setLoading] = useState(false)
   const [resending, setResending] = useState(false)
   const [resendCooldownUntil, setResendCooldownUntil] = useState(0)
@@ -47,11 +50,12 @@ export function useSignUpForm() {
       const nameParts = fullName.trim().split(/\s+/).filter(Boolean)
       const firstName = nameParts[0]
       const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : undefined
+      const emailAddress = normalizeAuthEmail(email)
 
       setSignupRequestedRole(requestedRole)
 
       await signUp.create({
-        emailAddress: email.trim(),
+        emailAddress,
         password,
         ...(firstName ? { firstName } : {}),
         ...(lastName ? { lastName } : {}),
@@ -61,12 +65,13 @@ export function useSignUpForm() {
       })
 
       await signUp.prepareEmailAddressVerification({ strategy: "email_code" })
-      setEmailForVerify(email.trim())
+      setEmailForVerify(emailAddress)
       setPendingVerification(true)
       setResendCooldownUntil(Date.now() + 30_000)
       return true
     } catch (err) {
-      setError(getClerkErrorMessage(err, "Sign up failed"))
+      setExistingAccount(isExistingAccountClerkError(err))
+      setErrorState(getClerkErrorMessage(err, "Sign up failed"))
       return false
     } finally {
       setLoading(false)
@@ -126,11 +131,17 @@ export function useSignUpForm() {
     }
   }
 
+  function setError(message: string | null) {
+    setErrorState(message)
+    setExistingAccount(false)
+  }
+
   return {
     isLoaded,
     pendingVerification,
     emailForVerify,
     error,
+    existingAccount,
     loading,
     resending,
     resendCooldownUntil,

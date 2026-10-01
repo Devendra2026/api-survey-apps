@@ -1,6 +1,7 @@
 import { Button, PasswordInput, Screen, Text, TextField } from "@/components/ui"
 import { useGoogleAuth } from "@/features/auth/hooks/use-google-auth"
 import { useSignUpForm } from "@/features/auth/hooks/use-sign-up-form"
+import { normalizeAuthEmail } from "@/features/auth/lib/clerk-errors"
 import { setSignupRequestedRole } from "@/features/auth/lib/signup-intent"
 import { AuthDivider } from "@/features/auth/ui/AuthDivider"
 import { AuthError } from "@/features/auth/ui/AuthError"
@@ -22,6 +23,7 @@ export default function SignUpScreen() {
   const {
     isLoaded,
     error,
+    existingAccount,
     loading,
     signUpWithDetails,
     setError,
@@ -108,7 +110,22 @@ export default function SignUpScreen() {
           disabled={busy}
         />
 
-        {displayError ? <AuthError message={displayError} /> : null}
+        {displayError ? (
+          <AuthError message={displayError}>
+            {existingAccount && !googleError ? (
+              <Button
+                title="Sign in"
+                variant="secondary"
+                onPress={() => {
+                  router.push({
+                    pathname: "/(auth)/sign-in",
+                    params: { email: normalizeAuthEmail(email) },
+                  })
+                }}
+              />
+            ) : null}
+          </AuthError>
+        ) : null}
 
         <Button
           title={loading ? "Creating account…" : "Continue"}
@@ -127,7 +144,7 @@ export default function SignUpScreen() {
               if (ok) {
                 router.push({
                   pathname: "/(auth)/verify",
-                  params: { email: email.trim() },
+                  params: { email: normalizeAuthEmail(email) },
                 })
               }
             })()

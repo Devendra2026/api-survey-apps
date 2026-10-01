@@ -60,7 +60,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     version: "1.0.0",
     orientation: "portrait",
     icon: "./assets/images/icon.png",
-    scheme: "mobile",
+    scheme: "surveyapp",
     userInterfaceStyle: "automatic",
     ios: {
       bundleIdentifier: "com.sdvedutech.surveymobile",

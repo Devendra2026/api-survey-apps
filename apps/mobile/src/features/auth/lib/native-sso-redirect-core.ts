@@ -1,5 +1,5 @@
 /** Matches `scheme` in apps/mobile/app.config.ts. */
-export const NATIVE_SSO_SCHEME_FALLBACK = "mobile"
+export const NATIVE_SSO_SCHEME_FALLBACK = "surveyapp"
 
 /** Matches Expo Router route `src/app/sso-callback.tsx`. */
 export const NATIVE_SSO_CALLBACK_PATH = "sso-callback"
@@ -15,7 +15,7 @@ export function buildCanonicalNativeSsoRedirectUrl(scheme: string = NATIVE_SSO_S
 
 /**
  * Prefer the Expo config scheme so the helper stays aligned with app.config.ts.
- * Falls back to `mobile` when config is unavailable (e.g. unit tests).
+ * Falls back to `surveyapp` when config is unavailable (e.g. unit tests).
  */
 export function resolveNativeSsoScheme(expoScheme: unknown): string {
   if (typeof expoScheme === "string" && expoScheme.trim().length > 0) {

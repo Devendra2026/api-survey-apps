@@ -2,7 +2,7 @@ import { Button, PasswordInput, Screen, Text, TextField } from "@/components/ui"
 import { useGoogleAuth } from "@/features/auth/hooks/use-google-auth"
 import { useSignInForm } from "@/features/auth/hooks/use-sign-in-form"
 import { ENTER_DEVICE_TRUST_CODE_MESSAGE } from "@/features/auth/lib/clerk-auth-copy"
-import { isValidEmail } from "@/features/auth/lib/clerk-errors"
+import { isValidEmail, normalizeAuthEmail } from "@/features/auth/lib/clerk-errors"
 import { AuthDivider } from "@/features/auth/ui/AuthDivider"
 import { AuthError } from "@/features/auth/ui/AuthError"
 import { AuthFooterLinkRow } from "@/features/auth/ui/AuthFooter"
@@ -10,12 +10,21 @@ import { AuthScreenShell } from "@/features/auth/ui/AuthScreenShell"
 import { GoogleSignInButton } from "@/features/auth/ui/GoogleSignInButton"
 import { OtpInput, isCompleteOtp } from "@/features/auth/ui/OtpInput"
 import { spacing } from "@/theme"
-import { Link } from "expo-router"
+import { Link, useLocalSearchParams } from "expo-router"
 import { useState } from "react"
 import { Pressable, StyleSheet, View } from "react-native"
 
+function emailFromParam(value: string | string[] | undefined): string {
+  const raw = Array.isArray(value) ? value[0] : value
+  if (!raw) {
+    return ""
+  }
+  return normalizeAuthEmail(raw)
+}
+
 export default function SignInScreen() {
-  const [email, setEmail] = useState("")
+  const params = useLocalSearchParams<{ email?: string | string[] }>()
+  const [email, setEmail] = useState(() => emailFromParam(params.email))
   const [password, setPassword] = useState("")
   const [code, setCode] = useState("")
   const {

@@ -33,7 +33,7 @@ export function getNativeSsoRedirectUrl(): string {
 
   // Prefer the allowlisted custom-scheme URI whenever AuthSession already resolved
   // to our app scheme (normalizes path / trailing-slash drift). Keep AuthSession's
-  // URL only for Expo Go / proxy hosts that cannot deep-link via `mobile://`.
+  // URL only for Expo Go / proxy hosts that cannot deep-link via `surveyapp://`.
   const redirectUrl = authSessionUrl.startsWith(`${scheme}://`) ? canonical : authSessionUrl
 
   if (__DEV__) {

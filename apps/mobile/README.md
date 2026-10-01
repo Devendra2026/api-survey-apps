@@ -113,13 +113,13 @@ The Clerk LogBox toast about **development keys** is expected for local Expo and
 Canonical native SSO redirect URI (exact match, **no trailing slash**):
 
 ```text
-mobile://sso-callback
+surveyapp://sso-callback
 ```
 
-This matches `scheme: "mobile"` in `app.config.ts` and the Expo Router route `src/app/sso-callback.tsx`. The app builds it via `getNativeSsoRedirectUrl()` in `src/features/auth/lib/native-sso-redirect.ts`.
+This matches `scheme: "surveyapp"` in `app.config.ts` and the Expo Router route `src/app/sso-callback.tsx`. The app builds it via `getNativeSsoRedirectUrl()` in `src/features/auth/lib/native-sso-redirect.ts`.
 
 1. Enable the **Google** social connection on the **same** Clerk instance as `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` for that build.
-2. Clerk Dashboard → **Native applications** → **Allowlist for mobile SSO redirect** → add exactly `mobile://sso-callback`.
+2. Clerk Dashboard → **Native applications** → **Allowlist for mobile SSO redirect** → add exactly `surveyapp://sso-callback`.
 3. Repeat step 2 on **every** Clerk instance used by mobile:
    - **Local / development** (`pk_test_…` in Metro / EAS `development`)
    - **Preview** (EAS environment `preview` publishable key — often a staging `pk_test_` instance)
@@ -129,7 +129,7 @@ This matches `scheme: "mobile"` in `app.config.ts` and the Expo Router route `sr
 5. Keep **Account linking** enabled for social connections so Google sign-in joins the existing email/password Clerk user instead of creating a second Clerk user for the same verified email.
 6. If custom mobile sign-up/sign-in fail with captcha errors, disable or reconfigure **Bot protection** for that Clerk instance so custom Expo flows are allowed.
 
-Do not confuse this with Google Cloud “Authorized redirect URIs” for the Google OAuth client — those belong to Clerk’s Google connection setup. The error `does not match an authorized redirect URI` with `mobile://sso-callback` is the **Clerk native allowlist**.
+Do not confuse this with Google Cloud “Authorized redirect URIs” for the Google OAuth client — those belong to Clerk’s Google connection setup (`https://clerk.sdvedutech.in/v1/oauth_callback`). The error `does not match an authorized redirect URI` with `surveyapp://sso-callback` is the **Clerk native allowlist**.
 
 When Google still creates a separate Clerk user (legacy duplicates), Nest rebinds the application `User.clerkUserId` to the authenticated session subject only when Clerk reports a **verified** email match — preserving the same `User.id`, roles, and survey history. Unverified email matches are refused.
 

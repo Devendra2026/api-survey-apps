@@ -44,6 +44,17 @@ describe("GlobalExceptionFilter unique vs prisma dump", () => {
     expect(body.message).toMatch(/duplicate code or name/i)
   })
 
+  it("maps P2002 on email to an account conflict without a database error", () => {
+    const err = Object.assign(new Error("Unique constraint failed on the fields: (`email`)"), {
+      code: "P2002",
+      meta: { target: ["email"] },
+    })
+    filter.catch(err, host as never)
+    expect(statusCode).toBe(HttpStatus.CONFLICT)
+    expect(body.message).toBe("An account with this email already exists.")
+    expect(body.message).not.toMatch(/prisma|P2002/i)
+  })
+
   it("does NOT label generic prisma. invocation dumps as duplicate (hypothesis F)", () => {
     filter.catch(new Error("Invalid `prisma.ward.update()` invocation:\n\nRecord to update not found."), host as never)
     expect(statusCode).toBe(HttpStatus.INTERNAL_SERVER_ERROR)

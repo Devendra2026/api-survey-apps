@@ -2,13 +2,15 @@ import { isClerkAPIResponseError } from "@clerk/expo"
 import {
   extractClerkRetryAfterSeconds,
   incompleteAuthMessage,
+  isExistingAccountClerkError,
   isUnauthorizedNativeRedirectMessage,
   messageForClerkCode,
+  normalizeAuthEmail,
   UNAUTHORIZED_NATIVE_REDIRECT_MESSAGE,
 } from "./clerk-auth-copy"
 import { PASSWORD_UNAVAILABLE_GOOGLE_MESSAGE } from "./sign-in-factors"
 
-export { extractClerkRetryAfterSeconds, incompleteAuthMessage }
+export { extractClerkRetryAfterSeconds, incompleteAuthMessage, isExistingAccountClerkError, normalizeAuthEmail }
 
 type ClerkErrorLike = {
   clerkError: true

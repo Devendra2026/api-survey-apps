@@ -124,4 +124,14 @@ describe("UsersService.sync (requestedRole)", () => {
       requestedRole: "SURVEYOR",
     })
   })
+
+  it("replaces a pending requestedRole with a different role on the same user", async () => {
+    const user = pendingUser()
+    await service.sync(user, { requestedRole: "FIELD_SUPERVISOR" })
+
+    expect(usersRepository.update).toHaveBeenCalledWith("user-pending", {
+      requestedRole: "FIELD_SUPERVISOR",
+    })
+    expect(usersRepository.update).toHaveBeenCalledTimes(1)
+  })
 })

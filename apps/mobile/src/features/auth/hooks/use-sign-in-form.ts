@@ -9,6 +9,7 @@ import {
   extractClerkRetryAfterSeconds,
   getClerkErrorMessage,
   incompleteAuthMessage,
+  normalizeAuthEmail,
   validateSignInInput,
 } from "../lib/clerk-errors"
 import {
@@ -128,7 +129,7 @@ export function useSignInForm() {
     setError(null)
     setLoading(true)
     try {
-      const trimmedEmail = email.trim()
+      const trimmedEmail = normalizeAuthEmail(email)
       const { error: passwordError } = await signIn.password({
         emailAddress: trimmedEmail,
         password,

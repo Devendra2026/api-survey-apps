@@ -22,6 +22,7 @@ import {
   type ReactNode,
 } from "react";
 import { AppState, type AppStateStatus } from "react-native";
+import { requestedRoleToSync } from "../lib/requested-role-sync";
 import {
   clearSignupRequestedRole,
   consumeSignupRequestedRole,
@@ -154,8 +155,9 @@ async function maybeSyncProfile(
   }
 
   const stagedRole = peekSignupRequestedRole() ?? clerkRequestedRole;
-  if (!profile.requestedRole && stagedRole && !canEnterAppHome(profile) && profile.isActive) {
-    patch.requestedRole = stagedRole;
+  const nextRole = requestedRoleToSync(profile, stagedRole);
+  if (nextRole) {
+    patch.requestedRole = nextRole;
   }
 
   if (!patch.fullName && !patch.phone && !patch.requestedRole) {

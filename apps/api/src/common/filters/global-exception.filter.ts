@@ -21,6 +21,26 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     return false
   }
 
+  private uniqueConflictMessage(exception: unknown): string {
+    if (this.prismaUniqueTargetIncludesEmail(exception)) {
+      return "An account with this email already exists."
+    }
+    return "A duplicate code or name already exists. Use the existing record, or run Dedupe Wards before Sync Wards."
+  }
+
+  private prismaUniqueTargetIncludesEmail(exception: unknown): boolean {
+    if (typeof exception !== "object" || exception === null || !("meta" in exception)) {
+      return false
+    }
+    const meta = (exception as { meta?: unknown }).meta
+    if (typeof meta !== "object" || meta === null || !("target" in meta)) {
+      return false
+    }
+    const target = (meta as { target?: unknown }).target
+    const fields = Array.isArray(target) ? target : typeof target === "string" ? [target] : []
+    return fields.some((field) => typeof field === "string" && /(^|_)email($|_)/i.test(field))
+  }
+
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp()
     const response = ctx.getResponse<Response>()
@@ -49,8 +69,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       }
     } else if (this.isPrismaUniqueConflict(exception)) {
       status = HttpStatus.CONFLICT
-      message =
-        "A duplicate code or name already exists. Use the existing record, or run Dedupe Wards before Sync Wards."
+      message = this.uniqueConflictMessage(exception)
       this.logger.warn(`Prisma unique conflict ${request.method} ${request.url}`)
     } else if (exception instanceof Error) {
       // Do not map every Prisma invocation dump to "duplicate" — only real unique failures above.

@@ -7,8 +7,10 @@ import {
   extractClerkRetryAfterSeconds,
   incompleteAuthMessage,
   INVALID_VERIFICATION_CODE_MESSAGE,
+  isExistingAccountClerkError,
   isUnauthorizedNativeRedirectMessage,
   messageForClerkCode,
+  normalizeAuthEmail,
   UNAUTHORIZED_NATIVE_REDIRECT_MESSAGE,
 } from "./clerk-auth-copy.ts"
 
@@ -89,6 +91,52 @@ describe("unauthorized native redirect copy", () => {
 
   it("maps redirect_uri_mismatch to the admin allowlist message", () => {
     assert.equal(messageForClerkCode("redirect_uri_mismatch"), UNAUTHORIZED_NATIVE_REDIRECT_MESSAGE)
-    assert.match(UNAUTHORIZED_NATIVE_REDIRECT_MESSAGE, /mobile:\/\/sso-callback/)
+    assert.match(UNAUTHORIZED_NATIVE_REDIRECT_MESSAGE, /surveyapp:\/\/sso-callback/)
+  })
+})
+
+describe("existing account signup", () => {
+  it("maps form_identifier_exists to the sign-in message", () => {
+    assert.equal(
+      messageForClerkCode("form_identifier_exists"),
+      "An account with this email already exists. Sign in instead."
+    )
+  })
+
+  it("leaves other credential codes unchanged", () => {
+    assert.equal(messageForClerkCode("form_identifier_not_found"), "Invalid email or password.")
+    assert.equal(messageForClerkCode("form_password_incorrect"), "Invalid email or password.")
+    assert.equal(messageForClerkCode("form_code_incorrect"), INVALID_VERIFICATION_CODE_MESSAGE)
+  })
+
+  it("normalizes email the same way for signup and sign-in", () => {
+    assert.equal(normalizeAuthEmail("  Test@Email.com  "), "test@email.com")
+    assert.equal(normalizeAuthEmail("test@email.com"), normalizeAuthEmail("Test@Email.com"))
+  })
+
+  it("detects only Clerk duplicate-identifier errors", () => {
+    assert.equal(
+      isExistingAccountClerkError({
+        errors: [{ code: "form_identifier_exists", message: "already exists" }],
+      }),
+      true
+    )
+    assert.equal(
+      isExistingAccountClerkError({
+        clerkError: true,
+        code: "form_password_pwned",
+        message: "pwned",
+        cause: { code: "form_identifier_exists", message: "exists" },
+      }),
+      true
+    )
+    assert.equal(
+      isExistingAccountClerkError({
+        errors: [{ code: "form_password_incorrect", message: "wrong" }],
+      }),
+      false
+    )
+    assert.equal(isExistingAccountClerkError(new Error("Unique constraint failed")), false)
+    assert.equal(isExistingAccountClerkError(null), false)
   })
 })

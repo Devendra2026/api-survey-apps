@@ -212,4 +212,29 @@ describe("UlbsRepository district scope and duplicates", () => {
 
     expect(ulbDelete).toHaveBeenCalledWith({ where: { id: "ulb-1" } })
   })
+
+  it("rejects delete when a real ward exists beside the Zero Ward and deletes nothing", async () => {
+    ulbFindFirst.mockResolvedValueOnce({ id: "ulb-1", districtId: "district-1" })
+    wardFindMany.mockResolvedValueOnce([
+      { id: "zero-1", kind: "ZERO", wardName: "Zero Ward", deletedAt: null },
+      { id: "w-real", kind: "GEOGRAPHIC", wardName: "Zero Ward East", deletedAt: null },
+    ])
+
+    await expect(repo.delete("ulb-1", admin)).rejects.toThrow(/1 ward/)
+
+    expect(ulbDelete).not.toHaveBeenCalled()
+    expect(wardDeleteMany).not.toHaveBeenCalled()
+    expect(surveyCount).not.toHaveBeenCalled()
+  })
+
+  it("rejects delete when surveys are linked to the Zero Ward and deletes nothing", async () => {
+    ulbFindFirst.mockResolvedValueOnce({ id: "ulb-1", districtId: "district-1" })
+    wardFindMany.mockResolvedValueOnce([{ id: "zero-1", kind: "ZERO", wardName: "Zero Ward", deletedAt: null }])
+    surveyCount.mockResolvedValueOnce(0).mockResolvedValueOnce(1).mockResolvedValueOnce(0)
+
+    await expect(repo.delete("ulb-1", admin)).rejects.toThrow("Cannot delete this ULB — surveys are linked to it.")
+
+    expect(ulbDelete).not.toHaveBeenCalled()
+    expect(wardDeleteMany).not.toHaveBeenCalled()
+  })
 })

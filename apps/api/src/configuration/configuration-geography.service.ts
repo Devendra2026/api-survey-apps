@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common"
 import { WardKind } from "@workspace/database"
-import { sortWardsByNumberAsc } from "@workspace/validation"
+import { sortWardsByNumberAsc, ZERO_WARD_NAME } from "@workspace/validation"
 import { PrismaService } from "../prisma/prisma.service.js"
 
 @Injectable()
@@ -39,7 +39,11 @@ export class ConfigurationGeographyService {
       }),
       this.prisma.db.ward.groupBy({
         by: ["ulbId"],
-        where: { deletedAt: null, kind: { not: WardKind.ZERO } },
+        where: {
+          deletedAt: null,
+          kind: { not: WardKind.ZERO },
+          NOT: { wardName: { equals: ZERO_WARD_NAME, mode: "insensitive" } },
+        },
         _count: { _all: true },
       }),
     ])
@@ -93,6 +97,7 @@ export class ConfigurationGeographyService {
         id: true,
         wardNumber: true,
         wardName: true,
+        kind: true,
         status: true,
         ulbId: true,
       },
@@ -103,6 +108,7 @@ export class ConfigurationGeographyService {
       type: "ward" as const,
       name: ward.wardName,
       wardNumber: ward.wardNumber,
+      kind: ward.kind,
       status: ward.status,
       parentId: ward.ulbId,
       counts: {},

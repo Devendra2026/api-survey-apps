@@ -23,7 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@workspace/ui/components/dialog"
-import { isZeroWardName } from "@workspace/validation"
+import { isSystemZeroWard } from "@workspace/validation"
 import { GitMerge, MapPin, Plus, RefreshCw } from "lucide-react"
 import Link from "next/link"
 import { useMemo, useState } from "react"
@@ -239,7 +239,13 @@ export function TenantsWardsPanel() {
     if (deleteTarget === "state" && selected.type !== "state") return
     if (deleteTarget === "ulb" && selected.type !== "ulb") return
     if (deleteTarget === "district" && selected.type !== "district") return
-    if (deleteTarget === "ward" && selected.type === "ward" && isZeroWardName(selected.name)) return
+    if (
+      deleteTarget === "ward" &&
+      selected.type === "ward" &&
+      isSystemZeroWard({ kind: selected.kind, wardName: selected.name })
+    ) {
+      return
+    }
     if (deleteTarget === "ulb" && selected.type === "ulb") {
       const wardCount = blockingWardCount(selected.counts)
       const surveyCount = selected.counts?.surveys ?? 0
@@ -305,7 +311,10 @@ export function TenantsWardsPanel() {
         ? `This ULB has ${ulbWardCount} ward(s). Remove wards before deleting it.`
         : "Surveys are linked to this ULB."
       : null
-  const wardDeleteBlocked = selected?.type === "ward" && isZeroWardName(selected.name) ? ZERO_WARD_DELETE_BLOCKED : null
+  const wardDeleteBlocked =
+    selected?.type === "ward" && isSystemZeroWard({ kind: selected.kind, wardName: selected.name })
+      ? ZERO_WARD_DELETE_BLOCKED
+      : null
   const districtUlbCount = selected?.type === "district" ? (selected.counts?.ulbs ?? selected.children?.length ?? 0) : 0
   const districtSurveyCount = selected?.type === "district" ? (selected.counts?.surveys ?? 0) : 0
   const districtDeleteBlocked =

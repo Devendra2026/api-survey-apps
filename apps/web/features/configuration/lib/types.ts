@@ -48,6 +48,7 @@ export interface GeographyTreeNode {
   name: string
   code?: string
   wardNumber?: string
+  kind?: string
   ulbType?: string
   status: GeoEntityStatus
   parentId?: string

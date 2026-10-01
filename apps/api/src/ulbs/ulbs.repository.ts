@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common"
 import type { Prisma } from "@workspace/database"
-import { isZeroWardName } from "@workspace/validation"
+import { isSystemZeroWard } from "@workspace/validation"
 import type { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { buildOrderBy, getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
@@ -186,20 +186,23 @@ export class UlbsRepository {
       where: { ulbId: id },
       select: { id: true, kind: true, wardName: true, deletedAt: true },
     })
-    const activeGeographic = wards.filter(
-      (ward) => ward.deletedAt == null && ward.kind !== "ZERO" && !isZeroWardName(ward.wardName)
-    )
+    const activeGeographic = wards.filter((ward) => ward.deletedAt == null && !isSystemZeroWard(ward))
     if (activeGeographic.length > 0) {
       throw new ConflictException(
         `Cannot delete this ULB — it has ${activeGeographic.length} ward(s). Remove wards first.`
       )
     }
-    const wardIds = wards.map((ward) => ward.id)
+    const linkedWardIds = wards.map((ward) => ward.id)
+    const removableWardIds = wards
+      .filter((ward) => isSystemZeroWard(ward) || ward.deletedAt != null)
+      .map((ward) => ward.id)
     const [surveyCount, surveysOnWard, surveysOnOriginalWard] = await Promise.all([
       this.prisma.db.survey.count({ where: { ulbId: id } }),
-      wardIds.length > 0 ? this.prisma.db.survey.count({ where: { wardId: { in: wardIds } } }) : Promise.resolve(0),
-      wardIds.length > 0
-        ? this.prisma.db.survey.count({ where: { originalWardId: { in: wardIds } } })
+      linkedWardIds.length > 0
+        ? this.prisma.db.survey.count({ where: { wardId: { in: linkedWardIds } } })
+        : Promise.resolve(0),
+      linkedWardIds.length > 0
+        ? this.prisma.db.survey.count({ where: { originalWardId: { in: linkedWardIds } } })
         : Promise.resolve(0),
     ])
     if (surveyCount > 0 || surveysOnWard > 0 || surveysOnOriginalWard > 0) {
@@ -210,11 +213,11 @@ export class UlbsRepository {
         await tx.ulbApiKey.deleteMany({ where: { ulbId: id } })
         await tx.userTenantRole.deleteMany({
           where: {
-            OR: [{ ulbId: id }, ...(wardIds.length > 0 ? [{ wardId: { in: wardIds } }] : [])],
+            OR: [{ ulbId: id }, ...(removableWardIds.length > 0 ? [{ wardId: { in: removableWardIds } }] : [])],
           },
         })
-        if (wardIds.length > 0) {
-          await tx.ward.deleteMany({ where: { id: { in: wardIds } } })
+        if (removableWardIds.length > 0) {
+          await tx.ward.deleteMany({ where: { id: { in: removableWardIds } } })
         }
         return tx.ulb.delete({ where: { id } })
       })

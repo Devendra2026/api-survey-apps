@@ -26,7 +26,8 @@ describe("UlbsRepository district scope and duplicates", () => {
       ulbApiKey: { deleteMany: apiKeyDeleteMany },
       $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
         fn({
-          ward: { deleteMany: wardDeleteMany },
+          ward: { findMany: wardFindMany, deleteMany: wardDeleteMany },
+          survey: { count: surveyCount },
           ulb: { delete: ulbDelete },
           userTenantRole: { deleteMany: roleDeleteMany },
           ulbApiKey: { deleteMany: apiKeyDeleteMany },
@@ -195,7 +196,7 @@ describe("UlbsRepository district scope and duplicates", () => {
     expect(roleDeleteMany).toHaveBeenCalledWith({
       where: { OR: [{ ulbId: "ulb-1" }, { wardId: { in: ["zero-1"] } }] },
     })
-    expect(wardDeleteMany).toHaveBeenCalledWith({ where: { id: { in: ["zero-1"] } } })
+    expect(wardDeleteMany).toHaveBeenCalledWith({ where: { ulbId: "ulb-1", id: { in: ["zero-1"] } } })
     expect(ulbDelete).toHaveBeenCalledWith({ where: { id: "ulb-1" } })
   })
 
@@ -236,5 +237,38 @@ describe("UlbsRepository district scope and duplicates", () => {
 
     expect(ulbDelete).not.toHaveBeenCalled()
     expect(wardDeleteMany).not.toHaveBeenCalled()
+    expect(apiKeyDeleteMany).not.toHaveBeenCalled()
+    expect(roleDeleteMany).not.toHaveBeenCalled()
+  })
+
+  it("rejects delete when the only ward is a geographic ward numbered 0", async () => {
+    ulbFindFirst.mockResolvedValueOnce({ id: "ulb-1", districtId: "district-1" })
+    wardFindMany.mockResolvedValueOnce([
+      { id: "w-00", kind: "GEOGRAPHIC", wardNumber: "0", wardName: "0", deletedAt: null },
+    ])
+
+    await expect(repo.delete("ulb-1", admin)).rejects.toThrow(/1 ward/)
+
+    expect(ulbDelete).not.toHaveBeenCalled()
+    expect(wardDeleteMany).not.toHaveBeenCalled()
+    expect(surveyCount).not.toHaveBeenCalled()
+  })
+
+  it("deletes a soft-deleted user ward tombstone together with the system Zero Ward", async () => {
+    ulbFindFirst.mockResolvedValueOnce({ id: "ulb-1", districtId: "district-1" })
+    wardFindMany.mockResolvedValueOnce([
+      { id: "zero-1", kind: "ZERO", wardName: "Zero Ward", deletedAt: null },
+      { id: "w-soft", kind: "GEOGRAPHIC", wardName: "Ward 1", deletedAt: new Date("2026-01-01T00:00:00.000Z") },
+    ])
+    surveyCount.mockResolvedValue(0)
+    apiKeyDeleteMany.mockResolvedValue({ count: 0 })
+    roleDeleteMany.mockResolvedValue({ count: 0 })
+    wardDeleteMany.mockResolvedValue({ count: 2 })
+    ulbDelete.mockResolvedValue({ id: "ulb-1" })
+
+    await repo.delete("ulb-1", admin)
+
+    expect(wardDeleteMany).toHaveBeenCalledWith({ where: { ulbId: "ulb-1", id: { in: ["zero-1", "w-soft"] } } })
+    expect(ulbDelete).toHaveBeenCalledWith({ where: { id: "ulb-1" } })
   })
 })

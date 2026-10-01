@@ -182,34 +182,33 @@ export class UlbsRepository {
 
   async delete(id: string, user: AuthenticatedUser) {
     await this.findById(id, user)
-    const wards = await this.prisma.db.ward.findMany({
-      where: { ulbId: id },
-      select: { id: true, kind: true, wardName: true, deletedAt: true },
-    })
-    const activeGeographic = wards.filter((ward) => ward.deletedAt == null && !isSystemZeroWard(ward))
-    if (activeGeographic.length > 0) {
-      throw new ConflictException(
-        `Cannot delete this ULB — it has ${activeGeographic.length} ward(s). Remove wards first.`
-      )
-    }
-    const linkedWardIds = wards.map((ward) => ward.id)
-    const removableWardIds = wards
-      .filter((ward) => isSystemZeroWard(ward) || ward.deletedAt != null)
-      .map((ward) => ward.id)
-    const [surveyCount, surveysOnWard, surveysOnOriginalWard] = await Promise.all([
-      this.prisma.db.survey.count({ where: { ulbId: id } }),
-      linkedWardIds.length > 0
-        ? this.prisma.db.survey.count({ where: { wardId: { in: linkedWardIds } } })
-        : Promise.resolve(0),
-      linkedWardIds.length > 0
-        ? this.prisma.db.survey.count({ where: { originalWardId: { in: linkedWardIds } } })
-        : Promise.resolve(0),
-    ])
-    if (surveyCount > 0 || surveysOnWard > 0 || surveysOnOriginalWard > 0) {
-      throw new ConflictException("Cannot delete this ULB — surveys are linked to it.")
-    }
     try {
       return await this.prisma.db.$transaction(async (tx) => {
+        const wards = await tx.ward.findMany({
+          where: { ulbId: id },
+          select: { id: true, kind: true, wardName: true, deletedAt: true },
+        })
+        const activeGeographic = wards.filter((ward) => ward.deletedAt == null && !isSystemZeroWard(ward))
+        if (activeGeographic.length > 0) {
+          throw new ConflictException(
+            `Cannot delete this ULB — it has ${activeGeographic.length} ward(s). Remove wards first.`
+          )
+        }
+        const linkedWardIds = wards.map((ward) => ward.id)
+        // Tombstones were already removed by the user. They must go with the ULB because Ward.ulb is Restrict.
+        const removableWardIds = wards
+          .filter((ward) => isSystemZeroWard(ward) || ward.deletedAt != null)
+          .map((ward) => ward.id)
+        const [surveyCount, surveysOnWard, surveysOnOriginalWard] = await Promise.all([
+          tx.survey.count({ where: { ulbId: id } }),
+          linkedWardIds.length > 0 ? tx.survey.count({ where: { wardId: { in: linkedWardIds } } }) : Promise.resolve(0),
+          linkedWardIds.length > 0
+            ? tx.survey.count({ where: { originalWardId: { in: linkedWardIds } } })
+            : Promise.resolve(0),
+        ])
+        if (surveyCount > 0 || surveysOnWard > 0 || surveysOnOriginalWard > 0) {
+          throw new ConflictException("Cannot delete this ULB — surveys are linked to it.")
+        }
         await tx.ulbApiKey.deleteMany({ where: { ulbId: id } })
         await tx.userTenantRole.deleteMany({
           where: {
@@ -217,7 +216,7 @@ export class UlbsRepository {
           },
         })
         if (removableWardIds.length > 0) {
-          await tx.ward.deleteMany({ where: { id: { in: removableWardIds } } })
+          await tx.ward.deleteMany({ where: { ulbId: id, id: { in: removableWardIds } } })
         }
         return tx.ulb.delete({ where: { id } })
       })

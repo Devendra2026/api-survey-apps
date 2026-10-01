@@ -1,9 +1,8 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common"
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common"
 import type { Prisma } from "@workspace/database"
 import { isZeroWardName, normalizeWardNumber } from "@workspace/validation"
 import type { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
-import { ensureZeroWard } from "../common/services/zero-ward.service.js"
 import { buildOrderBy, getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
 import { resolveTenantScope } from "../common/utils/tenant-scope.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
@@ -12,6 +11,9 @@ import type { CreateWardDto, UpdateWardDto } from "../states/dto/geo.dto.js"
 const WARD_NAME_CONFLICT = "A ward with this name already exists. Please use a different name."
 const WARD_NUMBER_CONFLICT = "A ward with this number already exists in this ULB"
 const WARD_CODE_CONFLICT = "A ward with this code already exists in this ULB"
+const ZERO_WARD_NUMBER_RESERVED = "Ward number 0 is reserved for Zero Ward. Use Create Zero Ward."
+const ZERO_WARD_NAME_RESERVED = "The name Zero Ward is reserved. Use Create Zero Ward."
+const ZERO_WARD_IMMUTABLE = "Zero Ward number, name, and kind cannot be changed."
 
 function isPrismaUniqueViolation(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && (error as { code: string }).code === "P2002"
@@ -73,10 +75,6 @@ export class WardsRepository {
   }
 
   async findAll(query: PaginationQueryDto, user: AuthenticatedUser, ulbId?: string) {
-    if (ulbId) {
-      const ulb = await this.prisma.db.ulb.findUnique({ where: { id: ulbId }, select: { id: true } })
-      if (ulb) await ensureZeroWard(this.prisma.db, ulbId)
-    }
     const { skip, take, page, limit } = getSkipTake(query)
     const where: Prisma.WardWhereInput = {
       AND: [
@@ -118,10 +116,16 @@ export class WardsRepository {
     const wardNumber = normalizeWardNumber(data.wardNumber)
     const wardName = data.wardName.trim()
     const wardCode = data.wardCode?.trim().toUpperCase() || undefined
+    if (wardNumber === "0") {
+      throw new BadRequestException(ZERO_WARD_NUMBER_RESERVED)
+    }
+    if (isZeroWardName(wardName)) {
+      throw new BadRequestException(ZERO_WARD_NAME_RESERVED)
+    }
     await this.assertUniqueActiveWardName(data.ulbId, wardName)
     await this.assertUniqueNormalizedWardNumber(data.ulbId, wardNumber)
     try {
-      const created = await this.prisma.db.ward.create({
+      return await this.prisma.db.ward.create({
         data: {
           ulbId: data.ulbId,
           wardNumber,
@@ -129,10 +133,6 @@ export class WardsRepository {
           ...(wardCode ? { wardCode } : {}),
         },
       })
-      if (!isZeroWardName(wardName)) {
-        await ensureZeroWard(this.prisma.db, data.ulbId)
-      }
-      return created
     } catch (error) {
       if (isPrismaUniqueViolation(error)) {
         const target = (error as { meta?: { target?: string[] } }).meta?.target
@@ -147,6 +147,9 @@ export class WardsRepository {
 
   async update(id: string, data: UpdateWardDto, user: AuthenticatedUser) {
     const existing = await this.findById(id, user)
+    if (existing.kind === "ZERO" && (data.wardNumber !== undefined || data.wardName !== undefined)) {
+      throw new BadRequestException(ZERO_WARD_IMMUTABLE)
+    }
     if (data.wardName !== undefined) {
       await this.assertUniqueActiveWardName(existing.ulbId, data.wardName, id)
     }
@@ -179,10 +182,7 @@ export class WardsRepository {
   }
 
   async delete(id: string, user: AuthenticatedUser) {
-    const existing = await this.findById(id, user)
-    if (existing.kind === "ZERO" || isZeroWardName(existing.wardName)) {
-      throw new ConflictException("Zero Ward is created automatically for this ULB. Delete the ULB to remove it.")
-    }
+    await this.findById(id, user)
     return this.prisma.db.ward.update({
       where: { id },
       data: { deletedAt: new Date() },

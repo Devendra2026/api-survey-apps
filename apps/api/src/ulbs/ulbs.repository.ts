@@ -194,20 +194,36 @@ export class UlbsRepository {
             `Cannot delete this ULB — it has ${activeGeographic.length} ward(s). Remove wards first.`
           )
         }
-        const linkedWardIds = wards.map((ward) => ward.id)
-        // Tombstones were already removed by the user. They must go with the ULB because Ward.ulb is Restrict.
+        // Tombstones and the Zero Ward go with the ULB because Ward.ulb is Restrict.
         const removableWardIds = wards
           .filter((ward) => isSystemZeroWard(ward) || ward.deletedAt != null)
           .map((ward) => ward.id)
-        const [surveyCount, surveysOnWard, surveysOnOriginalWard] = await Promise.all([
-          tx.survey.count({ where: { ulbId: id } }),
-          linkedWardIds.length > 0 ? tx.survey.count({ where: { wardId: { in: linkedWardIds } } }) : Promise.resolve(0),
-          linkedWardIds.length > 0
-            ? tx.survey.count({ where: { originalWardId: { in: linkedWardIds } } })
-            : Promise.resolve(0),
-        ])
-        if (surveyCount > 0 || surveysOnWard > 0 || surveysOnOriginalWard > 0) {
+        const zeroWardIds = wards.filter((ward) => isSystemZeroWard(ward)).map((ward) => ward.id)
+        const geographicWardIds = wards.filter((ward) => !isSystemZeroWard(ward)).map((ward) => ward.id)
+        const blockingSurveyCount = await tx.survey.count({
+          where: {
+            OR: [
+              ...(geographicWardIds.length > 0 ? [{ wardId: { in: geographicWardIds } }] : []),
+              {
+                ulbId: id,
+                ...(zeroWardIds.length > 0 ? { wardId: { notIn: zeroWardIds } } : {}),
+              },
+            ],
+          },
+        })
+        if (blockingSurveyCount > 0) {
           throw new ConflictException("Cannot delete this ULB — surveys are linked to it.")
+        }
+        if (zeroWardIds.length > 0) {
+          const quarantineSurveys = await tx.survey.findMany({
+            where: { wardId: { in: zeroWardIds } },
+            select: { id: true },
+          })
+          const surveyIds = quarantineSurveys.map((survey) => survey.id)
+          if (surveyIds.length > 0) {
+            await tx.surveyAudit.deleteMany({ where: { surveyId: { in: surveyIds } } })
+            await tx.survey.deleteMany({ where: { id: { in: surveyIds } } })
+          }
         }
         await tx.ulbApiKey.deleteMany({ where: { ulbId: id } })
         await tx.userTenantRole.deleteMany({

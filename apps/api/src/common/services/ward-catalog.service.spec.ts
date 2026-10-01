@@ -55,6 +55,7 @@ describe("WardCatalogService.listScopedWards", () => {
         where: { ulbId: "ulb-1", status: "ACTIVE", deletedAt: null },
       })
     )
+    expect(findFirst).not.toHaveBeenCalled()
   })
 
   it("narrows a ward-scoped user to their own wards", async () => {

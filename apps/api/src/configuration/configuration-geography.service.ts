@@ -28,7 +28,18 @@ export class ConfigurationGeographyService {
                   _count: {
                     select: {
                       wards: { where: { deletedAt: null } },
-                      surveys: true,
+                      surveys: {
+                        where: {
+                          NOT: {
+                            ward: {
+                              OR: [
+                                { kind: WardKind.ZERO },
+                                { wardName: { equals: ZERO_WARD_NAME, mode: "insensitive" } },
+                              ],
+                            },
+                          },
+                        },
+                      },
                     },
                   },
                 },

@@ -12,6 +12,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@workspace/ui/components/sheet"
+import { isZeroWardName, normalizeWardNumber } from "@workspace/validation"
 import { useEffect, useState } from "react"
 
 type GeoDrawerMode = "create" | "edit"
@@ -464,6 +465,14 @@ export function WardDrawer({
       description="Ward within the selected ULB"
       saving={saving || deleting}
       onSubmit={() => {
+        if (mode === "create" && normalizeWardNumber(wardNumber) === "0") {
+          onNameErrorChange?.("Ward number 0 is reserved for Zero Ward. Use Create Zero Ward.")
+          return
+        }
+        if (mode === "create" && isZeroWardName(wardName)) {
+          onNameErrorChange?.("The name Zero Ward is reserved. Use Create Zero Ward.")
+          return
+        }
         if (isDuplicateName(wardName)) {
           onNameErrorChange?.(duplicateNameMessage)
           return

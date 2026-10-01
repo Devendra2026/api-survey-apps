@@ -23,7 +23,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@workspace/ui/components/dialog"
-import { isSystemZeroWard } from "@workspace/validation"
 import { GitMerge, MapPin, Plus, RefreshCw } from "lucide-react"
 import Link from "next/link"
 import { useMemo, useState } from "react"
@@ -32,7 +31,6 @@ import { toast } from "sonner"
 type DrawerKind = "state" | "district" | "ulb" | "ward" | null
 
 const WARD_NAME_CONFLICT = "A ward with this name already exists. Please use a different name."
-const ZERO_WARD_DELETE_BLOCKED = "Zero Ward is created automatically for this ULB. Delete the ULB to remove it."
 
 function blockingWardCount(counts: Record<string, number> | undefined): number {
   if (!counts) return 0
@@ -239,13 +237,6 @@ export function TenantsWardsPanel() {
     if (deleteTarget === "state" && selected.type !== "state") return
     if (deleteTarget === "ulb" && selected.type !== "ulb") return
     if (deleteTarget === "district" && selected.type !== "district") return
-    if (
-      deleteTarget === "ward" &&
-      selected.type === "ward" &&
-      isSystemZeroWard({ kind: selected.kind, wardName: selected.name })
-    ) {
-      return
-    }
     if (deleteTarget === "ulb" && selected.type === "ulb") {
       const wardCount = blockingWardCount(selected.counts)
       const surveyCount = selected.counts?.surveys ?? 0
@@ -303,18 +294,13 @@ export function TenantsWardsPanel() {
       : null
   const ulbWardCount = selected?.type === "ulb" ? blockingWardCount(selected.counts) : 0
   const ulbSurveyCount = selected?.type === "ulb" ? (selected.counts?.surveys ?? 0) : 0
-  const ulbOnlySystemZeroWard =
-    selected?.type === "ulb" && ulbWardCount === 0 && (selected.counts?.wards ?? 0) > 0 && ulbSurveyCount === 0
   const ulbDeleteBlocked =
     selected?.type === "ulb" && (ulbWardCount > 0 || ulbSurveyCount > 0)
       ? ulbWardCount > 0
         ? `This ULB has ${ulbWardCount} ward(s). Remove wards before deleting it.`
         : "Surveys are linked to this ULB."
       : null
-  const wardDeleteBlocked =
-    selected?.type === "ward" && isSystemZeroWard({ kind: selected.kind, wardName: selected.name })
-      ? ZERO_WARD_DELETE_BLOCKED
-      : null
+  const wardDeleteBlocked = null
   const districtUlbCount = selected?.type === "district" ? (selected.counts?.ulbs ?? selected.children?.length ?? 0) : 0
   const districtSurveyCount = selected?.type === "district" ? (selected.counts?.surveys ?? 0) : 0
   const districtDeleteBlocked =
@@ -457,6 +443,17 @@ export function TenantsWardsPanel() {
         onAddDistrict={(state) => openCreate("district", state)}
         onAddUlb={(district) => openCreate("ulb", district)}
         onAddWard={(ulb) => openCreate("ward", ulb)}
+        onCreateZeroWard={(ulb) => {
+          void (async () => {
+            try {
+              await apiPost(`/ulbs/${ulb.id}/zero-ward`)
+              toast.success("Zero Ward created")
+              await invalidate()
+            } catch (err) {
+              toast.error(getApiErrorMessage(err))
+            }
+          })()
+        }}
         onWardClick={openEdit}
         onDelete={requestDelete}
       />
@@ -689,8 +686,8 @@ export function TenantsWardsPanel() {
                 ) : (
                   <>
                     Permanently delete this ULB from {deleteUlbDistrictLabel || "its district"}? This cannot be undone.
-                    {ulbOnlySystemZeroWard
-                      ? " The system Zero Ward is removed with the ULB."
+                    {ulbWardCount === 0
+                      ? " The Zero Ward and any duplicate surveys stored on it are removed with the ULB."
                       : " Wards and surveys that belong to it must be removed first."}
                   </>
                 )

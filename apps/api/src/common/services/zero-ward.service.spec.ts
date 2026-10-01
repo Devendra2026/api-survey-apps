@@ -1,47 +1,96 @@
 import { describe, expect, it, jest } from "@jest/globals"
-import { ensureZeroWard, listUnresolvedQuarantineSurveys } from "./zero-ward.service.js"
+import { createZeroWard, findActiveZeroWard, listUnresolvedQuarantineSurveys } from "./zero-ward.service.js"
 
-describe("ensureZeroWard", () => {
-  it("returns the existing Zero Ward for a ULB", async () => {
-    const existing = {
-      id: "z1",
-      ulbId: "ulb-a",
-      wardNumber: "0",
-      wardName: "Zero Ward",
-      kind: "ZERO" as const,
-    }
+const existing = {
+  id: "z1",
+  ulbId: "ulb-a",
+  wardNumber: "0",
+  wardName: "Zero Ward",
+  kind: "ZERO" as const,
+}
+
+describe("findActiveZeroWard", () => {
+  it("returns the active Zero Ward and does not create", async () => {
     const findFirst = jest.fn().mockResolvedValue(existing as never)
     const create = jest.fn()
-    const result = await ensureZeroWard(
-      { ward: { findFirst, findMany: jest.fn(), update: jest.fn(), create } } as never,
-      "ulb-a"
-    )
+    const result = await findActiveZeroWard({ ward: { findFirst, findMany: jest.fn(), create } } as never, "ulb-a")
     expect(result).toEqual(existing)
     expect(create).not.toHaveBeenCalled()
   })
 
-  it("creates a distinct Zero Ward for each ULB", async () => {
-    const created: string[] = []
-    const db = {
-      ward: {
-        findFirst: jest.fn().mockResolvedValue(null as never),
-        findMany: jest.fn().mockResolvedValue([] as never),
-        update: jest.fn(),
-        create: jest.fn(({ data }: { data: { ulbId: string } }) => {
-          created.push(data.ulbId)
-          return Promise.resolve({ id: `z-${data.ulbId}`, ...data, kind: "ZERO" })
-        }),
-      },
-    }
-    const a = await ensureZeroWard(db as never, "ulb-a")
-    const b = await ensureZeroWard(db as never, "ulb-b")
-    expect(a.ulbId).toBe("ulb-a")
-    expect(b.ulbId).toBe("ulb-b")
-    expect(a.id).not.toBe(b.id)
-    expect(created).toEqual(["ulb-a", "ulb-b"])
+  it("returns null when none is active", async () => {
+    const findFirst = jest.fn().mockResolvedValue(null as never)
+    await expect(
+      findActiveZeroWard({ ward: { findFirst, findMany: jest.fn(), create: jest.fn() } } as never, "ulb-a")
+    ).resolves.toBeNull()
+  })
+})
+
+describe("createZeroWard", () => {
+  it("inserts number 0, name Zero Ward, kind ZERO", async () => {
+    const create = jest.fn(({ data }: { data: { ulbId: string } }) => Promise.resolve({ id: "z-new", ...data }))
+    const result = await createZeroWard(
+      {
+        ward: {
+          findFirst: jest.fn().mockResolvedValue(null as never),
+          findMany: jest.fn().mockResolvedValue([] as never),
+          create,
+        },
+      } as never,
+      "ulb-a"
+    )
+    expect(result).toEqual({
+      id: "z-new",
+      ulbId: "ulb-a",
+      wardNumber: "0",
+      wardName: "Zero Ward",
+      kind: "ZERO",
+    })
   })
 
-  it("adopts a uniquely named zero ward without creating another", async () => {
+  it("returns 409 when an active Zero Ward already exists and does not insert", async () => {
+    const create = jest.fn()
+    await expect(
+      createZeroWard(
+        {
+          ward: {
+            findFirst: jest.fn().mockResolvedValue(existing as never),
+            findMany: jest.fn(),
+            create,
+          },
+        } as never,
+        "ulb-a"
+      )
+    ).rejects.toThrow("This ULB already has an active Zero Ward.")
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it("returns 409 when number 0 is taken and does not change that ward", async () => {
+    const update = jest.fn()
+    const geographic = {
+      id: "w-00",
+      ulbId: "ulb-a",
+      wardNumber: "00",
+      wardName: "Central",
+      kind: "GEOGRAPHIC" as const,
+    }
+    await expect(
+      createZeroWard(
+        {
+          ward: {
+            findFirst: jest.fn().mockResolvedValue(null as never),
+            findMany: jest.fn().mockResolvedValue([geographic] as never),
+            create: jest.fn(),
+            update,
+          },
+        } as never,
+        "ulb-a"
+      )
+    ).rejects.toThrow("Cannot create Zero Ward — ward number 0 is already used by another ward.")
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it("returns 409 when the name Zero Ward is taken and does not change kind", async () => {
     const named = {
       id: "w12",
       ulbId: "ulb-a",
@@ -49,22 +98,22 @@ describe("ensureZeroWard", () => {
       wardName: "zero ward",
       kind: "GEOGRAPHIC" as const,
     }
-    const update = jest.fn().mockResolvedValue({ ...named, kind: "ZERO" } as never)
-    const create = jest.fn()
-    const result = await ensureZeroWard(
-      {
-        ward: {
-          findFirst: jest.fn().mockResolvedValue(null as never),
-          findMany: jest.fn().mockResolvedValue([named] as never),
-          update,
-          create,
-        },
-      } as never,
-      "ulb-a"
-    )
-    expect(update).toHaveBeenCalledWith({ where: { id: "w12" }, data: { kind: "ZERO" } })
-    expect(create).not.toHaveBeenCalled()
-    expect(result.kind).toBe("ZERO")
+    const update = jest.fn()
+    await expect(
+      createZeroWard(
+        {
+          ward: {
+            findFirst: jest.fn().mockResolvedValue(null as never),
+            findMany: jest.fn().mockResolvedValue([named] as never),
+            create: jest.fn(),
+            update,
+          },
+        } as never,
+        "ulb-a"
+      )
+    ).rejects.toThrow("Cannot create Zero Ward — the name Zero Ward is already used by another ward.")
+    expect(update).not.toHaveBeenCalled()
+    expect(named.kind).toBe("GEOGRAPHIC")
   })
 })
 

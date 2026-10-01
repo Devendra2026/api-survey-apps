@@ -13,6 +13,9 @@ describe("UlbsRepository district scope and duplicates", () => {
   const wardFindMany = jest.fn<(...args: unknown[]) => Promise<unknown>>()
   const wardDeleteMany = jest.fn<(...args: unknown[]) => Promise<unknown>>()
   const surveyCount = jest.fn<(...args: unknown[]) => Promise<unknown>>()
+  const surveyFindMany = jest.fn<(...args: unknown[]) => Promise<unknown>>()
+  const surveyDeleteMany = jest.fn<(...args: unknown[]) => Promise<unknown>>()
+  const surveyAuditDeleteMany = jest.fn<(...args: unknown[]) => Promise<unknown>>()
   const roleDeleteMany = jest.fn<(...args: unknown[]) => Promise<unknown>>()
   const apiKeyDeleteMany = jest.fn<(...args: unknown[]) => Promise<unknown>>()
 
@@ -21,13 +24,14 @@ describe("UlbsRepository district scope and duplicates", () => {
       district: { findFirst: districtFindFirst },
       ulb: { findFirst: ulbFindFirst, create: ulbCreate, update: ulbUpdate, delete: ulbDelete },
       ward: { findMany: wardFindMany, deleteMany: wardDeleteMany },
-      survey: { count: surveyCount },
+      survey: { count: surveyCount, findMany: surveyFindMany, deleteMany: surveyDeleteMany },
       userTenantRole: { deleteMany: roleDeleteMany },
       ulbApiKey: { deleteMany: apiKeyDeleteMany },
       $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
         fn({
           ward: { findMany: wardFindMany, deleteMany: wardDeleteMany },
-          survey: { count: surveyCount },
+          survey: { count: surveyCount, findMany: surveyFindMany, deleteMany: surveyDeleteMany },
+          surveyAudit: { deleteMany: surveyAuditDeleteMany },
           ulb: { delete: ulbDelete },
           userTenantRole: { deleteMany: roleDeleteMany },
           ulbApiKey: { deleteMany: apiKeyDeleteMany },
@@ -87,6 +91,12 @@ describe("UlbsRepository district scope and duplicates", () => {
     wardFindMany.mockReset()
     wardDeleteMany.mockReset()
     surveyCount.mockReset()
+    surveyFindMany.mockReset()
+    surveyFindMany.mockResolvedValue([])
+    surveyDeleteMany.mockReset()
+    surveyDeleteMany.mockResolvedValue({ count: 0 })
+    surveyAuditDeleteMany.mockReset()
+    surveyAuditDeleteMany.mockResolvedValue({ count: 0 })
     roleDeleteMany.mockReset()
     apiKeyDeleteMany.mockReset()
     repo = new UlbsRepository(prisma as never)
@@ -228,17 +238,37 @@ describe("UlbsRepository district scope and duplicates", () => {
     expect(surveyCount).not.toHaveBeenCalled()
   })
 
-  it("rejects delete when surveys are linked to the Zero Ward and deletes nothing", async () => {
+  it("deletes Zero Ward surveys with the ULB after the Zero Ward was removed", async () => {
     ulbFindFirst.mockResolvedValueOnce({ id: "ulb-1", districtId: "district-1" })
-    wardFindMany.mockResolvedValueOnce([{ id: "zero-1", kind: "ZERO", wardName: "Zero Ward", deletedAt: null }])
-    surveyCount.mockResolvedValueOnce(0).mockResolvedValueOnce(1).mockResolvedValueOnce(0)
+    wardFindMany.mockResolvedValueOnce([
+      { id: "zero-1", kind: "ZERO", wardName: "Zero Ward", deletedAt: new Date("2026-10-01T00:00:00.000Z") },
+    ])
+    surveyCount.mockResolvedValueOnce(0)
+    surveyFindMany.mockResolvedValueOnce([{ id: "survey-q" }])
+    apiKeyDeleteMany.mockResolvedValue({ count: 0 })
+    roleDeleteMany.mockResolvedValue({ count: 0 })
+    wardDeleteMany.mockResolvedValue({ count: 1 })
+    ulbDelete.mockResolvedValue({ id: "ulb-1" })
+
+    await repo.delete("ulb-1", admin)
+
+    expect(surveyAuditDeleteMany).toHaveBeenCalledWith({ where: { surveyId: { in: ["survey-q"] } } })
+    expect(surveyDeleteMany).toHaveBeenCalledWith({ where: { id: { in: ["survey-q"] } } })
+    expect(ulbDelete).toHaveBeenCalledWith({ where: { id: "ulb-1" } })
+  })
+
+  it("rejects delete when a survey is not stored on the Zero Ward", async () => {
+    ulbFindFirst.mockResolvedValueOnce({ id: "ulb-1", districtId: "district-1" })
+    wardFindMany.mockResolvedValueOnce([
+      { id: "zero-1", kind: "ZERO", wardName: "Zero Ward", deletedAt: new Date("2026-10-01T00:00:00.000Z") },
+    ])
+    surveyCount.mockResolvedValueOnce(1)
 
     await expect(repo.delete("ulb-1", admin)).rejects.toThrow("Cannot delete this ULB — surveys are linked to it.")
 
     expect(ulbDelete).not.toHaveBeenCalled()
+    expect(surveyDeleteMany).not.toHaveBeenCalled()
     expect(wardDeleteMany).not.toHaveBeenCalled()
-    expect(apiKeyDeleteMany).not.toHaveBeenCalled()
-    expect(roleDeleteMany).not.toHaveBeenCalled()
   })
 
   it("rejects delete when the only ward is a geographic ward numbered 0", async () => {

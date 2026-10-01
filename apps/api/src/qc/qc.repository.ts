@@ -13,7 +13,7 @@ import {
 } from "@workspace/validation"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { WardCatalogService } from "../common/services/ward-catalog.service.js"
-import { ensureZeroWard } from "../common/services/zero-ward.service.js"
+import { findActiveZeroWard } from "../common/services/zero-ward.service.js"
 import { sqFtToSqMeter } from "../common/utils/decimal.util.js"
 import { getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
 import { parcelNumberVariants } from "../common/utils/parcel-search.util.js"
@@ -686,7 +686,12 @@ export class QcRepository {
       throw new BadRequestException("Original ward is unknown; survey was not moved")
     }
 
-    const zeroWard = await ensureZeroWard(this.prisma.db, existing.ulbId)
+    const zeroWard = await findActiveZeroWard(this.prisma.db, existing.ulbId)
+    if (!zeroWard) {
+      throw new BadRequestException(
+        "An admin must create the Zero Ward for this ULB before surveys can be moved there."
+      )
+    }
     const propertyId = existing.propertyId
     const parcelNumber = existing.parcelNumber
     const unitSubNo = existing.unitSubNo

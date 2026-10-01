@@ -19,7 +19,16 @@ describe("QcRepository.quarantineToZeroWard", () => {
     originalWard: null,
   }
 
-  function makeRepo(surveyOverrides: Record<string, unknown> = {}) {
+  function makeRepo(
+    surveyOverrides: Record<string, unknown> = {},
+    zeroWard: Record<string, unknown> | null = {
+      id: "zero-1",
+      ulbId: "ulb-1",
+      wardNumber: "0",
+      wardName: "Zero Ward",
+      kind: "ZERO",
+    }
+  ) {
     const survey = { ...existing, ...surveyOverrides }
     const updated = {
       ...survey,
@@ -41,13 +50,7 @@ describe("QcRepository.quarantineToZeroWard", () => {
       db: {
         survey: { findFirst: jest.fn().mockResolvedValue(survey as never) },
         ward: {
-          findFirst: jest.fn().mockResolvedValue({
-            id: "zero-1",
-            ulbId: "ulb-1",
-            wardNumber: "0",
-            wardName: "Zero Ward",
-            kind: "ZERO",
-          } as never),
+          findFirst: jest.fn().mockResolvedValue(zeroWard as never),
         },
         $transaction: jest.fn(async (fn: (client: typeof tx) => Promise<unknown>) => fn(tx)),
       },
@@ -83,6 +86,14 @@ describe("QcRepository.quarantineToZeroWard", () => {
       expect.any(Date)
     )
     expect(survey.propertyId).toBe("800726-001-00269-001-R")
+  })
+
+  it("does not create a Zero Ward when none is active", async () => {
+    const { repo, tx } = makeRepo({}, null)
+    await expect(repo.quarantineToZeroWard("survey-b", "user-1")).rejects.toThrow(
+      "An admin must create the Zero Ward for this ULB before surveys can be moved there."
+    )
+    expect(tx.survey.update).not.toHaveBeenCalled()
   })
 
   it("refuses to move an approved survey", async () => {

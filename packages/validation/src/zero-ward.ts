@@ -15,8 +15,8 @@ export function isZeroWardKind(kind: string | null | undefined): boolean {
 }
 
 /**
- * The ULB's generated quarantine ward.
- * Matches ensureZeroWard: kind ZERO, or the exact name it creates and adopts.
+ * The ULB quarantine ward.
+ * Matches kind ZERO, or the exact name "Zero Ward".
  * A similarly named geographic ward (for example "Zero Ward East") is not included.
  */
 export function isSystemZeroWard(ward: { kind?: string | null; wardName?: string | null }): boolean {

@@ -58,6 +58,7 @@ export function GeographyAccordion({
   onAddDistrict,
   onAddUlb,
   onAddWard,
+  onCreateZeroWard,
   onWardClick,
   onDelete,
 }: {
@@ -69,6 +70,7 @@ export function GeographyAccordion({
   onAddDistrict: (state: GeographyTreeNode) => void
   onAddUlb: (district: GeographyTreeNode) => void
   onAddWard: (ulb: GeographyTreeNode) => void
+  onCreateZeroWard: (ulb: GeographyTreeNode) => void
   onWardClick: (ward: GeographyTreeNode) => void
   onDelete: (node: GeographyTreeNode) => void
 }) {
@@ -119,6 +121,7 @@ export function GeographyAccordion({
             onAddDistrict={onAddDistrict}
             onAddUlb={onAddUlb}
             onAddWard={onAddWard}
+            onCreateZeroWard={onCreateZeroWard}
             onWardClick={onWardClick}
             onDelete={onDelete}
           />
@@ -139,6 +142,7 @@ function StateCard({
   onAddDistrict,
   onAddUlb,
   onAddWard,
+  onCreateZeroWard,
   onWardClick,
   onDelete,
 }: {
@@ -151,6 +155,7 @@ function StateCard({
   onAddDistrict: (state: GeographyTreeNode) => void
   onAddUlb: (district: GeographyTreeNode) => void
   onAddWard: (ulb: GeographyTreeNode) => void
+  onCreateZeroWard: (ulb: GeographyTreeNode) => void
   onWardClick: (ward: GeographyTreeNode) => void
   onDelete: (node: GeographyTreeNode) => void
 }) {
@@ -221,6 +226,7 @@ function StateCard({
                 onViewUlb={onViewUlb}
                 onAddUlb={onAddUlb}
                 onAddWard={onAddWard}
+                onCreateZeroWard={onCreateZeroWard}
                 onWardClick={onWardClick}
                 onDelete={onDelete}
               />
@@ -242,6 +248,7 @@ function DistrictCard({
   onViewUlb,
   onAddUlb,
   onAddWard,
+  onCreateZeroWard,
   onWardClick,
   onDelete,
 }: {
@@ -254,6 +261,7 @@ function DistrictCard({
   onViewUlb: (ulb: GeographyTreeNode) => void
   onAddUlb: (district: GeographyTreeNode) => void
   onAddWard: (ulb: GeographyTreeNode) => void
+  onCreateZeroWard: (ulb: GeographyTreeNode) => void
   onWardClick: (ward: GeographyTreeNode) => void
   onDelete: (node: GeographyTreeNode) => void
 }) {
@@ -342,6 +350,7 @@ function DistrictCard({
                   onEdit={onEdit}
                   onViewUlb={onViewUlb}
                   onAddWard={onAddWard}
+                  onCreateZeroWard={onCreateZeroWard}
                   onWardClick={onWardClick}
                   onDelete={onDelete}
                 />
@@ -362,6 +371,7 @@ function UlbCard({
   onEdit,
   onViewUlb,
   onAddWard,
+  onCreateZeroWard,
   onWardClick,
   onDelete,
 }: {
@@ -372,6 +382,7 @@ function UlbCard({
   onEdit: (node: GeographyTreeNode) => void
   onViewUlb: (ulb: GeographyTreeNode) => void
   onAddWard: (ulb: GeographyTreeNode) => void
+  onCreateZeroWard: (ulb: GeographyTreeNode) => void
   onWardClick: (ward: GeographyTreeNode) => void
   onDelete: (node: GeographyTreeNode) => void
 }) {
@@ -384,6 +395,7 @@ function UlbCard({
   } = useGeographyUlbWards(open ? ulb.id : undefined)
   const wards = wardsFromApi.length > 0 ? wardsFromApi : (ulb.children ?? [])
   const wardCount = ulb.counts.wards ?? wards.length
+  const hasActiveZeroWard = wards.some((ward) => isSystemZeroWard({ kind: ward.kind, wardName: ward.name }))
 
   return (
     <div className={cn("rounded-md border border-border/50 bg-card")}>
@@ -465,16 +477,30 @@ function UlbCard({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Wards</p>
             {canManage ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-7 cursor-pointer text-xs"
-                onClick={() => onAddWard(ulb)}
-              >
-                <Plus className="size-3.5" />
-                Add ward
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                {!wardsLoading && !hasActiveZeroWard ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 cursor-pointer text-xs"
+                    onClick={() => onCreateZeroWard(ulb)}
+                  >
+                    <Plus className="size-3.5" />
+                    Create Zero Ward
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 cursor-pointer text-xs"
+                  onClick={() => onAddWard(ulb)}
+                >
+                  <Plus className="size-3.5" />
+                  Add ward
+                </Button>
+              </div>
             ) : null}
           </div>
           {wardsLoading ? <p className="text-sm text-muted-foreground">Loading wards…</p> : null}

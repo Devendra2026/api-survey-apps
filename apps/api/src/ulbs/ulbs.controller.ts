@@ -49,6 +49,13 @@ export class UlbsController {
     return this.ulbsService.rotateApiKey(id, user)
   }
 
+  @Post(":id/zero-ward")
+  @RequirePermission(PERMISSIONS.SETTINGS_MANAGE)
+  @ApiOperation({ summary: "Create the ULB Zero Ward for duplicate and reconciliation surveys" })
+  createZeroWard(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.ulbsService.createZeroWard(id, user)
+  }
+
   @Get(":id")
   @RequireAnyPermission(...GEO_READ)
   findOne(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {

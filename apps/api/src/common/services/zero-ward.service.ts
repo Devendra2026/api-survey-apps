@@ -1,4 +1,5 @@
-import { isZeroWardName, ZERO_WARD_NAME, ZERO_WARD_NUMBER } from "@workspace/validation"
+import { ConflictException } from "@nestjs/common"
+import { isZeroWardName, normalizeWardNumber, ZERO_WARD_NAME, ZERO_WARD_NUMBER } from "@workspace/validation"
 import { isPrismaUniqueConflict } from "../utils/survey-identity.util.js"
 
 type WardRow = {
@@ -13,7 +14,6 @@ type ZeroWardDb = {
   ward: {
     findFirst: (args: { where: Record<string, unknown>; select?: Record<string, boolean> }) => Promise<WardRow | null>
     findMany: (args: { where: Record<string, unknown>; select?: Record<string, boolean> }) => Promise<WardRow[]>
-    update: (args: { where: { id: string }; data: { kind: "ZERO" } }) => Promise<WardRow>
     create: (args: { data: { ulbId: string; wardNumber: string; wardName: string; kind: "ZERO" } }) => Promise<WardRow>
   }
 }
@@ -26,28 +26,33 @@ const wardSelect = {
   kind: true,
 } as const
 
-/**
- * Idempotent: one active Zero Ward per ULB.
- * Adopts an existing uniquely named "zero ward" without changing its number or surveys.
- * Otherwise creates wardNumber "0". Never updates survey rows.
- */
-export async function ensureZeroWard(db: ZeroWardDb, ulbId: string): Promise<WardRow> {
-  const existing = await db.ward.findFirst({
+/** Active Zero Ward for a ULB. Does not create one. */
+export async function findActiveZeroWard(db: ZeroWardDb, ulbId: string): Promise<WardRow | null> {
+  return db.ward.findFirst({
     where: { ulbId, kind: "ZERO", deletedAt: null },
     select: wardSelect,
   })
-  if (existing) return existing
+}
+
+/**
+ * Admin-only insert: number "0", name "Zero Ward", kind ZERO.
+ * Does not adopt or relabel an existing geographic ward. Does not update surveys.
+ */
+export async function createZeroWard(db: ZeroWardDb, ulbId: string): Promise<WardRow> {
+  const existing = await findActiveZeroWard(db, ulbId)
+  if (existing) {
+    throw new ConflictException("This ULB already has an active Zero Ward.")
+  }
 
   const active = await db.ward.findMany({
-    where: { ulbId, deletedAt: null, status: "ACTIVE" },
+    where: { ulbId, deletedAt: null },
     select: wardSelect,
   })
-  const named = active.filter((ward) => isZeroWardName(ward.wardName))
-  if (named.length === 1 && named[0]) {
-    return db.ward.update({
-      where: { id: named[0].id },
-      data: { kind: "ZERO" },
-    })
+  if (active.some((ward) => normalizeWardNumber(ward.wardNumber) === ZERO_WARD_NUMBER)) {
+    throw new ConflictException("Cannot create Zero Ward — ward number 0 is already used by another ward.")
+  }
+  if (active.some((ward) => isZeroWardName(ward.wardName))) {
+    throw new ConflictException("Cannot create Zero Ward — the name Zero Ward is already used by another ward.")
   }
 
   try {
@@ -61,12 +66,9 @@ export async function ensureZeroWard(db: ZeroWardDb, ulbId: string): Promise<War
     })
   } catch (error) {
     if (!isPrismaUniqueConflict(error)) throw error
-    const raced = await db.ward.findFirst({
-      where: { ulbId, kind: "ZERO", deletedAt: null },
-      select: wardSelect,
-    })
-    if (raced) return raced
-    throw error
+    const raced = await findActiveZeroWard(db, ulbId)
+    if (raced) throw new ConflictException("This ULB already has an active Zero Ward.")
+    throw new ConflictException("Cannot create Zero Ward — ward number 0 is already used by another ward.")
   }
 }
 

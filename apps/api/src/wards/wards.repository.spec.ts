@@ -104,16 +104,8 @@ describe("WardsRepository soft delete and duplicate names", () => {
   })
 
   it("allows create when only a soft-deleted ward has the same name", async () => {
-    findFirst
-      .mockResolvedValueOnce(null) // name uniqueness (active only; soft-deleted ignored)
-      .mockResolvedValueOnce({
-        id: "zero",
-        ulbId: "ulb1",
-        wardNumber: "0",
-        wardName: "Zero Ward",
-        kind: "ZERO",
-      }) // ensureZeroWard short-circuit
-    findMany.mockResolvedValueOnce([]) // number uniqueness
+    findFirst.mockResolvedValueOnce(null)
+    findMany.mockResolvedValueOnce([])
     create.mockResolvedValueOnce({ id: "ward-new", ulbId: "ulb1", wardNumber: "10", wardName: "Abhimanyu" })
 
     await expect(repo.create({ ulbId: "ulb1", wardNumber: "10", wardName: "Abhimanyu" })).resolves.toEqual(
@@ -138,7 +130,7 @@ describe("WardsRepository soft delete and duplicate names", () => {
     expect(update).not.toHaveBeenCalled()
   })
 
-  it("rejects deleting the system Zero Ward", async () => {
+  it("soft-deletes a Zero Ward without updating surveys", async () => {
     findFirst.mockResolvedValueOnce({
       id: "zero-1",
       ulbId: "ulb1",
@@ -147,9 +139,42 @@ describe("WardsRepository soft delete and duplicate names", () => {
       kind: "ZERO",
       deletedAt: null,
     })
+    update.mockResolvedValueOnce({ id: "zero-1", deletedAt: new Date("2026-10-01T00:00:00.000Z") })
 
-    await expect(repo.delete("zero-1", admin)).rejects.toThrow(
-      "Zero Ward is created automatically for this ULB. Delete the ULB to remove it."
+    const result = await repo.delete("zero-1", admin)
+
+    expect(update).toHaveBeenCalledWith({
+      where: { id: "zero-1" },
+      data: { deletedAt: expect.any(Date) },
+    })
+    expect(result.deletedAt).toBeTruthy()
+  })
+
+  it("rejects creating ward number 0", async () => {
+    await expect(repo.create({ ulbId: "ulb1", wardNumber: "0", wardName: "Central" })).rejects.toThrow(
+      "Ward number 0 is reserved for Zero Ward. Use Create Zero Ward."
+    )
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it("rejects creating the name Zero Ward after the number check", async () => {
+    await expect(repo.create({ ulbId: "ulb1", wardNumber: "4", wardName: "Zero Ward" })).rejects.toThrow(
+      "The name Zero Ward is reserved. Use Create Zero Ward."
+    )
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it("rejects renaming a Zero Ward", async () => {
+    findFirst.mockResolvedValueOnce({
+      id: "zero-1",
+      ulbId: "ulb1",
+      wardName: "Zero Ward",
+      wardNumber: "0",
+      kind: "ZERO",
+      deletedAt: null,
+    })
+    await expect(repo.update("zero-1", { wardName: "Quarantine" }, admin)).rejects.toThrow(
+      "Zero Ward number, name, and kind cannot be changed."
     )
     expect(update).not.toHaveBeenCalled()
   })

@@ -3,7 +3,6 @@ import { sortWardsByNumberAsc } from "@workspace/validation"
 import { PrismaService } from "../../prisma/prisma.service.js"
 import type { AuthenticatedUser } from "../interfaces/authenticated-user.interface.js"
 import { resolveTenantScope } from "../utils/tenant-scope.util.js"
-import { ensureZeroWard } from "./zero-ward.service.js"
 
 export type ScopedWard = {
   id: string
@@ -30,8 +29,6 @@ export class WardCatalogService {
       select: { districtId: true, district: { select: { stateId: true } } },
     })
     if (!ulb) return []
-
-    await ensureZeroWard(this.prisma.db, ulbId)
 
     const catalog = await this.prisma.db.ward.findMany({
       where: { ulbId, status: "ACTIVE", deletedAt: null },

@@ -687,7 +687,7 @@ export function TenantsWardsPanel() {
                   <>
                     Permanently delete this ULB from {deleteUlbDistrictLabel || "its district"}? This cannot be undone.
                     {ulbWardCount === 0
-                      ? " The Zero Ward and any duplicate surveys stored on it are removed with the ULB."
+                      ? " The Zero Ward, removed wards, and surveys stored on them are removed with the ULB."
                       : " Wards and surveys that belong to it must be removed first."}
                   </>
                 )

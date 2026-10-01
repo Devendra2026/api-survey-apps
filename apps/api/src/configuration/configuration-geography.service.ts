@@ -1,7 +1,17 @@
 import { Injectable } from "@nestjs/common"
-import { WardKind } from "@workspace/database"
+import { WardKind, type Prisma } from "@workspace/database"
 import { sortWardsByNumberAsc, ZERO_WARD_NAME } from "@workspace/validation"
 import { PrismaService } from "../prisma/prisma.service.js"
+
+/** Active surveys on an active geographic ward. Zero Ward and removed wards do not block ULB delete. */
+const blockingSurveyWhere = {
+  deletedAt: null,
+  ward: {
+    deletedAt: null,
+    kind: { not: WardKind.ZERO },
+    NOT: { wardName: { equals: ZERO_WARD_NAME, mode: "insensitive" } },
+  },
+} satisfies Prisma.SurveyWhereInput
 
 @Injectable()
 export class ConfigurationGeographyService {
@@ -12,7 +22,7 @@ export class ConfigurationGeographyService {
    * are loaded on demand via GET /wards?ulbId=… (keeps this payload small).
    */
   async getTree(stateId?: string) {
-    const [states, geographicWardCounts] = await Promise.all([
+    const [states, geographicWardCounts, blockingSurveyCounts] = await Promise.all([
       this.prisma.db.state.findMany({
         where: stateId ? { id: stateId } : undefined,
         orderBy: { name: "asc" },
@@ -28,18 +38,6 @@ export class ConfigurationGeographyService {
                   _count: {
                     select: {
                       wards: { where: { deletedAt: null } },
-                      surveys: {
-                        where: {
-                          NOT: {
-                            ward: {
-                              OR: [
-                                { kind: WardKind.ZERO },
-                                { wardName: { equals: ZERO_WARD_NAME, mode: "insensitive" } },
-                              ],
-                            },
-                          },
-                        },
-                      },
                     },
                   },
                 },
@@ -57,8 +55,14 @@ export class ConfigurationGeographyService {
         },
         _count: { _all: true },
       }),
+      this.prisma.db.survey.groupBy({
+        by: ["ulbId"],
+        where: blockingSurveyWhere,
+        _count: { _all: true },
+      }),
     ])
     const geographicWardsByUlb = new Map(geographicWardCounts.map((row) => [row.ulbId, row._count._all]))
+    const blockingSurveysByUlb = new Map(blockingSurveyCounts.map((row) => [row.ulbId, row._count._all]))
 
     return states.map((state) => ({
       id: state.id,
@@ -92,7 +96,7 @@ export class ConfigurationGeographyService {
           counts: {
             wards: ulb._count.wards,
             geographicWards: geographicWardsByUlb.get(ulb.id) ?? 0,
-            surveys: ulb._count.surveys,
+            surveys: blockingSurveysByUlb.get(ulb.id) ?? 0,
           },
           // Wards loaded on expand via /configuration/geography/ulbs/:id/wards
           children: [] as const,

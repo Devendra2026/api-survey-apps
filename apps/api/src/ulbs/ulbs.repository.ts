@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common"
-import type { Prisma } from "@workspace/database"
-import { isSystemZeroWard } from "@workspace/validation"
+import { WardKind, type Prisma } from "@workspace/database"
+import { isSystemZeroWard, ZERO_WARD_NAME } from "@workspace/validation"
 import type { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { buildOrderBy, getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
@@ -198,32 +198,40 @@ export class UlbsRepository {
         const removableWardIds = wards
           .filter((ward) => isSystemZeroWard(ward) || ward.deletedAt != null)
           .map((ward) => ward.id)
-        const zeroWardIds = wards.filter((ward) => isSystemZeroWard(ward)).map((ward) => ward.id)
-        const geographicWardIds = wards.filter((ward) => !isSystemZeroWard(ward)).map((ward) => ward.id)
+        const wardIds = wards.map((ward) => ward.id)
         const blockingSurveyCount = await tx.survey.count({
           where: {
-            OR: [
-              ...(geographicWardIds.length > 0 ? [{ wardId: { in: geographicWardIds } }] : []),
-              {
-                ulbId: id,
-                ...(zeroWardIds.length > 0 ? { wardId: { notIn: zeroWardIds } } : {}),
-              },
-            ],
+            deletedAt: null,
+            ulbId: id,
+            ward: {
+              deletedAt: null,
+              kind: { not: WardKind.ZERO },
+              NOT: { wardName: { equals: ZERO_WARD_NAME, mode: "insensitive" } },
+            },
           },
         })
         if (blockingSurveyCount > 0) {
           throw new ConflictException("Cannot delete this ULB — surveys are linked to it.")
         }
-        if (zeroWardIds.length > 0) {
-          const quarantineSurveys = await tx.survey.findMany({
-            where: { wardId: { in: zeroWardIds } },
-            select: { id: true },
+        const linkedSurveys = await tx.survey.findMany({
+          where: {
+            OR: [{ ulbId: id }, ...(wardIds.length > 0 ? [{ wardId: { in: wardIds } }] : [])],
+          },
+          select: { id: true },
+        })
+        const surveyIds = linkedSurveys.map((survey) => survey.id)
+        if (wardIds.length > 0) {
+          await tx.survey.updateMany({
+            where: {
+              originalWardId: { in: wardIds },
+              ...(surveyIds.length > 0 ? { id: { notIn: surveyIds } } : {}),
+            },
+            data: { originalWardId: null },
           })
-          const surveyIds = quarantineSurveys.map((survey) => survey.id)
-          if (surveyIds.length > 0) {
-            await tx.surveyAudit.deleteMany({ where: { surveyId: { in: surveyIds } } })
-            await tx.survey.deleteMany({ where: { id: { in: surveyIds } } })
-          }
+        }
+        if (surveyIds.length > 0) {
+          await tx.surveyAudit.deleteMany({ where: { surveyId: { in: surveyIds } } })
+          await tx.survey.deleteMany({ where: { id: { in: surveyIds } } })
         }
         await tx.ulbApiKey.deleteMany({ where: { ulbId: id } })
         await tx.userTenantRole.deleteMany({

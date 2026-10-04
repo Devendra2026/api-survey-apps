@@ -234,6 +234,7 @@ export class UlbsRepository {
           await tx.survey.deleteMany({ where: { id: { in: surveyIds } } })
         }
         await tx.ulbApiKey.deleteMany({ where: { ulbId: id } })
+        await tx.ulbPinCode.deleteMany({ where: { ulbId: id } })
         await tx.userTenantRole.deleteMany({
           where: {
             OR: [{ ulbId: id }, ...(removableWardIds.length > 0 ? [{ wardId: { in: removableWardIds } }] : [])],
@@ -250,6 +251,44 @@ export class UlbsRepository {
       }
       throw error
     }
+  }
+
+  async listPinCodes(ulbId: string, user: AuthenticatedUser) {
+    await this.findById(ulbId, user)
+    return this.prisma.db.ulbPinCode.findMany({
+      where: { ulbId },
+      orderBy: { code: "asc" },
+      select: { id: true, code: true },
+    })
+  }
+
+  async createPinCode(ulbId: string, code: string, user: AuthenticatedUser) {
+    await this.findById(ulbId, user)
+    const normalized = code.trim()
+    if (!/^\d{6}$/.test(normalized)) {
+      throw new BadRequestException("PIN must be 6 digits")
+    }
+    try {
+      return await this.prisma.db.ulbPinCode.create({
+        data: { ulbId, code: normalized },
+        select: { id: true, code: true },
+      })
+    } catch (error) {
+      if (isPrismaUniqueConflict(error)) {
+        throw new ConflictException("This PIN is already registered for the ULB")
+      }
+      throw error
+    }
+  }
+
+  async deletePinCode(ulbId: string, pinCodeId: string, user: AuthenticatedUser) {
+    await this.findById(ulbId, user)
+    const existing = await this.prisma.db.ulbPinCode.findFirst({
+      where: { id: pinCodeId, ulbId },
+      select: { id: true },
+    })
+    if (!existing) throw new NotFoundException("PIN code not found")
+    await this.prisma.db.ulbPinCode.delete({ where: { id: pinCodeId } })
   }
 
   async getCurrentApiKey(ulbId: string, user: AuthenticatedUser) {

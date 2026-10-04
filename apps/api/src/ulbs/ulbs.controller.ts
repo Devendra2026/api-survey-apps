@@ -26,7 +26,7 @@ class UlbQueryDto extends PaginationQueryDto {
 class CreateUlbPinCodeDto {
   @ApiProperty({ example: "207001" })
   @IsString()
-  @Matches(/^\d{6}$/)
+  @Matches(/^\d{6}$/, { message: "PIN must be 6 digits" })
   code!: string
 }
 

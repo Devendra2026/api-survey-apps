@@ -140,6 +140,20 @@ export default function UlbPinCodesPage({ params }: { params: Promise<{ ulbId: s
     )
   }
 
+  if (ulbQuery.isError) {
+    return (
+      <div className="mx-auto flex max-w-lg flex-col gap-3 p-6">
+        <Link href="/configuration/geography" className="text-sm underline">
+          Back
+        </Link>
+        <p className="text-sm text-destructive">{getApiErrorMessage(ulbQuery.error)}</p>
+        <Button type="button" variant="outline" onClick={() => void ulbQuery.refetch()}>
+          Retry
+        </Button>
+      </div>
+    )
+  }
+
   const ulb = ulbQuery.data
   const districtName = districtQuery.data?.name
   const subtitle =

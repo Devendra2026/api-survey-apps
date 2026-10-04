@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from "@nestjs/common"
-import { ApiBearerAuth, ApiOperation, ApiPropertyOptional, ApiTags } from "@nestjs/swagger"
-import { IsOptional, IsString } from "class-validator"
+import { ApiBearerAuth, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from "@nestjs/swagger"
+import { IsOptional, IsString, Matches } from "class-validator"
 import { PERMISSIONS } from "../common/constants/permissions.js"
 import { CurrentUser } from "../common/decorators/current-user.decorator.js"
 import { RequireAnyPermission, RequirePermission } from "../common/decorators/require-permission.decorator.js"
@@ -21,6 +21,13 @@ class UlbQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   districtId?: string
+}
+
+class CreateUlbPinCodeDto {
+  @ApiProperty({ example: "207001" })
+  @IsString()
+  @Matches(/^\d{6}$/)
+  code!: string
 }
 
 @ApiTags("ulbs")
@@ -54,6 +61,31 @@ export class UlbsController {
   @ApiOperation({ summary: "Create the ULB Zero Ward for duplicate and reconciliation surveys" })
   createZeroWard(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.ulbsService.createZeroWard(id, user)
+  }
+
+  @Get(":id/pin-codes")
+  @RequireAnyPermission(...GEO_READ)
+  @ApiOperation({ summary: "PIN codes registered for a ULB" })
+  listPinCodes(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.ulbsService.listPinCodes(id, user)
+  }
+
+  @Post(":id/pin-codes")
+  @RequirePermission(PERMISSIONS.SETTINGS_MANAGE)
+  @ApiOperation({ summary: "Register a 6-digit PIN code for a ULB" })
+  createPinCode(@Param("id") id: string, @Body() dto: CreateUlbPinCodeDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.ulbsService.createPinCode(id, dto.code, user)
+  }
+
+  @Delete(":id/pin-codes/:pinCodeId")
+  @RequirePermission(PERMISSIONS.SETTINGS_MANAGE)
+  @ApiOperation({ summary: "Remove a PIN code from a ULB" })
+  deletePinCode(
+    @Param("id") id: string,
+    @Param("pinCodeId") pinCodeId: string,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.ulbsService.deletePinCode(id, pinCodeId, user)
   }
 
   @Get(":id")

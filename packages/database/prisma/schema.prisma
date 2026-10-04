@@ -314,11 +314,28 @@ model Ulb {
   surveys         Survey[]
   userTenantRoles UserTenantRole[]
   apiKeys         UlbApiKey[]
+  pinCodes        UlbPinCode[]
 
   @@unique([districtId, name])
   @@index([districtId])
   @@index([status])
   @@map("ulbs")
+}
+
+/// Postal codes served by a ULB. Used as the survey-start location PIN, not the property address PIN.
+model UlbPinCode {
+  id        String   @id @default(cuid())
+  ulbId     String
+  /// Exactly six digits.
+  code      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ulb Ulb @relation(fields: [ulbId], references: [id], onDelete: Restrict)
+
+  @@unique([ulbId, code])
+  @@index([ulbId])
+  @@map("ulb_pin_codes")
 }
 
 /// Ward within a ULB.

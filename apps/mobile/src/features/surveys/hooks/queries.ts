@@ -1,5 +1,12 @@
 import type { QcStatus, SurveyRecord, SurveyStatus } from "@/features/surveys/types"
-import { getFieldMetrics, getSurveyRecord, listSurveys, listWards, type SurveyListParams } from "@/services/api/surveys"
+import {
+  getFieldMetrics,
+  getSurveyRecord,
+  listSurveys,
+  listUlbPinCodes,
+  listWards,
+  type SurveyListParams,
+} from "@/services/api/surveys"
 import { useAuth } from "@clerk/expo"
 import { useInfiniteQuery, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 import { useCallback, useMemo } from "react"
@@ -20,6 +27,8 @@ export const surveyKeys = {
   metrics: (clerkUserId: string, scope: "self" | "team") => ["surveys", clerkUserId, "metrics", scope] as const,
   /** Ward catalog is shared reference data, not user-owned. */
   wards: (ulbId: string) => ["wards", ulbId] as const,
+  /** ULB PIN catalog is shared reference data, not user-owned. */
+  pinCodes: (ulbId: string) => ["ulb-pin-codes", ulbId] as const,
 }
 
 /** Current Clerk userId, or "" while Clerk has no signed-in user (queries stay disabled). */
@@ -77,6 +86,15 @@ export function useUlbWards(ulbId: string | null) {
   return useQuery({
     queryKey: surveyKeys.wards(ulbId ?? ""),
     queryFn: () => listWards(ulbId ?? ""),
+    enabled: Boolean(ulbId),
+    staleTime: 30 * 60_000,
+  })
+}
+
+export function useUlbPinCodes(ulbId: string | null) {
+  return useQuery({
+    queryKey: surveyKeys.pinCodes(ulbId ?? ""),
+    queryFn: () => listUlbPinCodes(ulbId ?? ""),
     enabled: Boolean(ulbId),
     staleTime: 30 * 60_000,
   })

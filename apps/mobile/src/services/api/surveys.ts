@@ -166,3 +166,13 @@ export function photoFilePath(id: string): string {
 export function listWards(ulbId: string): Promise<{ items: WardOption[] }> {
   return apiGet(`/wards${toQuery({ ulbId, limit: 100, sortBy: "wardNumber", sortOrder: "asc" })}`)
 }
+
+export type UlbPinCodeItem = {
+  id: string
+  code: string
+}
+
+/** Postal codes registered for a ULB (`GET /ulbs/:id/pin-codes`). */
+export function listUlbPinCodes(ulbId: string): Promise<UlbPinCodeItem[]> {
+  return apiGet(`/ulbs/${encodeURIComponent(ulbId)}/pin-codes`)
+}

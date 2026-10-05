@@ -5,8 +5,8 @@ import { useMemo } from "react"
 import { ActivityIndicator, StyleSheet, View } from "react-native"
 import { useUlbWards } from "../hooks/queries"
 import { sortWardsByNumber } from "../lib/ward-order"
-import { ASSESSMENT_YEARS, type SurveyEditableFields, type SurveyPatch, type SurveyRecord, type WardOption } from "../types"
-import { CatalogSelect } from "./SurveySelect"
+import type { SurveyEditableFields, SurveyPatch, SurveyRecord, WardOption } from "../types"
+import { AssessmentYearField } from "./assessment-year-field"
 import { WardDropdown } from "./ward-dropdown"
 
 type Props = {
@@ -45,17 +45,7 @@ export function StartStep({ record, fields, editable, canPickWard, propertyIdLab
   const lockedWard = record.ward ? wardLabel(record.ward) : "Assigned ward"
   return (
     <View style={styles.stack}>
-      <CatalogSelect
-        category="ASSESSMENT_YEAR"
-        allowed={ASSESSMENT_YEARS}
-        label="Assessment year"
-        required
-        value={fields.assessmentYear}
-        disabled={!editable}
-        onChange={(assessmentYear) => {
-          if (assessmentYear) setFields({ assessmentYear })
-        }}
-      />
+      <AssessmentYearField year={fields.assessmentYear} />
       <TextField label="ULB" value={record.ulb?.name ?? "—"} editable={false} />
       <TextField label="ULB code" value={ulbCode || "ULB code unavailable"} editable={false} />
       {canPickWard ? (

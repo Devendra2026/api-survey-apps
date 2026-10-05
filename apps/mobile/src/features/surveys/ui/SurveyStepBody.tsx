@@ -1,12 +1,10 @@
 import { Text } from "@/components/ui"
 import { areaMeasurePatch, summarizeAreas } from "../lib/area-summary"
-import { pinCodeError } from "../lib/field-format"
 import { displayPropertyId, propertyIdPreview } from "../lib/property-identity"
 import { relationshipOptions } from "../lib/relationships"
 import type { StepId, StepProgress } from "../lib/requirements"
 import { STEP_TITLES } from "../lib/requirements"
 import {
-  ASSESSMENT_YEARS,
   OWNERSHIP_TYPES,
   PROPERTY_TYPES,
   PROPERTY_USES,
@@ -20,6 +18,8 @@ import {
   type SurveyPatch,
   type SurveyRecord,
 } from "../types"
+import { AddressPinField } from "./address-pin-field"
+import { AssessmentYearField } from "./assessment-year-field"
 import { FloorsEditor } from "./ChildEditors"
 import { GpsStep } from "./GpsStep"
 import { NativeYesNoField } from "./NativeYesNoField"
@@ -42,7 +42,6 @@ type TextKey =
   | "locality"
   | "colony"
   | "city"
-  | "pinCode"
 
 function toNumber(value: DecimalWire): number | null {
   if (value === null) return null
@@ -176,11 +175,7 @@ export function SurveyStepBody({ step, record, fields, progress, editable, canPi
           {text("houseDoorNo", "House number")}
           {text("locality", "Locality", { caps: "words" })}
           {text("colony", "Colony", { caps: "words" })}
-          {text("pinCode", "PIN code", {
-            keyboard: "number-pad",
-            max: 6,
-            error: pinCodeError(fields.pinCode),
-          })}
+          <AddressPinField ulbId={record.ulbId} pinCode={fields.pinCode} editable={editable} setFields={setFields} />
         </SectionCard>
       )
     case "taxation":
@@ -242,17 +237,7 @@ export function SurveyStepBody({ step, record, fields, progress, editable, canPi
             disabled={!editable}
             onChange={(v) => setFields({ taxRateZone: v })}
           />
-          <CatalogSelect
-            category="ASSESSMENT_YEAR"
-            allowed={ASSESSMENT_YEARS}
-            label="Assessment year"
-            required
-            value={fields.assessmentYear}
-            disabled={!editable}
-            onChange={(v) => {
-              if (v) setFields({ assessmentYear: v })
-            }}
-          />
+          <AssessmentYearField year={fields.assessmentYear} />
         </SectionCard>
       )
     case "area":

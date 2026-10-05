@@ -184,6 +184,7 @@ describe("resolveImportGeo", () => {
       cache
     )
     expect(result.ok).toBe(false)
+    expect(result).not.toHaveProperty("geo")
     if (!result.ok) {
       expect(result.reason).toBe("WARD_NOT_FOUND")
       expect(result.message).toMatch(/Ward master data is missing for ULB 800726/)

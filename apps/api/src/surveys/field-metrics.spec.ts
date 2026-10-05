@@ -56,6 +56,64 @@ describe("buildFieldMetrics", () => {
       ["w2", 6],
       ["w1", 5],
     ])
+    expect(result.wards).toEqual([
+      expect.objectContaining({ wardId: "w2", wardNumber: "2", wardName: "Ward 2", ulbName: "ULB" }),
+      expect.objectContaining({ wardId: "w1", wardNumber: "1", wardName: "Ward 1", ulbName: "ULB" }),
+    ])
+  })
+
+  it("keeps a null ward group in totals and omits it from the ward list", () => {
+    const result = buildFieldMetrics(
+      input({
+        statusRows: [
+          { wardId: "w1", assignedToId: "u1", surveyStatus: "IN_PROGRESS", qcStatus: "PENDING", _count: { _all: 3 } },
+          { wardId: null, assignedToId: "u1", surveyStatus: "SUBMITTED", qcStatus: "PENDING", _count: { _all: 2 } },
+        ],
+      })
+    )
+    expect(result.totals.total).toBe(5)
+    expect(result.totals.fieldDraft).toBe(3)
+    expect(result.totals.pendingQc).toBe(2)
+    expect(result.wards).toEqual([
+      expect.objectContaining({
+        wardId: "w1",
+        wardNumber: "1",
+        wardName: "Ward 1",
+        ulbName: "ULB",
+        totals: expect.objectContaining({ total: 3 }),
+      }),
+    ])
+  })
+
+  it("sums duplicate ward ids into one ward card", () => {
+    const result = buildFieldMetrics(
+      input({
+        statusRows: [
+          { wardId: "w1", assignedToId: "u1", surveyStatus: "IN_PROGRESS", qcStatus: "PENDING", _count: { _all: 3 } },
+          { wardId: "w1", assignedToId: "u2", surveyStatus: "APPROVED", qcStatus: "APPROVED", _count: { _all: 4 } },
+        ],
+      })
+    )
+    expect(result.wards).toHaveLength(1)
+    expect(result.wards[0]).toEqual(
+      expect.objectContaining({ wardId: "w1", wardNumber: "1", wardName: "Ward 1", ulbName: "ULB" })
+    )
+    expect(result.wards[0]?.totals.total).toBe(7)
+    expect(result.totals.total).toBe(7)
+  })
+
+  it("returns no ward cards when every group is missing a ward id", () => {
+    const result = buildFieldMetrics(
+      input({
+        statusRows: [
+          { wardId: null, assignedToId: "u1", surveyStatus: "IN_PROGRESS", qcStatus: "PENDING", _count: { _all: 4 } },
+        ],
+        wards: [],
+      })
+    )
+    expect(result.wards).toEqual([])
+    expect(result.totals.total).toBe(4)
+    expect(result.totals.fieldDraft).toBe(4)
   })
 
   it("lists every assigned surveyor, including idle ones, and counts active today", () => {

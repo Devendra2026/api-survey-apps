@@ -5,6 +5,10 @@ import { tallySurveyBuckets } from "../common/utils/survey-bucket.util.js"
 import { buildTenantWhere, resolveTenantScope } from "../common/utils/tenant-scope.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 
+function compactIds(ids: ReadonlyArray<string | null | undefined>): string[] {
+  return [...new Set(ids.filter((id): id is string => Boolean(id)))]
+}
+
 @Injectable()
 export class DashboardRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -130,33 +134,46 @@ export class DashboardRepository {
     const qcStatusMap = Object.fromEntries(byQcStatus.map((r) => [r.qcStatus, r._count._all]))
     const buckets = tallySurveyBuckets(statusMatrix)
     const wards = this.toWardCounts(wardRows).slice(0, 8)
+    const districtIds = compactIds(districtRows.map((row) => row.districtId))
+    const summaryUlbIds = compactIds(ulbRows.map((row) => row.ulbId))
+    const wardIds = compactIds(wards.map((ward) => ward.id))
     const [districts, ulbs, wardDetails] = await Promise.all([
-      this.prisma.db.district.findMany({
-        where: { id: { in: districtRows.map((row) => row.districtId) } },
-        select: { id: true, name: true },
-      }),
-      this.prisma.db.ulb.findMany({
-        where: { id: { in: ulbRows.map((row) => row.ulbId) } },
-        select: { id: true, name: true },
-      }),
-      this.prisma.db.ward.findMany({
-        where: { id: { in: wards.map((ward) => ward.id) } },
-        select: { id: true, wardName: true, wardNumber: true },
-      }),
+      districtIds.length
+        ? this.prisma.db.district.findMany({
+            where: { id: { in: districtIds } },
+            select: { id: true, name: true },
+          })
+        : Promise.resolve([]),
+      summaryUlbIds.length
+        ? this.prisma.db.ulb.findMany({
+            where: { id: { in: summaryUlbIds } },
+            select: { id: true, name: true },
+          })
+        : Promise.resolve([]),
+      wardIds.length
+        ? this.prisma.db.ward.findMany({
+            where: { id: { in: wardIds } },
+            select: { id: true, wardName: true, wardNumber: true },
+          })
+        : Promise.resolve([]),
     ])
     const districtNames = new Map(districts.map((district) => [district.id, district.name]))
     const ulbNames = new Map(ulbs.map((ulb) => [ulb.id, ulb.name]))
     const wardNames = new Map(wardDetails.map((ward) => [ward.id, ward.wardName || `Ward ${ward.wardNumber}`]))
-    const byDistrict = districtRows.map((row) => ({
-      id: row.districtId,
-      name: districtNames.get(row.districtId) ?? "Unknown district",
-      count: row._count._all,
-    }))
-    const byUlb = ulbRows.map((row) => ({
-      id: row.ulbId,
-      name: ulbNames.get(row.ulbId) ?? "Unknown ULB",
-      count: row._count._all,
-    }))
+    const byDistrict = districtRows.flatMap((row) =>
+      row.districtId
+        ? [
+            {
+              id: row.districtId,
+              name: districtNames.get(row.districtId) ?? "Unknown district",
+              count: row._count._all,
+            },
+          ]
+        : []
+    )
+    const byUlb = ulbRows.flatMap((row) =>
+      row.ulbId ? [{ id: row.ulbId, name: ulbNames.get(row.ulbId) ?? "Unknown ULB", count: row._count._all }] : []
+    )
     const byWard = wards.map((ward) => ({
       ...ward,
       name: wardNames.get(ward.id) ?? "Unknown ward",
@@ -164,7 +181,7 @@ export class DashboardRepository {
 
     const monthlyTrend = this.buildMonthlyTrend(trendRows, monthsBack + 1)
 
-    const surveyorIds = topSurveyorRows.map((r) => r.createdById)
+    const surveyorIds = compactIds(topSurveyorRows.map((row) => row.createdById))
     const surveyors = surveyorIds.length
       ? await this.prisma.db.user.findMany({
           where: { id: { in: surveyorIds } },
@@ -208,10 +225,11 @@ export class DashboardRepository {
   }
 
   private toWardCounts(
-    rows: Array<{ wardId: string; surveyStatus: string; _count: { _all: number } }>
+    rows: Array<{ wardId: string | null; surveyStatus: string; _count: { _all: number } }>
   ): Array<{ id: string; count: number; byStatus: Record<string, number> }> {
     const wards = new Map<string, { id: string; count: number; byStatus: Record<string, number> }>()
     for (const row of rows) {
+      if (!row.wardId) continue
       const ward = wards.get(row.wardId) ?? { id: row.wardId, count: 0, byStatus: {} }
       ward.count += row._count._all
       ward.byStatus[row.surveyStatus] = row._count._all
@@ -370,7 +388,7 @@ export class DashboardRepository {
     const dailyTrend = this.buildDailyTrend(start, now, createdRows, approvedRows, rejectedRows)
 
     const approvedMap = new Map(approvedByCreator.map((r) => [r.createdById, r._count._all]))
-    const creatorIds = submittedByCreator.map((r) => r.createdById)
+    const creatorIds = compactIds(submittedByCreator.map((row) => row.createdById))
     const creators = creatorIds.length
       ? await this.prisma.db.user.findMany({
           where: { id: { in: creatorIds } },
@@ -385,7 +403,7 @@ export class DashboardRepository {
       approved: approvedMap.get(row.createdById) ?? 0,
     }))
 
-    const ulbIds = [...new Set(ulbRows.map((r) => r.ulbId))]
+    const ulbIds = compactIds(ulbRows.map((row) => row.ulbId))
     const ulbs = ulbIds.length
       ? await this.prisma.db.ulb.findMany({
           where: { id: { in: ulbIds } },
@@ -395,6 +413,7 @@ export class DashboardRepository {
     const ulbNames = new Map(ulbs.map((u) => [u.id, u.name]))
     const ulbAgg = new Map<string, { approved: number; total: number }>()
     for (const row of ulbRows) {
+      if (!row.ulbId) continue
       const current = ulbAgg.get(row.ulbId) ?? { approved: 0, total: 0 }
       current.total += row._count._all
       if (row.qcStatus === "APPROVED") current.approved += row._count._all
@@ -416,6 +435,7 @@ export class DashboardRepository {
 
     const supervisorMap = new Map<string, { approved: number; rejected: number }>()
     for (const row of auditRows) {
+      if (!row.changedBy) continue
       const current = supervisorMap.get(row.changedBy) ?? { approved: 0, rejected: 0 }
       if (row.action === "APPROVED") current.approved += row._count._all
       if (row.action === "REJECTED") current.rejected += row._count._all

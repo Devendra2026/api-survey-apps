@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common"
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common"
 import type { Prisma, SurveyStatus } from "@workspace/database"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
 import { buildOrderBy, getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
@@ -72,6 +72,7 @@ function encodeSurveyCursor(survey: { id: string; createdAt: Date }): string {
 
 @Injectable()
 export class SurveysRepository {
+  private readonly logger = new Logger(SurveysRepository.name)
   constructor(private readonly prisma: PrismaService) {}
 
   private baseWhere(user: AuthenticatedUser, query?: SurveyQueryDto): Prisma.SurveyWhereInput {
@@ -182,11 +183,19 @@ export class SurveysRepository {
     })
 
     const byWard = new Map<string, { id: string; count: number; byStatus: Record<string, number> }>()
+    let missingWardSurveys = 0
     for (const row of rows) {
+      if (!row.wardId) {
+        missingWardSurveys += row._count._all
+        continue
+      }
       const current = byWard.get(row.wardId) ?? { id: row.wardId, count: 0, byStatus: {} }
       current.count += row._count._all
       current.byStatus[row.surveyStatus] = (current.byStatus[row.surveyStatus] ?? 0) + row._count._all
       byWard.set(row.wardId, current)
+    }
+    if (missingWardSurveys > 0) {
+      this.logger.warn(`wardCommandStats: ${missingWardSurveys} surveys grouped with a null wardId`)
     }
 
     const top = [...byWard.values()].sort((a, b) => b.count - a.count).slice(0, opts.limit ?? 8)
@@ -516,7 +525,11 @@ export class SurveysRepository {
       }),
     ])
 
-    const wardIds = [...new Set(statusRows.map((r) => r.wardId))]
+    const missingWardSurveys = statusRows.reduce((sum, row) => sum + (row.wardId ? 0 : row._count._all), 0)
+    if (missingWardSurveys > 0) {
+      this.logger.warn(`fieldMetrics: ${missingWardSurveys} surveys grouped with a null wardId (scope=${opts.scope})`)
+    }
+    const wardIds = [...new Set(statusRows.map((row) => row.wardId).filter((id): id is string => Boolean(id)))]
     const wardRows = wardIds.length
       ? await this.prisma.db.ward.findMany({
           where: { id: { in: wardIds } },

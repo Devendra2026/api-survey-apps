@@ -1,85 +1,92 @@
-import { Button, Text } from "@/components/ui"
+import { Text } from "@/components/ui"
 import { colors, radius, spacing, touchTarget } from "@/theme"
 import type { ReactNode } from "react"
 import { Pressable, StyleSheet, View } from "react-native"
 import type { FieldBucket } from "../lib/lifecycle"
 import { stepOrdinal } from "../lib/navigation"
-import { STEP_TITLES, type StepId } from "../lib/requirements"
+import { HEADER_TITLES, STEP_IDS, type StepId, type StepProgress } from "../lib/requirements"
 import type { SyncStatus } from "../lib/sync-state"
-import { StatusBadge, SyncChip } from "./primitives"
-
-export function SurveyProgressBar({ percent }: { percent: number }) {
-  const clamped = Math.max(0, Math.min(100, percent))
-  return (
-    <View
-      accessibilityRole="progressbar"
-      accessibilityValue={{ min: 0, max: 100, now: clamped }}
-      style={styles.progressTrack}
-    >
-      <View style={[styles.progressFill, { width: `${clamped}%` }]} />
-    </View>
-  )
-}
+import { FooterButtons, type FooterButton } from "./footer-buttons"
+import { StatusBadge, StepChips, SyncChip } from "./primitives"
+import { SurveyProgressBar } from "./survey-progress"
 
 export function SurveyHeader({
   propertyId,
   wardLine,
   step,
+  progress,
   completionPercent,
   editable,
   bucket,
   syncStatus,
   onBack,
   onRetrySync,
+  onSelectStep,
+  onNewSurvey,
+  isStepEnabled,
 }: {
   propertyId: string
   wardLine: string
   step: StepId
+  progress: Record<StepId, StepProgress>
   completionPercent: number
   editable: boolean
   bucket: FieldBucket
   syncStatus: SyncStatus
   onBack: () => void
   onRetrySync: () => void
+  onSelectStep: (step: StepId) => void
+  onNewSurvey?: () => void
+  isStepEnabled?: (step: StepId) => boolean
 }) {
   const ordinal = stepOrdinal(step)
+  const title = HEADER_TITLES[step]
   return (
     <View style={styles.header}>
       <View style={styles.headerRow}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Back"
-          onPress={onBack}
-          style={styles.back}
-          hitSlop={8}
-        >
-          <Text variant="bodyStrong" tone="primary">
-            ‹ Back
-          </Text>
-        </Pressable>
+        <Text variant="caption" tone="inverse" style={styles.kicker}>
+          {editable ? "New survey" : "Survey"}
+        </Text>
         {editable ? <SyncChip status={syncStatus} onRetry={onRetrySync} /> : <StatusBadge bucket={bucket} />}
       </View>
-
-      <Text variant="heading" numberOfLines={1}>
-        {propertyId}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Back from ${title}`}
+        onPress={onBack}
+        style={styles.titleRow}
+        hitSlop={8}
+      >
+        <Text variant="heading" tone="inverse">
+          ‹  {title}
+        </Text>
+      </Pressable>
+      <Text variant="caption" style={styles.meta}>
+        {ordinal.label} · {title} · {completionPercent}% · Jump to any step
       </Text>
-
-      <View style={styles.headerRow}>
-        <Text variant="caption" tone="secondary" numberOfLines={1} style={styles.flex}>
-          {wardLine}
-        </Text>
-        {editable ? <StatusBadge bucket={bucket} /> : null}
+      <SurveyProgressBar percent={completionPercent} onPrimary />
+      <View style={styles.chipRow}>
+        <View style={styles.flex}>
+          <StepChips
+            steps={STEP_IDS}
+            current={step}
+            progress={progress}
+            onSelect={onSelectStep}
+            variant="header"
+            isStepEnabled={isStepEnabled}
+          />
+        </View>
+        {editable && onNewSurvey ? (
+          <Pressable accessibilityRole="button" accessibilityLabel="New survey" onPress={onNewSurvey} hitSlop={8}>
+            <Text variant="caption" tone="inverse" style={styles.newSurvey}>
+              + New survey
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
-
-      <View style={styles.metaRow}>
-        <Text variant="label" tone="primary">
-          {STEP_TITLES[step]}
-        </Text>
-        <Text variant="caption" tone="secondary">
-          {ordinal.label} · {completionPercent}%
-        </Text>
-      </View>
-      <SurveyProgressBar percent={completionPercent} />
+      <Text variant="caption" numberOfLines={1} style={styles.meta}>
+        {propertyId}
+        {wardLine ? ` · ${wardLine}` : ""}
+      </Text>
     </View>
   )
 }
@@ -87,7 +94,6 @@ export function SurveyHeader({
 export function BottomActionBar({
   canGoBack,
   canGoNext,
-  nextDisabledReason,
   nextTitle,
   editable,
   isLast,
@@ -101,7 +107,6 @@ export function BottomActionBar({
 }: {
   canGoBack: boolean
   canGoNext: boolean
-  nextDisabledReason: string | null
   nextTitle: string
   editable: boolean
   isLast: boolean
@@ -113,51 +118,37 @@ export function BottomActionBar({
   onSubmit: () => void
   onDone: () => void
 }) {
+  const buttons: FooterButton[] = [
+    { title: "Back", onPress: onBack, disabled: !canGoBack, variant: "secondary", flex: 1 },
+  ]
+  if (editable) {
+    buttons.push({
+      title: "Save draft",
+      onPress: onSaveDraft,
+      disabled: savingDraft || submitting,
+      loading: savingDraft,
+      variant: "secondary",
+      flex: 1.2,
+    })
+  }
+  if (isLast) {
+    buttons.push(
+      editable
+        ? {
+          title: submitting ? "Submitting…" : nextTitle,
+          onPress: onSubmit,
+          disabled: !canGoNext || submitting || savingDraft,
+          variant: "primary",
+          flex: 1.6,
+        }
+        : { title: "Done", onPress: onDone, variant: "primary", flex: 1.6 },
+    )
+  } else {
+    buttons.push({ title: nextTitle, onPress: onNext, disabled: !canGoNext, variant: "primary", flex: 1.6 })
+  }
   return (
     <View style={styles.footer}>
-      {nextDisabledReason && !isLast ? (
-        <Text variant="caption" tone="danger" numberOfLines={2}>
-          {nextDisabledReason}
-        </Text>
-      ) : null}
-      <View style={styles.footerRow}>
-        <Button title="Back" variant="secondary" disabled={!canGoBack} onPress={onBack} style={styles.flex} />
-        {editable ? (
-          <Button
-            title={savingDraft ? "Saving…" : "Save draft"}
-            variant="ghost"
-            loading={savingDraft}
-            disabled={savingDraft || submitting}
-            onPress={onSaveDraft}
-            style={styles.flex}
-          />
-        ) : null}
-        {isLast ? (
-          editable ? (
-            <Button
-              title={submitting ? "Submitting…" : nextTitle}
-              loading={submitting}
-              disabled={!canGoNext || submitting || savingDraft}
-              onPress={onSubmit}
-              style={styles.flex2}
-            />
-          ) : (
-            <Button title="Done" onPress={onDone} style={styles.flex2} />
-          )
-        ) : (
-          <Button
-            title={nextTitle}
-            disabled={!canGoNext}
-            onPress={onNext}
-            style={styles.flex2}
-          />
-        )}
-      </View>
-      {isLast && editable && nextDisabledReason ? (
-        <Text variant="caption" tone="danger" numberOfLines={2}>
-          {nextDisabledReason}
-        </Text>
-      ) : null}
+      <FooterButtons buttons={buttons} />
     </View>
   )
 }
@@ -174,10 +165,19 @@ export function ValidationBanner({
   const warning = tone === "warning"
   return (
     <View style={[styles.banner, warning && styles.bannerWarning]} accessibilityRole="alert">
-      <Text variant="label" tone={warning ? "default" : "danger"} style={warning ? styles.warningTitle : undefined}>
-        {title}
-      </Text>
-      {children}
+      {warning ? (
+        <View style={styles.warningMark}>
+          <Text variant="caption" tone="inverse">
+            !
+          </Text>
+        </View>
+      ) : null}
+      <View style={styles.flex}>
+        <Text variant="label" tone={warning ? "default" : "danger"} style={warning ? styles.warningTitle : undefined}>
+          {title}
+        </Text>
+        {children}
+      </View>
     </View>
   )
 }
@@ -220,10 +220,9 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
-    gap: spacing.xs,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    paddingBottom: spacing.sm,
+    gap: spacing.sm,
+    backgroundColor: colors.primary,
   },
   headerRow: {
     flexDirection: "row",
@@ -231,38 +230,19 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: spacing.sm,
   },
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: spacing.xs,
-  },
-  back: {
-    minHeight: touchTarget,
-    justifyContent: "center",
-    paddingRight: spacing.md,
-  },
-  progressTrack: {
-    height: 6,
-    borderRadius: radius.full,
-    backgroundColor: colors.surfaceMuted,
-    overflow: "hidden",
-    marginBottom: spacing.sm,
-  },
-  progressFill: {
-    height: "100%",
-    backgroundColor: colors.primary,
-    borderRadius: radius.full,
-  },
+  kicker: { opacity: 0.9 },
+  titleRow: { minHeight: touchTarget, justifyContent: "center" },
+  chipRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  newSurvey: { fontWeight: "600" },
+  meta: { color: "rgba(255,255,255,0.85)" },
   footer: {
     gap: spacing.xs,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
     backgroundColor: colors.surface,
-    borderTopWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
   },
-  footerRow: { flexDirection: "row", gap: spacing.sm, alignItems: "center" },
   flex: { flex: 1 },
   flex2: { flex: 2 },
   banner: {
@@ -273,11 +253,24 @@ const styles = StyleSheet.create({
     backgroundColor: colors.dangerMuted,
   },
   bannerWarning: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
     backgroundColor: colors.warningMuted,
+    borderRadius: radius.md,
     marginBottom: 0,
+  },
+  warningMark: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.warning,
   },
   warningTitle: {
     color: colors.warning,
+    fontWeight: "700",
   },
   reviewRow: {
     flexDirection: "row",

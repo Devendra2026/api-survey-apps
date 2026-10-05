@@ -12,7 +12,9 @@ const SAVE_DEBOUNCE_MS = 800
 const PERSIST_DEBOUNCE_MS = 250
 const RETRY_DELAYS_MS = [3_000, 10_000, 30_000, 60_000]
 
-type SaveOutcome = "ok" | "network" | "rejected"
+export type FlushResult = { ok: true } | { ok: false; reason: "offline" | "rejected"; message: string }
+
+type SaveOutcome = FlushResult
 
 type Options = {
   userId: string
@@ -25,8 +27,8 @@ export type SurveyAutosave = {
   fields: SurveyEditableFields | null
   status: SyncStatus
   setFields: (patch: SurveyPatch, options?: { immediate?: boolean }) => void
-  /** Sends everything pending now. Resolves true only when the server confirmed all local edits. */
-  flush: () => Promise<boolean>
+  /** Sends everything pending now. `ok` only when the server confirmed all local edits. */
+  flush: () => Promise<FlushResult>
   retry: () => void
   hasPending: boolean
 }
@@ -57,9 +59,12 @@ export function useSurveyAutosave({ userId, record, enabled }: Options): SurveyA
   }, [userId, surveyId])
 
   const saveOnce = useCallback(async (): Promise<SaveOutcome> => {
-    if (!surveyId || !enabled) return isEmptyPatch(pendingRef.current) ? "ok" : "rejected"
+    if (!surveyId || !enabled) {
+      if (isEmptyPatch(pendingRef.current)) return { ok: true }
+      return { ok: false, reason: "rejected", message: "This survey cannot be edited." }
+    }
     const sent = pendingRef.current
-    if (isEmptyPatch(sent)) return "ok"
+    if (isEmptyPatch(sent)) return { ok: true }
 
     dispatch({ type: "saveStart" })
     try {
@@ -74,21 +79,22 @@ export function useSurveyAutosave({ userId, record, enabled }: Options): SurveyA
         await savePendingPatch(userId, surveyId, remaining)
       }
       dispatch({ type: "saveSuccess", at: Date.now(), hasMoreChanges: !isEmptyPatch(remaining) })
-      return "ok"
+      return { ok: true }
     } catch (error) {
       await savePendingPatch(userId, surveyId, pendingRef.current)
       const network = isRetryableNetworkError(error)
-      dispatch({ type: "saveError", message: getApiErrorMessage(error, "Could not save"), network })
-      return network ? "network" : "rejected"
+      const message = getApiErrorMessage(error, "Could not save")
+      dispatch({ type: "saveError", message, network })
+      return network ? { ok: false, reason: "offline", message } : { ok: false, reason: "rejected", message }
     }
   }, [surveyId, enabled, userId, recordCache, updatePending])
 
   const runSave = useCallback((): Promise<SaveOutcome> => {
     // Serialize: edits made during an in-flight request are sent right after it, never in parallel.
-    const previous: Promise<SaveOutcome> = inFlightRef.current ?? Promise.resolve("ok")
+    const previous: Promise<SaveOutcome> = inFlightRef.current ?? Promise.resolve({ ok: true })
     const task = previous.then(async () => {
       let outcome = await saveOnce()
-      while (outcome === "ok" && !isEmptyPatch(pendingRef.current)) {
+      while (outcome.ok && !isEmptyPatch(pendingRef.current)) {
         outcome = await saveOnce()
       }
       return outcome
@@ -109,7 +115,9 @@ export function useSurveyAutosave({ userId, record, enabled }: Options): SurveyA
           saveTimerRef.current = null
           void runSave().then((outcome) => {
             // Only network failures auto-retry; a 4xx is a server decision that waits for the user's Retry.
-            if (outcome !== "network" || !mountedRef.current || isEmptyPatch(pendingRef.current)) return
+            if (outcome.ok || outcome.reason !== "offline" || !mountedRef.current || isEmptyPatch(pendingRef.current)) {
+              return
+            }
             const attempt = Math.min(retryAttemptRef.current, RETRY_DELAYS_MS.length - 1)
             retryAttemptRef.current += 1
             arm(RETRY_DELAYS_MS[attempt]!)
@@ -166,14 +174,16 @@ export function useSurveyAutosave({ userId, record, enabled }: Options): SurveyA
     [enabled, persistSoon, scheduleSave, updatePending]
   )
 
-  const flush = useCallback(async () => {
+  const flush = useCallback(async (): Promise<FlushResult> => {
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current)
       saveTimerRef.current = null
     }
-    if (isEmptyPatch(pendingRef.current) && !inFlightRef.current) return true
+    if (isEmptyPatch(pendingRef.current) && !inFlightRef.current) return { ok: true }
     const outcome = await runSave()
-    return outcome === "ok" && isEmptyPatch(pendingRef.current)
+    if (outcome.ok && isEmptyPatch(pendingRef.current)) return { ok: true }
+    if (!outcome.ok) return outcome
+    return { ok: false, reason: "rejected", message: "Could not save" }
   }, [runSave])
 
   const retry = useCallback(() => {

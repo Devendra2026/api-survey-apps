@@ -4,6 +4,8 @@ import { useAuth } from "@clerk/expo"
 import { useInfiniteQuery, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 import { useCallback, useMemo } from "react"
 
+import { mergeCoOwners } from "../lib/owner-mapping"
+
 /**
  * Survey data is user-owned: every key carries the Clerk userId so one user's cached
  * records, lists, and metrics can never be read under another user's session.
@@ -86,6 +88,7 @@ export function writeRecordCache(queryClient: QueryClient, owner: string, next: 
   queryClient.setQueryData<SurveyRecord>(surveyKeys.record(owner, next.id), (prev) => ({
     ...next,
     qcRemarkThread: next.qcRemarkThread ?? prev?.qcRemarkThread,
+    coOwners: mergeCoOwners(prev?.coOwners, next.coOwners),
   }))
 }
 

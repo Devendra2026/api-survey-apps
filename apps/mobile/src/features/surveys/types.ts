@@ -131,6 +131,8 @@ export type SurveyCoOwner = {
   name: string
   fatherOrHusbandName: string | null
   mobile: string | null
+  alternateMobile: string | null
+  createdAt: string
 }
 
 export type SurveyPhoto = {
@@ -234,7 +236,12 @@ export type DecimalField = (typeof DECIMAL_FIELDS)[number]
 
 /** Body for `PATCH /surveys/:id`: only changed keys, decimals as numbers. */
 export type SurveyPatch = Partial<Omit<SurveyEditableFields, DecimalField>> &
-  Partial<Record<DecimalField, number | null>> & { gpsSource?: "DEVICE" }
+  Partial<Record<DecimalField, number | null>> & {
+    gpsSource?: "DEVICE"
+    /** Sent with plot/plinth square feet. Not an editable form field. */
+    plotAreaSqMeter?: number | null
+    plinthAreaSqMeter?: number | null
+  }
 
 export type CursorPage<T> = {
   items: T[]

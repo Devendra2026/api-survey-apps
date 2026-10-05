@@ -1,13 +1,13 @@
 import { Button, Text } from "@/components/ui"
 import { getApiErrorMessage } from "@/services/api/client"
-import { createCoOwner, createFloor, deleteCoOwner, deleteFloor, updateFloor } from "@/services/api/surveys"
+import { createFloor, deleteFloor, updateFloor } from "@/services/api/surveys"
 import { colors, radius, spacing } from "@/theme"
 import { sqFtToSqMeter } from "@workspace/validation"
 import { useState } from "react"
 import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { useRecordCache } from "../hooks/queries"
-import { missingFloorFields } from "../lib/floor-draft"
+import { isDuplicateFloor, missingFloorFields } from "../lib/floor-draft"
 import { optionLabel } from "../lib/labels"
 import {
   CONSTRUCTION_TYPES,
@@ -16,12 +16,11 @@ import {
   USAGE_TYPES,
   type ConstructionType,
   type FloorPosition,
-  type SurveyCoOwner,
   type SurveyFloor,
   type UsageFactor,
   type UsageType,
 } from "../types"
-import { BoundNumberField, BoundTextField } from "./primitives"
+import { BoundNumberField } from "./primitives"
 import { CatalogSelect, EnumSelect } from "./SurveySelect"
 
 function confirmDelete(title: string, onConfirm: () => void) {
@@ -98,7 +97,16 @@ export function FloorsEditor({
     usageType,
     construction,
   })
-  const ready = missing.length === 0
+  const duplicate =
+    position !== null && usageFactor !== null && construction !== null
+      ? isDuplicateFloor(floors, {
+        id: editingId,
+        floorPosition: position,
+        usageFactor,
+        constructionType: construction,
+      })
+      : false
+  const ready = missing.length === 0 && !duplicate
   const areaSqMeter = area === null ? null : sqFtToSqMeter(area)
 
   const rememberFloor = (floor: SurveyFloor) => {
@@ -113,7 +121,7 @@ export function FloorsEditor({
 
   const save = async () => {
     if (!position || !usageFactor || !usageType || !construction || area === null || !ready) {
-      setError(missing.join(" "))
+      setError(duplicate ? "This floor is already added." : missing.join(" "))
       return
     }
     setBusy(true)
@@ -231,6 +239,11 @@ export function FloorsEditor({
                 value={construction}
                 onChange={setConstruction}
               />
+              {duplicate ? (
+                <Text variant="caption" tone="danger">
+                  This floor is already added.
+                </Text>
+              ) : null}
               {missing.length > 0 ? (
                 <View>
                   {missing.map((message) => (
@@ -263,107 +276,6 @@ export function FloorsEditor({
   )
 }
 
-export function CoOwnersEditor({
-  surveyId,
-  coOwners,
-  editable,
-  required,
-}: {
-  surveyId: string
-  coOwners: SurveyCoOwner[]
-  editable: boolean
-  required: boolean
-}) {
-  const recordCache = useRecordCache()
-  const [adding, setAdding] = useState(false)
-  const [name, setName] = useState("")
-  const [relation, setRelation] = useState("")
-  const [mobile, setMobile] = useState("")
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const reset = () => {
-    setAdding(false)
-    setName("")
-    setRelation("")
-    setMobile("")
-    setError(null)
-  }
-
-  const save = async () => {
-    if (!name.trim()) {
-      setError("Co-owner name is required")
-      return
-    }
-    setBusy(true)
-    setError(null)
-    try {
-      const row = await createCoOwner({
-        surveyId,
-        name: name.trim(),
-        ...(relation.trim() ? { fatherOrHusbandName: relation.trim() } : {}),
-        ...(mobile.trim() ? { mobile: mobile.trim() } : {}),
-      })
-      recordCache.update(surveyId, (r) => ({ ...r, coOwners: [...r.coOwners, row] }))
-      reset()
-    } catch (e) {
-      setError(getApiErrorMessage(e, "Could not add co-owner. Check your connection and try again."))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const remove = (row: SurveyCoOwner) =>
-    confirmDelete(`Remove ${row.name}?`, () => {
-      void deleteCoOwner(row.id)
-        .then(() =>
-          recordCache.update(surveyId, (r) => ({ ...r, coOwners: r.coOwners.filter((c) => c.id !== row.id) })),
-        )
-        .catch((e: unknown) => Alert.alert("Delete failed", getApiErrorMessage(e)))
-    })
-
-  return (
-    <View style={styles.wrap}>
-      <Text variant="label">Co-owners{required ? " *" : ""}</Text>
-      {coOwners.length === 0 ? (
-        <Text variant="caption" tone={required ? "danger" : "secondary"}>
-          {required ? "Joint ownership needs at least one co-owner." : "No co-owners added."}
-        </Text>
-      ) : null}
-      {coOwners.map((row) => (
-        <View key={row.id} style={styles.row}>
-          <View style={styles.rowText}>
-            <Text variant="bodyStrong">{row.name}</Text>
-            {row.fatherOrHusbandName || row.mobile ? (
-              <Text variant="caption" tone="secondary">
-                {[row.fatherOrHusbandName, row.mobile].filter(Boolean).join(" · ")}
-              </Text>
-            ) : null}
-          </View>
-          {editable ? <Button title="Remove" variant="ghost" onPress={() => remove(row)} /> : null}
-        </View>
-      ))}
-      {editable && adding ? (
-        <View style={styles.form}>
-          <BoundTextField label="Name" required value={name} onCommit={setName} autoCapitalize="words" />
-          <BoundTextField label="Father / Husband name" value={relation} onCommit={setRelation} autoCapitalize="words" />
-          <BoundTextField label="Mobile" value={mobile} onCommit={setMobile} keyboardType="phone-pad" maxLength={15} />
-          {error ? (
-            <Text variant="caption" tone="danger">
-              {error}
-            </Text>
-          ) : null}
-          <View style={styles.actions}>
-            <Button title="Cancel" variant="secondary" onPress={reset} style={styles.flex} />
-            <Button title="Save co-owner" loading={busy} onPress={() => void save()} style={styles.flex} />
-          </View>
-        </View>
-      ) : null}
-      {editable && !adding ? <Button title="+ Add co-owner" variant="secondary" onPress={() => setAdding(true)} /> : null}
-    </View>
-  )
-}
-
 const styles = StyleSheet.create({
   wrap: { gap: spacing.md },
   row: {
@@ -375,13 +287,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceMuted,
   },
   rowText: { flex: 1, gap: 2 },
-  form: {
-    gap: spacing.lg,
-    padding: spacing.lg,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
   sheetHost: { flex: 1, justifyContent: "flex-end" },
   sheetDismiss: { flex: 1 },
   sheet: {

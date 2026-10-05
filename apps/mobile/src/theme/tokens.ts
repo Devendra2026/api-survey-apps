@@ -16,8 +16,8 @@ export const colors = {
   dangerMuted: "#FEE2E2",
   success: "#059669",
   successMuted: "#D1FAE5",
-  warning: "#D97706",
-  warningMuted: "#FEF3C7",
+  warning: "#B45309",
+  warningMuted: "#FFF4CC",
   overlay: "rgba(15, 23, 42, 0.4)",
 } as const
 

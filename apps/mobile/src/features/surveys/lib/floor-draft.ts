@@ -18,3 +18,24 @@ export function missingFloorFields(draft: FloorDraft): string[] {
   if (!draft.construction) missing.push("Construction type is required.")
   return missing
 }
+
+export type FloorIdentity = {
+  id: string
+  floorPosition: string
+  usageFactor: string
+  constructionType: string
+}
+
+/** Matches the floor unique key `(surveyId, floorPosition, usageFactor, constructionType)`. */
+export function isDuplicateFloor(
+  floors: readonly FloorIdentity[],
+  draft: { id: string | null; floorPosition: string; usageFactor: string; constructionType: string }
+): boolean {
+  return floors.some(
+    (floor) =>
+      floor.id !== draft.id &&
+      floor.floorPosition === draft.floorPosition &&
+      floor.usageFactor === draft.usageFactor &&
+      floor.constructionType === draft.constructionType
+  )
+}

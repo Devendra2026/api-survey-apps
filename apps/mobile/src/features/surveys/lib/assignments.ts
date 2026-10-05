@@ -10,8 +10,11 @@ export type SurveyAssignment = {
   districtId: string
   ulbId: string
   ulbName: string
+  /** Admin-assigned ULB code. Null when the profile did not include one. */
+  ulbCode: string | null
   /** null = role covers every ward of the ULB. */
   wardId: string | null
+  wardNumber: string | null
   wardLabel: string | null
 }
 
@@ -30,13 +33,17 @@ export function surveyAssignments(profile: AuthenticatedProfile): SurveyAssignme
     if (!role.stateId || !role.districtId || !role.ulbId) continue
     const key = `${role.ulbId}:${role.wardId ?? "*"}`
     if (out.has(key)) continue
+    const ulbCode = role.ulb?.code?.trim() ?? ""
+    const wardNumber = role.ward?.wardNumber?.trim() ?? ""
     out.set(key, {
       key,
       stateId: role.stateId,
       districtId: role.districtId,
       ulbId: role.ulbId,
       ulbName: role.ulb?.name ?? "ULB",
+      ulbCode: ulbCode || null,
       wardId: role.wardId ?? null,
+      wardNumber: wardNumber || null,
       wardLabel: role.ward ? `${role.ward.wardNumber} · ${role.ward.wardName}` : null,
     })
   }

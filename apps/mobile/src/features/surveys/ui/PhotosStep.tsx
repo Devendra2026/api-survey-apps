@@ -11,9 +11,11 @@ import { useRecordCache } from "../hooks/queries"
 import { optionLabel } from "../lib/labels"
 import { type PhotoType, type SurveyPhoto } from "../types"
 
-const REQUIRED_PHOTOS: { type: PhotoType; hint: string }[] = [
-  { type: "FRONT", hint: "Full front of the building from the street" },
-  { type: "SIDE", hint: "Side elevation along the property boundary" },
+const PHOTO_SLOTS: { type: PhotoType; hint: string; required: boolean }[] = [
+  { type: "FRONT", hint: "Full front of the building from the street", required: true },
+  { type: "SIDE", hint: "Side elevation along the property boundary", required: true },
+  { type: "INSIDE", hint: "Optional interior view", required: false },
+  { type: "DOCUMENT", hint: "Optional supporting document", required: false },
 ]
 
 const MAX_WIDTH = 1600
@@ -134,7 +136,7 @@ export function PhotosStep({
 
   return (
     <View style={styles.grid}>
-      {REQUIRED_PHOTOS.map(({ type, hint }) => {
+      {PHOTO_SLOTS.map(({ type, hint, required }) => {
         const confirmed = photos.filter((p) => p.photoType === type && p.objectKey)
         const latest = confirmed[confirmed.length - 1]
         const pending = local[type]
@@ -143,7 +145,7 @@ export function PhotosStep({
             <View style={styles.slotHeader}>
               <Text variant="bodyStrong">
                 {optionLabel(type)}
-                <Text tone="danger"> *</Text>
+                {required ? <Text tone="danger"> *</Text> : null}
               </Text>
               {latest && !pending ? (
                 <Text variant="caption" style={{ color: colors.success, fontWeight: "600" }}>

@@ -1,4 +1,3 @@
-import { constructedYearError } from "./field-format.ts"
 import {
   ASSESSMENT_YEARS,
   OWNERSHIP_TYPES,
@@ -13,6 +12,7 @@ import {
   type SurveyEditableFields,
   type SurveyPatch,
 } from "../types.ts"
+import { constructedYearError } from "./field-format.ts"
 
 const STRING_KEYS = [
   "wardId",
@@ -36,6 +36,8 @@ const NUMBER_KEYS = [
   "familySize",
   "plotAreaSqFt",
   "plinthAreaSqFt",
+  "plotAreaSqMeter",
+  "plinthAreaSqMeter",
   "latitude",
   "longitude",
   "gpsAccuracyMeters",
@@ -181,6 +183,11 @@ export function recordToFields(record: SurveyEditableFields): SurveyEditableFiel
 
 /** Applies a pending patch on top of server fields for display. */
 export function applyPatch(fields: SurveyEditableFields, patch: SurveyPatch): SurveyEditableFields {
-  const { gpsSource: _gpsSource, ...rest } = patch
+  const {
+    gpsSource: _gpsSource,
+    plotAreaSqMeter: _plotAreaSqMeter,
+    plinthAreaSqMeter: _plinthAreaSqMeter,
+    ...rest
+  } = patch
   return { ...fields, ...rest }
 }

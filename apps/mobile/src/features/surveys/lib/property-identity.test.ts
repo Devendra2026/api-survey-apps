@@ -1,8 +1,16 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
-import { previewPropertyId, previewPropertyIdBase } from "./property-identity.ts"
+import { previewPropertyId, previewPropertyIdBase, previewPropertyIdStart } from "./property-identity.ts"
 
 describe("property identity", () => {
+  it("previews ULB and ward on the new survey screen and leaves the rest pending", () => {
+    assert.equal(previewPropertyIdStart({ ulbCode: "801262", wardNo: "1" }), "801262-001-·····-···-·")
+    assert.equal(previewPropertyIdStart({ ulbCode: "", wardNo: "1" }), null)
+    assert.equal(previewPropertyIdStart({ ulbCode: "801262", wardNo: null }), null)
+    assert.equal(previewPropertyIdStart({ ulbCode: null, wardNo: "1" }), null)
+    assert.equal(previewPropertyIdStart({ ulbCode: "801262", wardNo: "" }), null)
+  })
+
   it("builds the base id before property use and the full id once use is mapped", () => {
     const parts = {
       ulbCode: "801262",

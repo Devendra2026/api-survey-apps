@@ -164,6 +164,7 @@ describe("submit requirements", () => {
     assert.equal(stepForRemarkSection("address", "wrong pin"), "address")
     assert.equal(stepForRemarkSection("unknown", "floor area wrong"), "area")
     assert.equal(isStepId("photos"), true)
+    assert.equal(isStepId("review"), true)
     assert.equal(isStepId("nope"), false)
   })
 })
@@ -261,6 +262,25 @@ describe("assignments", () => {
       mixed.map((a) => a.wardId),
       [null]
     )
+  })
+
+  it("copies the admin-assigned ULB code", () => {
+    const assigned = surveyAssignments(
+      profile([
+        role("SURVEYOR", {
+          ...geo,
+          ulb: { id: "u1", name: "Etah Municipal Corporation", code: "801262" },
+          wardId: "w1",
+          ward: { id: "w1", wardNumber: "1", wardName: "One" },
+        }),
+      ])
+    )
+    assert.equal(assigned[0]?.ulbName, "Etah Municipal Corporation")
+    assert.equal(assigned[0]?.ulbCode, "801262")
+    assert.equal(assigned[0]?.wardNumber, "1")
+    const missing = surveyAssignments(profile([role("SURVEYOR", geo)]))
+    assert.equal(missing[0]?.ulbCode, null)
+    assert.equal(missing[0]?.wardNumber, null)
   })
 
   it("ignores inactive, pending and incomplete-geography roles", () => {

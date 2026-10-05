@@ -11,11 +11,12 @@ export const STEP_IDS = [
   "services",
   "gps",
   "photos",
+  "review",
 ] as const
 export type StepId = (typeof STEP_IDS)[number]
 
 export const STEP_TITLES: Record<StepId, string> = {
-  start: "Survey",
+  start: "Start",
   property: "Property",
   owner: "Owner",
   address: "Address",
@@ -24,6 +25,35 @@ export const STEP_TITLES: Record<StepId, string> = {
   services: "Services",
   gps: "GPS",
   photos: "Photos",
+  review: "Review",
+}
+
+/** Large title in the navy header. Chip labels stay short. */
+export const HEADER_TITLES: Record<StepId, string> = {
+  start: "Survey start",
+  property: "Survey",
+  owner: "Owner details",
+  address: "Address",
+  taxation: "Taxation",
+  area: "Area",
+  services: "Municipal services",
+  gps: "GPS location",
+  photos: "Photos",
+  review: "Review & submit",
+}
+
+/** Single mark drawn inside each circular step chip. */
+export const STEP_MARKS: Record<StepId, string> = {
+  start: "0",
+  property: "P",
+  owner: "O",
+  address: "A",
+  taxation: "T",
+  area: "5",
+  services: "S",
+  gps: "G",
+  photos: "Ph",
+  review: "R",
 }
 
 /** Merged local + server view the wizard evaluates. */
@@ -67,7 +97,7 @@ export function submitRequirements(s: SurveySnapshot): Requirement[] {
 
 /**
  * Field-survey gates on top of the API submit rules.
- * Parcel, unit, relationship, and side photo are required in the mobile wizard.
+ * Parcel (5 digits), unit (3 digits), relationship, and side photo are required in the mobile wizard.
  * The API still accepts a draft without them; submission from the app does not.
  */
 export function mobileFieldRequirements(s: SurveySnapshot): Requirement[] {
@@ -86,7 +116,7 @@ export function mobileFieldRequirements(s: SurveySnapshot): Requirement[] {
   return out
 }
 
-const STEP_FIELDS: Record<Exclude<StepId, "gps" | "photos">, (keyof SurveySnapshot)[]> = {
+const STEP_FIELDS: Record<Exclude<StepId, "gps" | "photos" | "review">, (keyof SurveySnapshot)[]> = {
   start: ["wardLabel", "propertyId"],
   property: ["parcelNumber", "unitSubNo", "sectorNo", "constructedYear", "propertyIdOld"],
   owner: ["respondentName", "relationshipWithOwner", "mobileNumber", "alternateMobile", "familySize"],
@@ -117,6 +147,15 @@ export function stepProgress(s: SurveySnapshot): Record<StepId, StepProgress> {
         filled: required.filter((type) => distinct.has(type)).length,
         total: required.length,
         missing: missingFor("photos"),
+      }
+      continue
+    }
+    if (step === "review") {
+      const blockers = mobileFieldRequirements(s)
+      result.review = {
+        filled: blockers.length === 0 ? 1 : 0,
+        total: 1,
+        missing: blockers.map((item) => item.message),
       }
       continue
     }

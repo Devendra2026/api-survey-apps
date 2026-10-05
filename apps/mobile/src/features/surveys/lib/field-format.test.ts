@@ -3,19 +3,21 @@ import { describe, it } from "node:test"
 import { parcelNumberError, phoneError, pinCodeError, unitNumberError } from "./field-format.ts"
 
 describe("field-format", () => {
-  it("accepts 1 to 5 parcel digits and rejects a longer value", () => {
-    assert.equal(parcelNumberError(null), "Parcel number must be 1 to 5 digits.")
-    assert.equal(parcelNumberError("1"), undefined)
-    assert.equal(parcelNumberError("74"), undefined)
+  it("requires exactly 5 parcel digits", () => {
+    assert.equal(parcelNumberError(null), "Type 5 digits.")
+    assert.equal(parcelNumberError(""), "Type 5 digits.")
+    assert.equal(parcelNumberError("747"), "Type 5 digits.")
+    assert.equal(parcelNumberError("1"), "Type 5 digits.")
     assert.equal(parcelNumberError("123456"), "Parcel number cannot be more than 5 digits.")
-    assert.equal(parcelNumberError("ABC12"), "Parcel number must be 1 to 5 digits.")
+    assert.equal(parcelNumberError("ABC12"), "Type 5 digits.")
     assert.equal(parcelNumberError("00747"), undefined)
     assert.equal(parcelNumberError("12345"), undefined)
   })
 
-  it("accepts 1 to 3 unit digits and rejects a longer value", () => {
-    assert.equal(unitNumberError("1"), undefined)
-    assert.equal(unitNumberError("01"), undefined)
+  it("requires exactly 3 unit digits", () => {
+    assert.equal(unitNumberError(null), "Type 3 digits.")
+    assert.equal(unitNumberError("1"), "Type 3 digits.")
+    assert.equal(unitNumberError("01"), "Type 3 digits.")
     assert.equal(unitNumberError("123"), undefined)
     assert.equal(unitNumberError("0001"), "Unit number cannot be more than 3 digits.")
     assert.equal(unitNumberError("001"), undefined)

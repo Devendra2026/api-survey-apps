@@ -111,15 +111,23 @@ export function deleteFloor(id: string): Promise<unknown> {
   return apiDelete(`/floors/${encodeURIComponent(id)}`)
 }
 
-export type CreateCoOwnerInput = {
-  surveyId: string
+export type CoOwnerWrite = {
   name: string
-  fatherOrHusbandName?: string
-  mobile?: string
+  fatherOrHusbandName?: string | null
+  mobile?: string | null
+  alternateMobile?: string | null
+}
+
+export type CreateCoOwnerInput = CoOwnerWrite & {
+  surveyId: string
 }
 
 export function createCoOwner(input: CreateCoOwnerInput): Promise<SurveyCoOwner> {
   return apiPost("/coowners", input)
+}
+
+export function updateCoOwner(id: string, input: CoOwnerWrite): Promise<SurveyCoOwner> {
+  return apiPatch(`/coowners/${encodeURIComponent(id)}`, input)
 }
 
 export function deleteCoOwner(id: string): Promise<unknown> {

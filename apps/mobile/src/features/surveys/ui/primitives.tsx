@@ -4,7 +4,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react"
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View, type TextInputProps } from "react-native"
 import { optionLabel } from "../lib/labels"
 import { FIELD_BUCKET_LABELS, type FieldBucket } from "../lib/lifecycle"
-import { STEP_TITLES, type StepId, type StepProgress } from "../lib/requirements"
+import { SECTION_BLOCKED_MESSAGE } from "../lib/navigation"
+import { STEP_MARKS, STEP_TITLES, type StepId, type StepProgress } from "../lib/requirements"
 import { syncChip, type SyncChipTone, type SyncStatus } from "../lib/sync-state"
 
 const TONE_STYLES: Record<SyncChipTone, { bg: string; fg: string }> = {
@@ -62,50 +63,65 @@ export function StepChips({
   current,
   progress,
   onSelect,
+  variant = "default",
+  isStepEnabled,
 }: {
   steps: readonly StepId[]
   current: StepId
   progress: Record<StepId, StepProgress>
   onSelect: (step: StepId) => void
+  variant?: "default" | "header"
+  isStepEnabled?: (step: StepId) => boolean
 }) {
   const scrollRef = useRef<ScrollView>(null)
   const index = steps.indexOf(current)
   useEffect(() => {
-    scrollRef.current?.scrollTo({ x: Math.max(0, index - 1) * 112, animated: true })
+    scrollRef.current?.scrollTo({ x: Math.max(0, index - 1) * 72, animated: true })
   }, [index])
 
   return (
     <ScrollView ref={scrollRef} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.steps}>
-      {steps.map((step, i) => {
+      {steps.map((step) => {
         const p = progress[step]
         const isCurrent = step === current
         const hasRequiredMissing = p.missing.length > 0
         const done = !hasRequiredMissing && p.filled > 0
+        const onHeader = variant === "header"
+        const enabled = isStepEnabled?.(step) ?? true
         return (
           <Pressable
             key={step}
             accessibilityRole="tab"
-            accessibilityState={{ selected: isCurrent }}
-            accessibilityLabel={`${STEP_TITLES[step]}${
-              hasRequiredMissing ? ", required fields missing" : done ? ", complete" : ""
-            }`}
-            onPress={() => onSelect(step)}
-            style={[styles.step, isCurrent && styles.stepCurrent, done && !isCurrent && styles.stepDone]}
+            accessibilityState={{ selected: isCurrent, disabled: !enabled }}
+            accessibilityLabel={`${STEP_TITLES[step]}${hasRequiredMissing ? ", required fields missing" : done ? ", complete" : ""}`}
+            disabled={!enabled}
+            onPress={() => {
+              if (enabled) onSelect(step)
+            }}
+            style={[styles.step, onHeader && styles.stepHeader, !enabled && styles.stepDisabled]}
           >
-            <View
-              style={[
-                styles.stepDot,
-                done && styles.stepDotDone,
-                hasRequiredMissing && styles.stepDotBlocked,
-              ]}
-            >
-              <Text variant="caption" tone={done || hasRequiredMissing ? "inverse" : "secondary"} style={styles.stepDotText}>
-                {done ? "✓" : hasRequiredMissing ? "!" : String(i + 1)}
-              </Text>
+            <View>
+              <View
+                style={[
+                  styles.stepDot,
+                  onHeader && !isCurrent && styles.stepDotHeader,
+                  isCurrent && (onHeader ? styles.stepDotCurrentHeader : styles.stepDotCurrent),
+                  done && !isCurrent && styles.stepDotDone,
+                ]}
+              >
+                <Text
+                  variant="caption"
+                  tone={isCurrent && onHeader ? "primary" : done || onHeader ? "inverse" : "secondary"}
+                  style={styles.stepDotText}
+                >
+                  {done && !isCurrent ? "✓" : STEP_MARKS[step]}
+                </Text>
+              </View>
+              {hasRequiredMissing && !isCurrent ? <View style={styles.errorDot} /> : null}
             </View>
             <Text
               variant="caption"
-              tone={isCurrent ? "primary" : "secondary"}
+              tone={isCurrent && !onHeader ? "primary" : onHeader ? "inverse" : "secondary"}
               style={isCurrent ? styles.bold : undefined}
               numberOfLines={1}
             >
@@ -128,25 +144,30 @@ export function SectionCard({
   children: ReactNode
 }) {
   return (
-    <View style={[cardStyle, styles.section]}>
-      <View style={styles.sectionHeader}>
-        <Text variant="heading">{title}</Text>
-        {progress ? (
-          <Text variant="caption" tone="secondary">
-            {progress.filled}/{progress.total} filled
-          </Text>
-        ) : null}
-      </View>
+    <View style={styles.sectionStack}>
       {progress?.missing.length ? (
-        <View style={styles.missingBox}>
-          {progress.missing.map((m) => (
-            <Text key={m} variant="caption" tone="danger">
-              • {m}
+        <View style={styles.notice} accessibilityRole="alert">
+          <View style={styles.noticeMark}>
+            <Text variant="caption" tone="inverse">
+              !
             </Text>
-          ))}
+          </View>
+          <View style={styles.noticeCopy}>
+            <Text variant="label" style={styles.noticeTitle}>
+              {SECTION_BLOCKED_MESSAGE}
+            </Text>
+            <Text variant="caption" style={styles.noticeBody}>
+              {progress.missing.join(" · ")}
+            </Text>
+          </View>
         </View>
       ) : null}
-      <View style={styles.sectionBody}>{children}</View>
+      <View style={[cardStyle, styles.section]}>
+        <Text variant="caption" tone="secondary" style={styles.sectionTitle}>
+          {title}
+        </Text>
+        <View style={styles.sectionBody}>{children}</View>
+      </View>
     </View>
   )
 }
@@ -345,51 +366,68 @@ const styles = StyleSheet.create({
     minHeight: 32,
   },
   steps: {
-    gap: spacing.sm,
-    paddingVertical: spacing.sm,
-    paddingRight: spacing.lg,
+    gap: spacing.md,
+    paddingVertical: spacing.xs,
+    paddingRight: spacing.sm,
+    alignItems: "flex-start",
   },
   step: {
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-start",
     gap: spacing.xs,
-    width: 104,
+    width: 64,
     minHeight: touchTarget,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
   },
-  stepCurrent: {
-    borderColor: colors.primary,
-    borderWidth: 2,
-    backgroundColor: colors.primaryMuted,
-  },
-  stepDone: {
-    borderColor: colors.success,
-  },
+  stepDisabled: { opacity: 0.4 },
+  stepHeader: { backgroundColor: "transparent" },
   stepDot: {
-    width: 28,
-    height: 28,
+    width: 36,
+    height: 36,
     borderRadius: radius.full,
     backgroundColor: colors.surfaceMuted,
     alignItems: "center",
     justifyContent: "center",
   },
+  stepDotHeader: { backgroundColor: "rgba(255,255,255,0.16)" },
+  stepDotCurrent: { backgroundColor: colors.primary },
+  stepDotCurrentHeader: { backgroundColor: colors.surface },
   stepDotDone: { backgroundColor: colors.success },
-  stepDotBlocked: { backgroundColor: colors.danger },
   stepDotText: { fontWeight: "700" },
-  bold: { fontWeight: "700" },
-  section: { gap: spacing.md, marginBottom: spacing.lg },
-  sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  sectionBody: { gap: spacing.lg },
-  missingBox: {
-    backgroundColor: colors.dangerMuted,
-    borderRadius: radius.sm,
-    padding: spacing.md,
-    gap: spacing.xs,
+  errorDot: {
+    position: "absolute",
+    top: -1,
+    right: -1,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#F59E0B",
+    borderWidth: 1,
+    borderColor: colors.primary,
   },
+  bold: { fontWeight: "700" },
+  sectionStack: { gap: spacing.md, marginBottom: spacing.lg },
+  notice: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.warningMuted,
+  },
+  noticeMark: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.warning,
+  },
+  noticeCopy: { flex: 1, gap: 2 },
+  noticeTitle: { color: colors.warning, fontWeight: "700" },
+  noticeBody: { color: colors.warning },
+  section: { gap: spacing.md },
+  sectionTitle: { fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
+  sectionBody: { gap: spacing.lg },
   tile: {
     flexGrow: 1,
     flexBasis: "45%",

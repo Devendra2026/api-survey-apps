@@ -1,6 +1,6 @@
 /**
  * Lightweight field validators for mobile survey UX.
- * Do not invent business rules beyond format checks already implied by existing maxLength / keyboards.
+ * Parcel and unit lengths match the Property ID segments (5 and 3 digits).
  */
 
 export const MIN_CONSTRUCTED_YEAR = 1800
@@ -25,8 +25,8 @@ export function parseConstructedYear(value: string): { year: number | null; erro
   return { year }
 }
 
-export const PARCEL_NUMBER_ERROR = "Parcel number must be 1 to 5 digits."
-export const UNIT_NUMBER_ERROR = "Unit number must be 1 to 3 digits."
+export const PARCEL_NUMBER_ERROR = "Type 5 digits."
+export const UNIT_NUMBER_ERROR = "Type 3 digits."
 export const PARCEL_NUMBER_TOO_LONG = "Parcel number cannot be more than 5 digits."
 export const UNIT_NUMBER_TOO_LONG = "Unit number cannot be more than 3 digits."
 
@@ -39,6 +39,7 @@ export function parcelNumberError(value: string | null): string | undefined {
   if (value === null || value.trim() === "") return PARCEL_NUMBER_ERROR
   if (!/^\d+$/.test(value)) return PARCEL_NUMBER_ERROR
   if (value.length > 5) return PARCEL_NUMBER_TOO_LONG
+  if (value.length !== 5) return PARCEL_NUMBER_ERROR
   return undefined
 }
 
@@ -46,6 +47,7 @@ export function unitNumberError(value: string | null): string | undefined {
   if (value === null || value.trim() === "") return UNIT_NUMBER_ERROR
   if (!/^\d+$/.test(value)) return UNIT_NUMBER_ERROR
   if (value.length > 3) return UNIT_NUMBER_TOO_LONG
+  if (value.length !== 3) return UNIT_NUMBER_ERROR
   return undefined
 }
 

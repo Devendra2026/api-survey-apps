@@ -3,6 +3,7 @@ import { colors, radius, spacing } from "@/theme"
 import * as Location from "expo-location"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Linking, StyleSheet, View } from "react-native"
+import { gpsFreshnessWarning } from "../lib/gps-freshness"
 import type { SurveyEditableFields, SurveyPatch } from "../types"
 import { SurveyLocationMap } from "./SurveyLocationMap"
 
@@ -47,6 +48,8 @@ export function GpsStep({
   const [error, setError] = useState<GpsError | null>(null)
   const lat = toNumber(fields.latitude)
   const lng = toNumber(fields.longitude)
+  const accuracy = toNumber(fields.gpsAccuracyMeters)
+  const freshness = gpsFreshnessWarning(fields.capturedAt)
   const autoStarted = useRef(false)
 
   const capture = useCallback(async () => {
@@ -120,7 +123,13 @@ export function GpsStep({
           <SurveyLocationMap latitude={lat} longitude={lng} />
           <Row label="Latitude" value={lat.toFixed(6)} />
           <Row label="Longitude" value={lng.toFixed(6)} />
+          <Row label="Accuracy" value={accuracy === null ? "—" : `${accuracy.toFixed(2)} m`} />
           <Row label="Captured" value={fields.capturedAt ? new Date(fields.capturedAt).toLocaleString() : "—"} />
+          {freshness ? (
+            <Text variant="caption" tone="danger">
+              {freshness}
+            </Text>
+          ) : null}
         </View>
       ) : (
         <Text variant="body" tone="secondary">

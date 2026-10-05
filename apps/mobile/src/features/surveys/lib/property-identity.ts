@@ -1,4 +1,11 @@
-import { formatPropertyId, padParcelNo, padUlbCode, padUnitNo, padWardNo, resolvePropertyWardNumber } from "@workspace/validation"
+import {
+  formatPropertyId,
+  padParcelNo,
+  padUlbCode,
+  padUnitNo,
+  padWardNo,
+  resolvePropertyWardNumber,
+} from "@workspace/validation"
 
 type PropertyIdParts = {
   ulbCode: string | null | undefined
@@ -28,6 +35,25 @@ function resolveIdentityParts(input: PropertyIdParts): {
   if (!/^\d{1,5}$/.test(parcelNo) || !/^\d{1,3}$/.test(unitNo)) return null
   if (!ulbCode || !wardNo) return null
   return { ulbCode, wardNo, parcelNo, unitNo }
+}
+
+const START_PREVIEW_PARCEL = "·····"
+const START_PREVIEW_UNIT = "···"
+const START_PREVIEW_USE = "·"
+
+/**
+ * Read-only New Survey preview once ULB code and ward are known.
+ * Parcel, unit, and property use stay pending until later steps.
+ * Example: `801262-001-·····-···-·`. Returns null when either part is missing.
+ */
+export function previewPropertyIdStart(input: {
+  ulbCode: string | null | undefined
+  wardNo: string | null | undefined
+}): string | null {
+  const ulbCode = padUlbCode((input.ulbCode ?? "").trim())
+  const wardNo = padWardNo((input.wardNo ?? "").trim())
+  if (!ulbCode || !wardNo) return null
+  return `${ulbCode}-${wardNo}-${START_PREVIEW_PARCEL}-${START_PREVIEW_UNIT}-${START_PREVIEW_USE}`
 }
 
 /**
@@ -67,4 +93,12 @@ export function propertyIdPreview(input: PropertyIdParts & { propertyUse: string
   const full = previewPropertyId(input)
   if (full) return { value: full, isComplete: true }
   return { value: previewPropertyIdBase(input), isComplete: false }
+}
+
+/** Canonical id for headers and review. Incomplete and TEMP-MOBILE values stay pending. */
+export function displayPropertyId(identity: { value: string | null; isComplete: boolean }): string {
+  if (identity.isComplete && identity.value && !identity.value.startsWith("TEMP-MOBILE-")) {
+    return identity.value
+  }
+  return "Property ID pending"
 }

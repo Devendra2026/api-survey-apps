@@ -1,4 +1,7 @@
-import { STEP_IDS, STEP_TITLES, type StepId, type StepProgress } from "./requirements.ts"
+import { STEP_IDS, type StepId, type StepProgress } from "./requirements.ts"
+
+/** One section summary when Next is blocked. Field controls keep their own errors. */
+export const SECTION_BLOCKED_MESSAGE = "Complete this section to continue."
 
 /**
  * Step jump rules for the survey wizard.
@@ -11,7 +14,7 @@ import { STEP_IDS, STEP_TITLES, type StepId, type StepProgress } from "./require
 export function canSelectStep(
   _from: StepId,
   _to: StepId,
-  _progress: Record<StepId, StepProgress>,
+  _progress: Record<StepId, StepProgress>
 ): { allowed: true } | { allowed: false; reason: string } {
   return { allowed: true }
 }
@@ -19,20 +22,11 @@ export function canSelectStep(
 /** Whether the footer Next control may leave the current step. */
 export function canAdvanceFromStep(
   from: StepId,
-  progress: Record<StepId, StepProgress>,
+  progress: Record<StepId, StepProgress>
 ): { allowed: true } | { allowed: false; reason: string } {
   const blocking = progress[from]?.missing ?? []
   if (blocking.length === 0) return { allowed: true }
-  if (from === "property") {
-    return {
-      allowed: false,
-      reason: "Select a ward and enter valid parcel and unit numbers to continue.",
-    }
-  }
-  return {
-    allowed: false,
-    reason: `Complete required items on ${STEP_TITLES[from]} before continuing: ${blocking.join("; ")}`,
-  }
+  return { allowed: false, reason: SECTION_BLOCKED_MESSAGE }
 }
 
 /** Overall completion % from per-step filled/total (informational, not submit gates). */

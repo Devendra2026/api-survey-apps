@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import type { SurveyEditableFields } from "../types.ts"
 import {
+  SECTION_BLOCKED_MESSAGE,
   canAdvanceFromStep,
   canSelectStep,
   nextStepId,
@@ -74,9 +75,15 @@ describe("survey navigation", () => {
     const progress = stepProgress(snapshot({ parcelNumber: null, unitSubNo: null }))
     const gate = canAdvanceFromStep("property", progress)
     assert.equal(gate.allowed, false)
-    if (!gate.allowed) {
-      assert.equal(gate.reason, "Select a ward and enter valid parcel and unit numbers to continue.")
-    }
+    if (!gate.allowed) assert.equal(gate.reason, SECTION_BLOCKED_MESSAGE)
+  })
+
+  it("blocks Next on Property when parcel or unit is shorter than required", () => {
+    const progress = stepProgress(snapshot({ parcelNumber: "747", unitSubNo: "01" }))
+    const gate = canAdvanceFromStep("property", progress)
+    assert.equal(gate.allowed, false)
+    assert.ok(progress.property.missing.includes("Type 5 digits."))
+    assert.ok(progress.property.missing.includes("Type 3 digits."))
   })
 
   it("allows Next on Property when ward, parcel, and unit are valid", () => {
@@ -97,12 +104,9 @@ describe("survey navigation", () => {
     )
     const gate = canAdvanceFromStep("taxation", progress)
     assert.equal(gate.allowed, false)
-    if (!gate.allowed) {
-      assert.match(gate.reason, /Ownership type/)
-      assert.match(gate.reason, /Property use/)
-      assert.match(gate.reason, /Property type/)
-      assert.match(gate.reason, /Property ID/)
-    }
+    if (!gate.allowed) assert.equal(gate.reason, SECTION_BLOCKED_MESSAGE)
+    assert.ok(progress.taxation.missing.some((message) => message.includes("Ownership type")))
+    assert.ok(progress.taxation.missing.some((message) => message.includes("Property use")))
   })
 
   it("allows Next when current step has no submit blockers", () => {
@@ -124,10 +128,11 @@ describe("survey navigation", () => {
   })
 
   it("computes ordinals and neighbors", () => {
-    assert.deepEqual(stepOrdinal("start"), { index: 1, total: 9, label: "Step 1 of 9" })
+    assert.deepEqual(stepOrdinal("start"), { index: 1, total: 10, label: "Step 1 of 10" })
     assert.equal(nextStepId("start"), "property")
     assert.equal(previousStepId("property"), "start")
-    assert.equal(nextStepId("photos"), null)
+    assert.equal(nextStepId("photos"), "review")
+    assert.equal(nextStepId("review"), null)
     assert.equal(previousStepId("start"), null)
   })
 
@@ -151,7 +156,18 @@ describe("survey navigation", () => {
   })
 
   it("lists every StepId for exhaustiveness of neighbors", () => {
-    const steps: StepId[] = ["start", "property", "owner", "address", "taxation", "area", "services", "gps", "photos"]
-    assert.equal(steps.length, 9)
+    const steps: StepId[] = [
+      "start",
+      "property",
+      "owner",
+      "address",
+      "taxation",
+      "area",
+      "services",
+      "gps",
+      "photos",
+      "review",
+    ]
+    assert.equal(steps.length, 10)
   })
 })

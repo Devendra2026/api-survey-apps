@@ -1,12 +1,8 @@
-import { Text } from "@/components/ui"
-import { colors, spacing } from "@/theme"
-import { Host, Switch } from "@expo/ui"
-import { StyleSheet, View } from "react-native"
+import { ChoiceRadios } from "./choice-radios"
 
 /**
- * Yes/No control backed by universal `@expo/ui` Switch inside Host.
- * Host bridges to Jetpack Compose on Android and SwiftUI on iOS.
- * Off = No (or unset before first toggle); On = Yes.
+ * Yes/No for a boolean survey field.
+ * Android uses Jetpack Compose radio buttons; other platforms use the same row.
  */
 export function NativeYesNoField({
   label,
@@ -21,32 +17,18 @@ export function NativeYesNoField({
   disabled?: boolean
   required?: boolean
 }) {
-  const checked = value === true
+  const selected = value === true ? "yes" : value === false ? "no" : null
   return (
-    <View style={styles.wrap}>
-      <Text variant="label">
-        {label}
-        {required ? <Text tone="danger"> *</Text> : null}
-      </Text>
-      <Host matchContents style={styles.host} seedColor={colors.primary}>
-        <Switch
-          label={checked ? "Yes" : value === false ? "No" : "Not set — toggle for Yes"}
-          value={checked}
-          disabled={disabled}
-          onValueChange={(next) => {
-            if (disabled) return
-            onChange(next)
-          }}
-        />
-      </Host>
-      <Text variant="caption" tone="secondary">
-        {value === true ? "Yes selected" : value === false ? "No selected" : "Not set"}
-      </Text>
-    </View>
+    <ChoiceRadios
+      label={label}
+      required={required}
+      disabled={disabled}
+      value={selected}
+      options={[
+        { value: "yes", label: "Yes" },
+        { value: "no", label: "No" },
+      ]}
+      onChange={(next) => onChange(next === "yes")}
+    />
   )
 }
-
-const styles = StyleSheet.create({
-  wrap: { gap: spacing.sm },
-  host: { minHeight: 44, justifyContent: "center" },
-})

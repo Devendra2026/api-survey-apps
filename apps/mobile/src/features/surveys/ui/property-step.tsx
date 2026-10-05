@@ -1,5 +1,5 @@
 import { Text, cardStyle } from "@/components/ui"
-import { colors, spacing } from "@/theme"
+import { spacing } from "@/theme"
 import { useMemo, useState } from "react"
 import { StyleSheet, View } from "react-native"
 import { useUlbWards } from "../hooks/queries"
@@ -9,7 +9,6 @@ import { sortWardsByNumber } from "../lib/ward-order"
 import type { SurveyEditableFields, SurveyPatch, SurveyRecord, WardOption } from "../types"
 import { OutlinedField } from "./outlined-field"
 import { SlumChoice } from "./slum-choice"
-import { ValidationBanner } from "./SurveyChrome"
 import { WardDropdown } from "./ward-dropdown"
 
 const BASE_ID_CAPTION = "Base ID fills in here; property-use suffix is added on the taxation step."
@@ -61,7 +60,6 @@ export function PropertyStep({ record, fields, editable, setFields }: Props) {
   })
   const parcelError = parcelNumberError(fields.parcelNumber)
   const unitError = unitNumberError(fields.unitSubNo)
-  const blockers = [parcelError, unitError].filter((message): message is string => Boolean(message))
   const wardOptions = useMemo(() => {
     const options = wards.map((ward) => ({ value: ward.id, label: wardLabel(ward) }))
     if (fields.wardId && record.ward && !options.some((option) => option.value === fields.wardId)) {
@@ -84,13 +82,6 @@ export function PropertyStep({ record, fields, editable, setFields }: Props) {
   }
   return (
     <View style={styles.stack}>
-      {editable && blockers.length > 0 ? (
-        <ValidationBanner title="Complete this section to continue" tone="warning">
-          <Text variant="caption" style={{ color: colors.warning }}>
-            {blockers.join(" · ")}
-          </Text>
-        </ValidationBanner>
-      ) : null}
       <View style={[cardStyle, styles.ulbCard]}>
         <SectionTitle>ULB</SectionTitle>
         <Text variant="bodyStrong">{record.ulb?.name ?? "—"}</Text>

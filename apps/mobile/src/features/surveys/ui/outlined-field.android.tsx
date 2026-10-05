@@ -4,29 +4,10 @@ import { Text as ComposeText, Host, OutlinedTextField, useNativeState } from "@e
 import { fillMaxWidth } from "@expo/ui/jetpack-compose/modifiers"
 import { useEffect } from "react"
 import { StyleSheet, View } from "react-native"
+import { outlinedFieldColors } from "./compose-field-colors"
 import type { OutlinedFieldProps } from "./outlined-field.types"
 
 const FIELD_MIN_HEIGHT = 56
-
-const fieldColors = {
-  focusedTextColor: colors.text,
-  unfocusedTextColor: colors.text,
-  disabledTextColor: colors.textSecondary,
-  errorTextColor: colors.danger,
-  focusedContainerColor: colors.surface,
-  unfocusedContainerColor: colors.surface,
-  disabledContainerColor: colors.surfaceMuted,
-  focusedIndicatorColor: colors.primary,
-  unfocusedIndicatorColor: colors.border,
-  errorIndicatorColor: colors.danger,
-  focusedLabelColor: colors.primary,
-  unfocusedLabelColor: colors.textSecondary,
-  focusedPlaceholderColor: colors.textSecondary,
-  unfocusedPlaceholderColor: colors.textSecondary,
-  focusedSupportingTextColor: colors.textSecondary,
-  unfocusedSupportingTextColor: colors.textSecondary,
-  errorSupportingTextColor: colors.danger,
-} as const
 
 /**
  * Android property field. Jetpack Compose `OutlinedTextField` inside `Host`,
@@ -78,7 +59,7 @@ export function OutlinedField({
             if (!onChangeText) return
             onChangeText(next)
           }}
-          colors={fieldColors}
+          colors={outlinedFieldColors}
           modifiers={[fillMaxWidth()]}
         >
           {placeholder ? (

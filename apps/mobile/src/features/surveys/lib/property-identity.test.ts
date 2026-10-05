@@ -1,8 +1,20 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
-import { previewPropertyId } from "./property-identity.ts"
+import { previewPropertyId, previewPropertyIdBase } from "./property-identity.ts"
 
 describe("property identity", () => {
+  it("builds the base id before property use and the full id once use is mapped", () => {
+    const parts = {
+      ulbCode: "801262",
+      wardNo: "1",
+      parcelNo: "747",
+      unitNo: "1",
+    }
+    assert.equal(previewPropertyIdBase(parts), "801262-001-00747-001")
+    assert.equal(previewPropertyId({ ...parts, propertyUse: null }), null)
+    assert.equal(previewPropertyId({ ...parts, propertyUse: "COMMERCIAL" }), "801262-001-00747-001-C")
+  })
+
   it("builds the canonical id from ULB, ward, parcel, unit and property-use code", () => {
     // Letters below are PROPERTY_USE_CODES mappings, not assumptions about the example id.
     assert.equal(
@@ -60,7 +72,7 @@ describe("property identity", () => {
         unitNo: "1",
         propertyUse: "OPEN_LAND",
       }),
-      "801262-001-00074-001-P",
+      "801262-001-00074-001-P"
     )
     assert.equal(
       previewPropertyId({
@@ -70,7 +82,7 @@ describe("property identity", () => {
         unitNo: "1",
         propertyUse: "OPEN_LAND",
       }),
-      "801262-007-00747-001-P",
+      "801262-007-00747-001-P"
     )
     assert.equal(
       previewPropertyId({
@@ -80,7 +92,7 @@ describe("property identity", () => {
         unitNo: "123",
         propertyUse: "OPEN_LAND",
       }),
-      "801262-001-12345-123-P",
+      "801262-001-12345-123-P"
     )
     assert.equal(
       previewPropertyId({
@@ -90,7 +102,7 @@ describe("property identity", () => {
         unitNo: "001",
         propertyUse: "OPEN_LAND",
       }),
-      null,
+      null
     )
     assert.equal(
       previewPropertyId({
@@ -100,7 +112,7 @@ describe("property identity", () => {
         unitNo: "1234",
         propertyUse: "OPEN_LAND",
       }),
-      null,
+      null
     )
   })
 })

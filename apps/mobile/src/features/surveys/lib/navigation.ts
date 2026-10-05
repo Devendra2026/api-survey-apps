@@ -23,6 +23,12 @@ export function canAdvanceFromStep(
 ): { allowed: true } | { allowed: false; reason: string } {
   const blocking = progress[from]?.missing ?? []
   if (blocking.length === 0) return { allowed: true }
+  if (from === "property") {
+    return {
+      allowed: false,
+      reason: "Select a ward and enter valid parcel and unit numbers to continue.",
+    }
+  }
   return {
     allowed: false,
     reason: `Complete required items on ${STEP_TITLES[from]} before continuing: ${blocking.join("; ")}`,

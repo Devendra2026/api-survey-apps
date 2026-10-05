@@ -22,7 +22,7 @@ import {
   QC_CORRECTION_SECTIONS,
   type QcCorrectionSection,
 } from "@workspace/validation"
-import { Type } from "class-transformer"
+import { Transform, Type } from "class-transformer"
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -40,9 +40,33 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateBy,
   ValidateNested,
 } from "class-validator"
 import { PaginationQueryDto } from "../../common/dto/pagination-query.dto.js"
+
+/** Earliest constructed year accepted on a field survey. */
+const MIN_CONSTRUCTED_YEAR = 1800
+
+function currentCalendarYear(): number {
+  return new Date().getFullYear()
+}
+
+function isConstructedYearInRange(value: unknown): boolean {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= MIN_CONSTRUCTED_YEAR &&
+    value <= currentCalendarYear()
+  )
+}
+
+function nullableConstructedYear({ value }: { value: unknown }): number | null | undefined {
+  if (value === undefined) return undefined
+  if (value === null || value === "") return null
+  const parsed = typeof value === "number" ? value : Number(value)
+  return parsed
+}
 
 export class CreateSurveyDto {
   @ApiProperty()
@@ -86,6 +110,30 @@ export class CreateSurveyDto {
   @IsOptional()
   @IsString()
   unitSubNo?: string
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  sectorNo?: string | null
+
+  @ApiPropertyOptional({ nullable: true, minimum: MIN_CONSTRUCTED_YEAR })
+  @IsOptional()
+  @Transform(nullableConstructedYear)
+  @ValidateBy({
+    name: "constructedYearRange",
+    validator: {
+      validate: isConstructedYearInRange,
+      defaultMessage: () =>
+        `constructedYear must be an integer from ${MIN_CONSTRUCTED_YEAR} through ${currentCalendarYear()}`,
+    },
+  })
+  constructedYear?: number | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isSlum?: boolean
 
   @ApiPropertyOptional()
   @IsOptional()

@@ -3,6 +3,28 @@
  * Do not invent business rules beyond format checks already implied by existing maxLength / keyboards.
  */
 
+export const MIN_CONSTRUCTED_YEAR = 1800
+
+export function constructedYearError(value: number | null): string | undefined {
+  if (value === null) return undefined
+  const maxYear = new Date().getFullYear()
+  if (!Number.isInteger(value) || value < MIN_CONSTRUCTED_YEAR || value > maxYear) {
+    return `Year must be from ${MIN_CONSTRUCTED_YEAR} to ${maxYear}.`
+  }
+  return undefined
+}
+
+export function parseConstructedYear(value: string): { year: number | null; error?: string; pending?: boolean } {
+  const trimmed = value.trim()
+  if (trimmed === "") return { year: null }
+  if (!/^\d+$/.test(trimmed)) return { year: null, error: "Enter a 4-digit year." }
+  if (trimmed.length < 4) return { year: null, pending: true }
+  const year = Number(trimmed)
+  const error = constructedYearError(year)
+  if (error) return { year: null, error }
+  return { year }
+}
+
 export const PARCEL_NUMBER_ERROR = "Parcel number must be 1 to 5 digits."
 export const UNIT_NUMBER_ERROR = "Unit number must be 1 to 3 digits."
 export const PARCEL_NUMBER_TOO_LONG = "Parcel number cannot be more than 5 digits."

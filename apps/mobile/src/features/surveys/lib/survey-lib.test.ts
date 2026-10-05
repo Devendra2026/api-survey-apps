@@ -19,7 +19,11 @@ import { hasUnsyncedChanges, syncChip, syncReducer, type SyncStatus } from "./sy
 function fields(overrides: Partial<SurveyEditableFields> = {}): SurveyEditableFields {
   return {
     propertyId: "P-1",
+    wardId: "w1",
     parcelNumber: null,
+    sectorNo: null,
+    constructedYear: null,
+    isSlum: false,
     unitSubNo: null,
     propertyIdOld: null,
     respondentName: null,
@@ -133,7 +137,7 @@ describe("submit requirements", () => {
     const reqs = submitRequirements(snapshot({ propertyId: " " }))
     assert.deepEqual(
       reqs.map((r) => r.step),
-      ["property", "property", "property", "property", "area", "gps", "photos"]
+      ["taxation", "taxation", "taxation", "taxation", "area", "gps", "photos"]
     )
   })
 
@@ -175,6 +179,10 @@ describe("patch", () => {
       propertyId: "",
       assessmentYear: "AY_2025_2026",
       solidWasteCollection: true,
+      sectorNo: "3",
+      constructedYear: 1998,
+      isSlum: false,
+      wardId: " ward-9 ",
       userId: "attacker",
       gpsSource: "MANUAL",
     })
@@ -184,7 +192,12 @@ describe("patch", () => {
       propertyUse: "RESIDENTIAL",
       assessmentYear: "AY_2025_2026",
       solidWasteCollection: true,
+      sectorNo: "3",
+      constructedYear: 1998,
+      isSlum: false,
+      wardId: "ward-9",
     })
+    assert.deepEqual(sanitizePatch({ constructedYear: 1700, wardId: "  " }), {})
     assert.deepEqual(sanitizePatch("garbage"), {})
     assert.deepEqual(sanitizePatch(null), {})
   })

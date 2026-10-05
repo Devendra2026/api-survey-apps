@@ -162,10 +162,19 @@ export function BottomActionBar({
   )
 }
 
-export function ValidationBanner({ title, children }: { title: string; children: ReactNode }) {
+export function ValidationBanner({
+  title,
+  children,
+  tone = "danger",
+}: {
+  title: string
+  children: ReactNode
+  tone?: "danger" | "warning"
+}) {
+  const warning = tone === "warning"
   return (
-    <View style={styles.banner} accessibilityRole="alert">
-      <Text variant="label" tone="danger">
+    <View style={[styles.banner, warning && styles.bannerWarning]} accessibilityRole="alert">
+      <Text variant="label" tone={warning ? "default" : "danger"} style={warning ? styles.warningTitle : undefined}>
         {title}
       </Text>
       {children}
@@ -262,6 +271,13 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
     borderRadius: radius.md,
     backgroundColor: colors.dangerMuted,
+  },
+  bannerWarning: {
+    backgroundColor: colors.warningMuted,
+    marginBottom: 0,
+  },
+  warningTitle: {
+    color: colors.warning,
   },
   reviewRow: {
     flexDirection: "row",

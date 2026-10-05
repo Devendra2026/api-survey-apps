@@ -48,10 +48,10 @@ function filled(value: unknown): boolean {
  */
 export function submitRequirements(s: SurveySnapshot): Requirement[] {
   const out: Requirement[] = []
-  if (!filled(s.propertyId)) out.push({ step: "property", message: "Property ID required" })
-  if (!filled(s.ownershipType)) out.push({ step: "property", message: "Ownership type required" })
-  if (!filled(s.propertyUse)) out.push({ step: "property", message: "Property use required" })
-  if (!filled(s.propertyType)) out.push({ step: "property", message: "Property type required" })
+  if (!filled(s.propertyId)) out.push({ step: "taxation", message: "Property ID required" })
+  if (!filled(s.ownershipType)) out.push({ step: "taxation", message: "Ownership type required" })
+  if (!filled(s.propertyUse)) out.push({ step: "taxation", message: "Property use required" })
+  if (!filled(s.propertyType)) out.push({ step: "taxation", message: "Property type required" })
   if (s.ownershipType === "JOINT" && s.coOwnerCount === 0) {
     out.push({ step: "owner", message: "Joint ownership needs at least one co-owner" })
   }
@@ -72,6 +72,7 @@ export function submitRequirements(s: SurveySnapshot): Requirement[] {
  */
 export function mobileFieldRequirements(s: SurveySnapshot): Requirement[] {
   const out = submitRequirements(s)
+  if (!filled(s.wardId)) out.push({ step: "property", message: "Select a ward" })
   const parcelError = parcelNumberError(s.parcelNumber)
   if (parcelError) out.push({ step: "property", message: parcelError })
   const unitError = unitNumberError(s.unitSubNo)
@@ -87,10 +88,10 @@ export function mobileFieldRequirements(s: SurveySnapshot): Requirement[] {
 
 const STEP_FIELDS: Record<Exclude<StepId, "gps" | "photos">, (keyof SurveySnapshot)[]> = {
   start: ["wardLabel", "propertyId"],
-  property: ["parcelNumber", "unitSubNo", "propertyIdOld", "ownershipType", "propertyUse", "propertyType"],
+  property: ["parcelNumber", "unitSubNo", "sectorNo", "constructedYear", "propertyIdOld"],
   owner: ["respondentName", "relationshipWithOwner", "mobileNumber", "alternateMobile", "familySize"],
   address: ["houseDoorNo", "locality", "colony", "city", "pinCode"],
-  taxation: ["situation", "roadType", "taxRateZone", "assessmentYear"],
+  taxation: ["ownershipType", "propertyUse", "propertyType", "situation", "roadType", "taxRateZone", "assessmentYear"],
   area: ["plotAreaSqFt", "plinthAreaSqFt", "floorCount"],
   services: ["waterConnection", "sourceOfWater", "sanitationType", "solidWasteCollection"],
 }

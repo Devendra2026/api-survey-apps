@@ -375,17 +375,19 @@ export class SurveysService {
       ulbId: dto.ulbId ?? survey.ulbId,
       wardId: dto.wardId ?? survey.wardId,
     }
+    let savedWard: { wardNumber: string | null; kind: string | null } | null = null
     if (dto.stateId || dto.districtId || dto.ulbId || dto.wardId) {
       const scope = resolveTenantScope(user.tenantRoles)
       if (!canAccessTenant(scope, nextGeo)) {
         throw new ForbiddenException("Cannot move survey outside your tenant scope")
       }
-      await this.assertGeoHierarchy(nextGeo)
+      const verified = await this.assertGeoHierarchy(nextGeo)
+      if (dto.wardId) savedWard = { wardNumber: verified.wardNumber, kind: verified.kind }
     }
 
     const ulbCode = (survey.ulbCode?.trim() || survey.ulb?.code?.trim() || "").trim()
     const wardNo = resolvePropertyWardNumber({
-      currentWard: survey.ward,
+      currentWard: savedWard ?? survey.ward,
       originalWard: survey.originalWard,
       storedWardNumber: survey.wardNumber,
     })
@@ -402,9 +404,13 @@ export class SurveysService {
     // The client must not choose propertyId. Write it only when the server can derive it.
     const { propertyId: _clientPropertyId, ...dtoWithoutPropertyId } = dto
     void _clientPropertyId
-    const writeDto = derivedPropertyId
-      ? { ...dtoWithoutPropertyId, propertyId: derivedPropertyId }
-      : dtoWithoutPropertyId
+    const geographicWardNumber =
+      savedWard && dto.wardId && !isZeroWardKind(savedWard.kind) ? (savedWard.wardNumber ?? "").trim() : ""
+    const writeDto = {
+      ...dtoWithoutPropertyId,
+      ...(derivedPropertyId ? { propertyId: derivedPropertyId } : {}),
+      ...(geographicWardNumber ? { wardNumber: geographicWardNumber } : {}),
+    }
 
     const nextPropertyId = derivedPropertyId ?? survey.propertyId
     const nextAssessmentYear = dto.assessmentYear ?? survey.assessmentYear
@@ -877,7 +883,15 @@ export class SurveysService {
     return survey
   }
 
-  private async assertGeoHierarchy(geo: { stateId: string; districtId: string; ulbId: string; wardId: string }) {
+  private async assertGeoHierarchy(geo: {
+    stateId: string
+    districtId: string
+    ulbId: string
+    wardId: string
+  }): Promise<{
+    wardNumber: string | null
+    kind: string | null
+  }> {
     const ward = await this.prisma.db.ward.findUnique({
       where: { id: geo.wardId },
       include: {
@@ -894,10 +908,16 @@ export class SurveysService {
     if (ward.ulb.district.stateId !== geo.stateId) {
       throw new BadRequestException("districtId does not belong to stateId")
     }
+    return { wardNumber: ward.wardNumber, kind: ward.kind }
   }
 
   /** Public wrapper for QC / customer modules that need hierarchy validation. */
-  async assertGeoHierarchyForQc(geo: { stateId: string; districtId: string; ulbId: string; wardId: string }) {
-    return this.assertGeoHierarchy(geo)
+  async assertGeoHierarchyForQc(geo: {
+    stateId: string
+    districtId: string
+    ulbId: string
+    wardId: string
+  }): Promise<void> {
+    await this.assertGeoHierarchy(geo)
   }
 }

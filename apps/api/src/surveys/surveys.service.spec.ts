@@ -75,12 +75,14 @@ describe("SurveysService workflow", () => {
 
   const repo = {
     findById: jest.fn<(...args: unknown[]) => Promise<unknown>>(),
+    update: jest.fn<(...args: unknown[]) => Promise<unknown>>(),
     transitionStatus: jest.fn<(...args: unknown[]) => Promise<unknown>>(),
   }
 
   const prisma = {
     db: {
-      ward: { findUnique: jest.fn() },
+      ward: { findUnique: jest.fn<(...args: unknown[]) => Promise<unknown>>() },
+      survey: { findFirst: jest.fn<(...args: unknown[]) => Promise<unknown>>() },
     },
   }
 
@@ -292,6 +294,78 @@ describe("SurveysService workflow", () => {
     repo.transitionStatus.mockResolvedValue({ survey: { ...baseSurvey, surveyStatus: "SUBMITTED" } })
     await service.submit("s1", user)
     expect(repo.transitionStatus).toHaveBeenCalledWith(expect.objectContaining({ resolveOpenQcRemarks: false }))
+  })
+
+  it("derives Property ID from the ward saved in the same update", async () => {
+    const survey = {
+      ...baseSurvey,
+      surveyStatus: "IN_PROGRESS" as const,
+      propertyId: "TEMP-MOBILE-ABC",
+      stateId: "state-1",
+      districtId: "dist-1",
+      ulbId: "ulb-1",
+      wardId: "ward-1",
+      ulbCode: "801262",
+      wardNumber: "1",
+      parcelNumber: "747",
+      unitSubNo: "1",
+      propertyUse: "COMMERCIAL" as const,
+      assessmentYear: "AY_2026_2027" as const,
+      ward: { id: "ward-1", wardNumber: "1", kind: "GEOGRAPHIC" },
+      ulb: { code: "801262" },
+    }
+    repo.findById.mockResolvedValue(survey)
+    prisma.db.ward.findUnique.mockResolvedValue({
+      id: "ward-2",
+      wardNumber: "7",
+      kind: "GEOGRAPHIC",
+      ulbId: "ulb-1",
+      ulb: { districtId: "dist-1", district: { stateId: "state-1" } },
+    })
+    prisma.db.survey.findFirst.mockResolvedValue(null)
+    repo.update.mockResolvedValue({ ...survey, propertyId: "801262-007-00747-001-C", wardId: "ward-2" })
+    await service.update(
+      "s1",
+      { wardId: "ward-2", parcelNumber: "747", unitSubNo: "1", propertyId: "client-must-not-win" },
+      user
+    )
+    expect(repo.update).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({
+        wardId: "ward-2",
+        wardNumber: "7",
+        propertyId: "801262-007-00747-001-C",
+      })
+    )
+    const written = repo.update.mock.calls[0]?.[1] as { propertyId?: string }
+    expect(written.propertyId).not.toBe("client-must-not-win")
+  })
+
+  it("leaves the stored Property ID unchanged until property use is present", async () => {
+    const survey = {
+      ...baseSurvey,
+      surveyStatus: "IN_PROGRESS" as const,
+      propertyId: "TEMP-MOBILE-ABC",
+      stateId: "state-1",
+      districtId: "dist-1",
+      ulbId: "ulb-1",
+      wardId: "ward-1",
+      ulbCode: "801262",
+      wardNumber: "1",
+      parcelNumber: null,
+      unitSubNo: null,
+      propertyUse: null,
+      assessmentYear: "AY_2026_2027" as const,
+      ward: { id: "ward-1", wardNumber: "1", kind: "GEOGRAPHIC" },
+      ulb: { code: "801262" },
+    }
+    repo.findById.mockResolvedValue(survey)
+    repo.update.mockResolvedValue(survey)
+    await service.update("s1", { parcelNumber: "747", unitSubNo: "1", sectorNo: "3", isSlum: false }, user)
+    const written = repo.update.mock.calls[0]?.[1] as { propertyId?: string; sectorNo?: string; isSlum?: boolean }
+    expect(written.propertyId).toBeUndefined()
+    expect(written.sectorNo).toBe("3")
+    expect(written.isSlum).toBe(false)
   })
 
   it("denies team field metrics without survey:assign or survey:approve", async () => {

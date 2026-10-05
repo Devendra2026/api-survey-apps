@@ -14,7 +14,11 @@ import { stepProgress, type StepId, type SurveySnapshot } from "./requirements.t
 function fields(overrides: Partial<SurveyEditableFields> = {}): SurveyEditableFields {
   return {
     propertyId: "P-1",
+    wardId: "w1",
     parcelNumber: null,
+    sectorNo: null,
+    constructedYear: null,
+    isSlum: false,
     unitSubNo: null,
     propertyIdOld: null,
     respondentName: null,
@@ -66,12 +70,38 @@ describe("survey navigation", () => {
     assert.equal(canSelectStep("gps", "property", progress).allowed, true)
   })
 
-  it("blocks Next while the current step has submit-blocking gaps", () => {
-    const progress = stepProgress(snapshot({ ownershipType: null, propertyUse: null, propertyType: null }))
+  it("blocks Next on Property until parcel and unit are valid", () => {
+    const progress = stepProgress(snapshot({ parcelNumber: null, unitSubNo: null }))
     const gate = canAdvanceFromStep("property", progress)
     assert.equal(gate.allowed, false)
     if (!gate.allowed) {
-      assert.match(gate.reason, /Ownership type|Property use|Property type|Property ID/i)
+      assert.equal(gate.reason, "Select a ward and enter valid parcel and unit numbers to continue.")
+    }
+  })
+
+  it("allows Next on Property when ward, parcel, and unit are valid", () => {
+    const progress = stepProgress(snapshot({ parcelNumber: "00747", unitSubNo: "001" }))
+    assert.equal(canAdvanceFromStep("property", progress).allowed, true)
+  })
+
+  it("blocks Next on Taxation until ownership, use, and type are set", () => {
+    const progress = stepProgress(
+      snapshot({
+        parcelNumber: "00747",
+        unitSubNo: "001",
+        ownershipType: null,
+        propertyUse: null,
+        propertyType: null,
+        propertyId: " ",
+      })
+    )
+    const gate = canAdvanceFromStep("taxation", progress)
+    assert.equal(gate.allowed, false)
+    if (!gate.allowed) {
+      assert.match(gate.reason, /Ownership type/)
+      assert.match(gate.reason, /Property use/)
+      assert.match(gate.reason, /Property type/)
+      assert.match(gate.reason, /Property ID/)
     }
   })
 

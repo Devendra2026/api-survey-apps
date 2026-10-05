@@ -1,3 +1,4 @@
+import { constructedYearError } from "./field-format.ts"
 import {
   ASSESSMENT_YEARS,
   OWNERSHIP_TYPES,
@@ -14,8 +15,10 @@ import {
 } from "../types.ts"
 
 const STRING_KEYS = [
+  "wardId",
   "parcelNumber",
   "unitSubNo",
+  "sectorNo",
   "propertyIdOld",
   "respondentName",
   "relationshipWithOwner",
@@ -69,6 +72,10 @@ export function sanitizePatch(raw: unknown): SurveyPatch {
 
   for (const key of STRING_KEYS) {
     const value = raw[key]
+    if (key === "wardId") {
+      if (typeof value === "string" && value.trim() !== "") out.wardId = value.trim()
+      continue
+    }
     if (value === null || typeof value === "string") out[key] = value
   }
   for (const key of NUMBER_KEYS) {
@@ -80,6 +87,12 @@ export function sanitizePatch(raw: unknown): SurveyPatch {
 
   const solid = raw.solidWasteCollection
   if (solid === null || typeof solid === "boolean") out.solidWasteCollection = solid
+  if (typeof raw.isSlum === "boolean") out.isSlum = raw.isSlum
+  if (raw.constructedYear === null) {
+    out.constructedYear = null
+  } else if (typeof raw.constructedYear === "number" && !constructedYearError(raw.constructedYear)) {
+    out.constructedYear = raw.constructedYear
+  }
 
   const year = pickEnum(ASSESSMENT_YEARS, raw.assessmentYear)
   if (year) out.assessmentYear = year
@@ -121,6 +134,8 @@ const PATCH_KEYS: readonly (keyof SurveyPatch)[] = [
   ...NUMBER_KEYS,
   "propertyId",
   "solidWasteCollection",
+  "isSlum",
+  "constructedYear",
   "assessmentYear",
   "ownershipType",
   "propertyUse",
@@ -153,6 +168,9 @@ function decimalToNumber(value: SurveyEditableFields["latitude"]): number | null
 export function recordToFields(record: SurveyEditableFields): SurveyEditableFields {
   return {
     ...record,
+    sectorNo: record.sectorNo ?? null,
+    constructedYear: record.constructedYear ?? null,
+    isSlum: record.isSlum ?? false,
     plotAreaSqFt: decimalToNumber(record.plotAreaSqFt),
     plinthAreaSqFt: decimalToNumber(record.plinthAreaSqFt),
     latitude: decimalToNumber(record.latitude),

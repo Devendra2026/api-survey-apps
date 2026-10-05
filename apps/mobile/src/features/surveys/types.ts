@@ -156,8 +156,12 @@ export type QcRemarkThreadItem = {
 /** Survey columns the field wizard edits through `PATCH /surveys/:id`. */
 export type SurveyEditableFields = {
   propertyId: string
+  wardId: string
   parcelNumber: string | null
   unitSubNo: string | null
+  sectorNo: string | null
+  constructedYear: number | null
+  isSlum: boolean
   propertyIdOld: string | null
   respondentName: string | null
   relationshipWithOwner: string | null
@@ -270,4 +274,10 @@ export type FieldMetrics = {
   activeSurveyorCount: number | null
 }
 
-export type WardOption = { id: string; wardNumber: string; wardName: string; ulbId: string }
+export type WardOption = {
+  id: string
+  wardNumber: string
+  wardName: string
+  ulbId: string
+  kind?: string | null
+}

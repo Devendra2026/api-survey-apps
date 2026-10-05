@@ -16,6 +16,7 @@ import {
   previousStepId,
 } from "../lib/navigation"
 import { clearPendingPatch } from "../lib/pending-store"
+import { propertyIdPreview } from "../lib/property-identity"
 import {
   STEP_IDS,
   STEP_TITLES,
@@ -26,7 +27,6 @@ import {
   type StepId,
   type SurveySnapshot,
 } from "../lib/requirements"
-import { previewPropertyId } from "../lib/property-identity"
 import { hasUnsyncedChanges } from "../lib/sync-state"
 import { CorrectionPanel } from "../ui/CorrectionPanel"
 import { ReviewSection } from "../ui/ReviewSection"
@@ -62,7 +62,7 @@ export function SurveyWizard({
 
   const snapshot = useMemo<SurveySnapshot | null>(() => {
     if (!record || !autosave.fields) return null
-    const preview = previewPropertyId({
+    const preview = propertyIdPreview({
       ulbCode: record.ulbCode ?? record.ulb?.code,
       wardNo: record.ward?.wardNumber,
       currentWard: record.ward,
@@ -74,7 +74,7 @@ export function SurveyWizard({
     })
     return {
       ...autosave.fields,
-      propertyId: preview ?? autosave.fields.propertyId,
+      propertyId: preview.isComplete ? preview.value ?? autosave.fields.propertyId : autosave.fields.propertyId,
       wardLabel: record.ward ? `${record.ward.wardNumber} · ${record.ward.wardName}` : null,
       floorCount: record.floors.length,
       coOwnerCount: record.coOwners.length,
@@ -223,16 +223,18 @@ export function SurveyWizard({
   return (
     <Screen padded={false} keyboard>
       <SurveyHeader
-        propertyId={previewPropertyId({
-          ulbCode: record.ulbCode ?? record.ulb?.code,
-          wardNo: record.ward?.wardNumber,
-          currentWard: record.ward,
-          originalWard: record.originalWard,
-          storedWardNumber: record.wardNumber,
-          parcelNo: autosave.fields.parcelNumber,
-          unitNo: autosave.fields.unitSubNo,
-          propertyUse: autosave.fields.propertyUse,
-        }) ?? "Property ID pending"}
+        propertyId={
+          propertyIdPreview({
+            ulbCode: record.ulbCode ?? record.ulb?.code,
+            wardNo: record.ward?.wardNumber,
+            currentWard: record.ward,
+            originalWard: record.originalWard,
+            storedWardNumber: record.wardNumber,
+            parcelNo: autosave.fields.parcelNumber,
+            unitNo: autosave.fields.unitSubNo,
+            propertyUse: autosave.fields.propertyUse,
+          }).value ?? "Property ID pending"
+        }
         wardLine={wardLine}
         step={step}
         completionPercent={completionPercent}
@@ -281,7 +283,7 @@ export function SurveyWizard({
             ))}
           </ValidationBanner>
         ) : null}
-        {stepMissing.length && editable && !isLast ? (
+        {stepMissing.length && editable && !isLast && step !== "property" ? (
           <View style={styles.stepHints}>
             <Text variant="caption" tone="secondary">
               Required for submit on this step: {stepMissing.join(", ")}

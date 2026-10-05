@@ -10,8 +10,10 @@ import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native"
 import { useInvalidateSurveyLists, useUlbWards } from "../hooks/queries"
 import { surveyAssignments, temporaryPropertyId, type SurveyAssignment } from "../lib/assignments"
 import { defaultAssessmentYear } from "../lib/labels"
+import { sortWardsByNumber } from "../lib/ward-order"
 import { ASSESSMENT_YEARS, type AssessmentYear } from "../types"
 import { OptionChips } from "../ui/primitives"
+import { WardDropdown } from "../ui/ward-dropdown"
 
 type WardChoice = { wardId: string; label: string }
 
@@ -46,6 +48,14 @@ export function NewSurveyScreen({ profile }: { profile: AuthenticatedProfile }) 
   const [error, setError] = useState<string | null>(null)
   const lockRef = useRef(false)
   const wardsQuery = useUlbWards(assignment && assignment.wardId === null ? assignment.ulbId : null)
+  const wardOptions = useMemo(
+    () =>
+      sortWardsByNumber(wardsQuery.data?.items ?? []).map((item) => ({
+        value: item.id,
+        label: `${item.wardNumber} · ${item.wardName}`,
+      })),
+    [wardsQuery.data?.items],
+  )
 
   const effectiveWard: WardChoice | null =
     assignment?.wardId ? { wardId: assignment.wardId, label: assignment.wardLabel ?? "Assigned ward" } : ward
@@ -126,7 +136,16 @@ export function NewSurveyScreen({ profile }: { profile: AuthenticatedProfile }) 
 
         {assignment && assignment.wardId === null ? (
           <View style={styles.wards}>
-            <Text variant="label">Ward *</Text>
+            <WardDropdown
+              options={wardOptions}
+              value={ward?.wardId ?? null}
+              disabled={wardsQuery.isPending || wardsQuery.isError || wardOptions.length === 0}
+              onChange={(wardId) => {
+                const match = wardOptions.find((option) => option.value === wardId)
+                if (!match) return
+                setWard({ wardId: match.value, label: match.label })
+              }}
+            />
             {wardsQuery.isPending ? <ActivityIndicator color={colors.primary} /> : null}
             {wardsQuery.isError ? (
               <View style={styles.wardError}>
@@ -136,29 +155,11 @@ export function NewSurveyScreen({ profile }: { profile: AuthenticatedProfile }) 
                 <Button title="Retry" variant="secondary" onPress={() => void wardsQuery.refetch()} />
               </View>
             ) : null}
-            {!wardsQuery.isPending && !wardsQuery.isError && (wardsQuery.data?.items.length ?? 0) === 0 ? (
+            {!wardsQuery.isPending && !wardsQuery.isError && wardOptions.length === 0 ? (
               <Text variant="caption" tone="secondary">
                 No wards returned for this ULB. Contact an administrator.
               </Text>
             ) : null}
-            <View style={styles.chips}>
-              {(wardsQuery.data?.items ?? []).map((w) => {
-                const selected = ward?.wardId === w.id
-                return (
-                  <Pressable
-                    key={w.id}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected }}
-                    onPress={() => setWard({ wardId: w.id, label: `${w.wardNumber} · ${w.wardName}` })}
-                    style={[styles.chip, selected && styles.optionSelected]}
-                  >
-                    <Text variant="label" tone={selected ? "inverse" : "default"}>
-                      {w.wardNumber} · {w.wardName}
-                    </Text>
-                  </Pressable>
-                )
-              })}
-            </View>
           </View>
         ) : null}
       </View>
@@ -200,14 +201,5 @@ const styles = StyleSheet.create({
   optionSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
   wards: { gap: spacing.sm },
   wardError: { gap: spacing.sm },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
-  chip: {
-    minHeight: touchTarget,
-    justifyContent: "center",
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.full,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
   error: { marginBottom: spacing.md },
 })

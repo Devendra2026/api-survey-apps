@@ -6,6 +6,7 @@ import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
 import { isSystemZeroWard } from "@workspace/validation"
 import { ChevronDown, ChevronRight, Eye, Pencil, Plus, Trash2 } from "lucide-react"
+import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { useGeographyUlbWards } from "../hooks/use-configuration"
 import { ulbTypeBadge } from "../lib/geo-display"
@@ -429,6 +430,9 @@ function UlbCard({
           onClick={() => onViewUlb(ulb)}
         >
           <Eye className="size-3.5" />
+        </Button>
+        <Button type="button" size="sm" variant="ghost" className="cursor-pointer" asChild>
+          <Link href={`/configuration/geography/ulbs/${ulb.id}/pin-codes`}>PIN codes</Link>
         </Button>
         {canManage ? (
           <Button

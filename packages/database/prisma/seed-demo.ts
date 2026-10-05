@@ -574,7 +574,26 @@ async function seedSampleSurveys(db: PrismaClient, geo: Geography, users: SeedUs
     ],
   })
 
+  const pinRows = await db.survey.findMany({
+    where: { deletedAt: null, pinCode: { not: null } },
+    select: { ulbId: true, pinCode: true },
+  })
+  const seenPins = new Set<string>()
+  for (const row of pinRows) {
+    const code = row.pinCode?.trim() ?? ""
+    if (!/^\d{6}$/.test(code)) continue
+    const key = `${row.ulbId}:${code}`
+    if (seenPins.has(key)) continue
+    seenPins.add(key)
+    await db.ulbPinCode.upsert({
+      where: { ulbId_code: { ulbId: row.ulbId, code } },
+      create: { ulbId: row.ulbId, code },
+      update: {},
+    })
+  }
+
   console.log(`Seeded ${surveys.length} sample surveys with co-owners, floors, photos, and audits`)
+  console.log(`Seeded ${seenPins.size} ULB PIN codes from survey address PINs`)
 }
 
 export async function seedDemo(db: PrismaClient, geo: Geography, roles: RoleMap) {

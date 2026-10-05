@@ -19,6 +19,11 @@ describe("UlbsRepository district scope and duplicates", () => {
   const surveyAuditDeleteMany = jest.fn<(...args: unknown[]) => Promise<unknown>>()
   const roleDeleteMany = jest.fn<(...args: unknown[]) => Promise<unknown>>()
   const apiKeyDeleteMany = jest.fn<(...args: unknown[]) => Promise<unknown>>()
+  const pinDeleteMany = jest.fn<(...args: unknown[]) => Promise<unknown>>()
+  const pinFindMany = jest.fn<(...args: unknown[]) => Promise<unknown>>()
+  const pinCreate = jest.fn<(...args: unknown[]) => Promise<unknown>>()
+  const pinFindFirst = jest.fn<(...args: unknown[]) => Promise<unknown>>()
+  const pinDelete = jest.fn<(...args: unknown[]) => Promise<unknown>>()
 
   const prisma = {
     db: {
@@ -33,6 +38,13 @@ describe("UlbsRepository district scope and duplicates", () => {
       },
       userTenantRole: { deleteMany: roleDeleteMany },
       ulbApiKey: { deleteMany: apiKeyDeleteMany },
+      ulbPinCode: {
+        deleteMany: pinDeleteMany,
+        findMany: pinFindMany,
+        findFirst: pinFindFirst,
+        create: pinCreate,
+        delete: pinDelete,
+      },
       $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
         fn({
           ward: { findMany: wardFindMany, deleteMany: wardDeleteMany },
@@ -46,6 +58,7 @@ describe("UlbsRepository district scope and duplicates", () => {
           ulb: { delete: ulbDelete },
           userTenantRole: { deleteMany: roleDeleteMany },
           ulbApiKey: { deleteMany: apiKeyDeleteMany },
+          ulbPinCode: { deleteMany: pinDeleteMany },
         })
       ),
     },
@@ -112,6 +125,12 @@ describe("UlbsRepository district scope and duplicates", () => {
     surveyAuditDeleteMany.mockResolvedValue({ count: 0 })
     roleDeleteMany.mockReset()
     apiKeyDeleteMany.mockReset()
+    pinDeleteMany.mockReset()
+    pinDeleteMany.mockResolvedValue({ count: 0 })
+    pinFindMany.mockReset()
+    pinCreate.mockReset()
+    pinFindFirst.mockReset()
+    pinDelete.mockReset()
     repo = new UlbsRepository(prisma as never)
   })
 
@@ -332,5 +351,56 @@ describe("UlbsRepository district scope and duplicates", () => {
 
     expect(wardDeleteMany).toHaveBeenCalledWith({ where: { ulbId: "ulb-1", id: { in: ["zero-1", "w-soft"] } } })
     expect(ulbDelete).toHaveBeenCalledWith({ where: { id: "ulb-1" } })
+    expect(pinDeleteMany).toHaveBeenCalledWith({ where: { ulbId: "ulb-1" } })
+  })
+
+  it("lists 6-digit PIN codes for a ULB the user can view", async () => {
+    ulbFindFirst.mockResolvedValueOnce({ id: "ulb-1", districtId: "district-1" })
+    pinFindMany.mockResolvedValueOnce([{ id: "pin-1", code: "207001" }])
+    await expect(repo.listPinCodes("ulb-1", admin)).resolves.toEqual([{ id: "pin-1", code: "207001" }])
+    expect(pinFindMany).toHaveBeenCalledWith({
+      where: { ulbId: "ulb-1" },
+      orderBy: { code: "asc" },
+      select: { id: true, code: true },
+    })
+  })
+
+  it("rejects a PIN that is not 6 digits", async () => {
+    ulbFindFirst.mockResolvedValueOnce({ id: "ulb-1", districtId: "district-1" })
+    await expect(repo.createPinCode("ulb-1", "12345", admin)).rejects.toThrow(BadRequestException)
+    expect(pinCreate).not.toHaveBeenCalled()
+  })
+
+  it("stores a 6-digit PIN and a later list includes it", async () => {
+    ulbFindFirst.mockResolvedValue({ id: "ulb-1", districtId: "district-1" })
+    pinCreate.mockResolvedValueOnce({ id: "pin-1", code: "207001" })
+    await expect(repo.createPinCode("ulb-1", "207001", admin)).resolves.toEqual({
+      id: "pin-1",
+      code: "207001",
+    })
+    expect(pinCreate).toHaveBeenCalledWith({
+      data: { ulbId: "ulb-1", code: "207001" },
+      select: { id: true, code: true },
+    })
+    pinFindMany.mockResolvedValueOnce([{ id: "pin-1", code: "207001" }])
+    await expect(repo.listPinCodes("ulb-1", admin)).resolves.toEqual([{ id: "pin-1", code: "207001" }])
+  })
+
+  it("rejects a second add of the same PIN", async () => {
+    ulbFindFirst.mockResolvedValueOnce({ id: "ulb-1", districtId: "district-1" })
+    pinCreate.mockRejectedValueOnce({ code: "P2002" })
+    await expect(repo.createPinCode("ulb-1", "207001", admin)).rejects.toThrow(
+      "This PIN is already registered for the ULB"
+    )
+  })
+
+  it("removes a catalog PIN without changing surveys", async () => {
+    ulbFindFirst.mockResolvedValueOnce({ id: "ulb-1", districtId: "district-1" })
+    pinFindFirst.mockResolvedValueOnce({ id: "pin-1" })
+    pinDelete.mockResolvedValueOnce({ id: "pin-1" })
+    await repo.deletePinCode("ulb-1", "pin-1", admin)
+    expect(pinDelete).toHaveBeenCalledWith({ where: { id: "pin-1" } })
+    expect(surveyUpdateMany).not.toHaveBeenCalled()
+    expect(surveyDeleteMany).not.toHaveBeenCalled()
   })
 })

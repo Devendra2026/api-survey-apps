@@ -44,4 +44,16 @@ export class UlbsService {
   createZeroWard(ulbId: string, user: AuthenticatedUser) {
     return this.ulbsRepository.findById(ulbId, user).then(() => createZeroWard(this.prisma.db, ulbId))
   }
+
+  listPinCodes(ulbId: string, user: AuthenticatedUser) {
+    return this.ulbsRepository.listPinCodes(ulbId, user)
+  }
+
+  createPinCode(ulbId: string, code: string, user: AuthenticatedUser) {
+    return this.ulbsRepository.createPinCode(ulbId, code, user)
+  }
+
+  deletePinCode(ulbId: string, pinCodeId: string, user: AuthenticatedUser) {
+    return this.ulbsRepository.deletePinCode(ulbId, pinCodeId, user)
+  }
 }

@@ -82,7 +82,7 @@ export function ReferenceDataPanel({ initialCategory }: { initialCategory?: stri
                     : "border-border/60 bg-background text-muted-foreground hover:border-border hover:bg-muted/40 hover:text-foreground"
                 )}
               >
-                <span className="block max-w-[10rem] truncate">{cat.name}</span>
+                <span className="block max-w-40 truncate">{cat.name}</span>
                 <span className="text-[10px] text-muted-foreground">{cat._count.entries} options</span>
               </button>
             )
@@ -110,7 +110,7 @@ export function ReferenceDataPanel({ initialCategory }: { initialCategory?: stri
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <div className="relative min-w-[12rem] flex-1 sm:w-52 sm:flex-none">
+              <div className="relative min-w-48 flex-1 sm:w-52 sm:flex-none">
                 <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={search}

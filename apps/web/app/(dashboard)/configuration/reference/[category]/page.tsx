@@ -95,7 +95,7 @@ export default function ReferenceCategoryPage() {
         <SearchToolbar value={search} onChange={setSearch} placeholder="Search name, code…" />
         <div className="flex flex-wrap gap-2">
           <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger className="w-[140px] cursor-pointer">
+            <SelectTrigger className="w-35 cursor-pointer">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>

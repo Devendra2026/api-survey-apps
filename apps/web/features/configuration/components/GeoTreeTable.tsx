@@ -370,7 +370,7 @@ export function GeoTreeTable({
   return (
     <div className="flex h-full flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="min-w-[200px] flex-1">
+        <div className="min-w-50 flex-1">
           <SearchToolbar value={query} onChange={setQuery} placeholder="Search locations…" />
         </div>
         <Button
@@ -392,7 +392,7 @@ export function GeoTreeTable({
           Collapse all
         </Button>
         <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
-          <SelectTrigger className="h-8 w-[130px] cursor-pointer" aria-label="Status filter">
+          <SelectTrigger className="h-8 w-32.5 cursor-pointer" aria-label="Status filter">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>

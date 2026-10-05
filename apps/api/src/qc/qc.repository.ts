@@ -413,7 +413,7 @@ export class QcRepository {
     if (!current) {
       throw new NotFoundException(`Survey ${surveyId} not found`)
     }
-    if (!wardIds.includes(current.wardId)) {
+    if (!current.wardId || !wardIds.includes(current.wardId)) {
       throw new BadRequestException("Survey does not belong to the active ward")
     }
 
@@ -697,6 +697,9 @@ export class QcRepository {
     const unitSubNo = existing.unitSubNo
     const wardNumber = existing.wardNumber
     const originalWardId = existing.originalWardId ?? existing.wardId
+    if (!originalWardId) {
+      throw new BadRequestException("Survey requires a ward before it can be quarantined")
+    }
 
     return this.prisma.db.$transaction(async (tx) => {
       await tx.survey.update({
@@ -782,7 +785,7 @@ export class QcRepository {
     })
     let destinationKind = existing.ward?.kind ?? "GEOGRAPHIC"
 
-    if (patch.ulbId || patch.wardId) {
+    if ((patch.ulbId || patch.wardId) && nextWardId) {
       const ward = await this.prisma.db.ward.findUnique({
         where: { id: nextWardId },
         include: { ulb: { select: { id: true, code: true, name: true } } },
@@ -911,7 +914,7 @@ export class QcRepository {
       scalarData.state = { connect: { id: nextStateId } }
       scalarData.district = { connect: { id: nextDistrictId } }
       scalarData.ulb = { connect: { id: nextUlbId } }
-      scalarData.ward = { connect: { id: nextWardId } }
+      if (nextWardId) scalarData.ward = { connect: { id: nextWardId } }
       if (ulbCode) scalarData.ulbCode = ulbCode
       if (movingToZero) {
         if (
@@ -919,7 +922,7 @@ export class QcRepository {
           !isZeroWardKind(existing.ward?.kind) &&
           !isZeroWardName(existing.ward?.wardName)
         ) {
-          scalarData.originalWard = { connect: { id: existing.wardId } }
+          if (existing.wardId) scalarData.originalWard = { connect: { id: existing.wardId } }
         }
       } else if (wardNo) {
         scalarData.wardNumber = wardNo

@@ -58,6 +58,7 @@ describe("SurveysService workflow", () => {
 
   const baseSurvey = {
     id: "s1",
+    wardId: "w1",
     createdById: "user1",
     assignedToId: "user1",
     surveyStatus: "DRAFT" as const,
@@ -76,11 +77,14 @@ describe("SurveysService workflow", () => {
   const repo = {
     findById: jest.fn<(...args: unknown[]) => Promise<unknown>>(),
     transitionStatus: jest.fn<(...args: unknown[]) => Promise<unknown>>(),
+    createWithAudit: jest.fn<(...args: unknown[]) => Promise<unknown>>(),
   }
 
   const prisma = {
     db: {
       ward: { findUnique: jest.fn() },
+      ulb: { findUnique: jest.fn<(...args: unknown[]) => Promise<unknown>>() },
+      ulbPinCode: { findUnique: jest.fn<(...args: unknown[]) => Promise<unknown>>() },
     },
   }
 
@@ -98,6 +102,37 @@ describe("SurveysService workflow", () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+  })
+
+  it("creates a draft without a ward when the ULB belongs to the district", async () => {
+    prisma.db.ulb.findUnique.mockResolvedValue({
+      id: "ulb1",
+      districtId: "d1",
+      district: { stateId: "st1" },
+    })
+    repo.createWithAudit.mockResolvedValue({ id: "s-new", wardId: null })
+    const result = await service.create(
+      {
+        stateId: "st1",
+        districtId: "d1",
+        ulbId: "ulb1",
+        propertyId: "TEMP-1",
+        assessmentYear: "AY_2025_2026",
+      } as never,
+      user
+    )
+    expect(repo.createWithAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ ulbId: "ulb1", createdById: user.id, propertyId: "TEMP-1" }),
+      user.id
+    )
+    const payload = repo.createWithAudit.mock.calls[0]?.[0] as { wardId?: string }
+    expect(payload.wardId).toBeUndefined()
+    expect(result).toEqual({ id: "s-new", wardId: null })
+  })
+
+  it("rejects submit without a ward", async () => {
+    repo.findById.mockResolvedValue({ ...baseSurvey, wardId: null })
+    await expect(service.submit("s1", user)).rejects.toThrow(/ward/i)
   })
 
   it("rejects submit without FRONT photo", async () => {

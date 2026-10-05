@@ -61,6 +61,10 @@ export class ImageMigrationService {
     })
 
     try {
+      if (!photo.survey.wardId) {
+        await this.markBroken(photo.id, "Survey has no ward")
+        return { ok: false, reason: "Survey has no ward" }
+      }
       const downloaded = await this.downloadWithRetry(sourceUrl)
       const key = buildMigratedUploadObjectKey({
         stateId: photo.survey.stateId,

@@ -38,6 +38,12 @@ const OVERRIDES: Record<string, string> = {
   DOCUMENT: "Document",
 }
 
+export function ulbTypeLabel(type: string | null | undefined): string {
+  if (type === "TOWN_PANCHAYAT") return "Town Panchayat"
+  if (type === "MUNICIPAL_COUNCIL") return "Municipal council"
+  return "ULB"
+}
+
 export function optionLabel(value: string): string {
   return OVERRIDES[value] ?? humanizeEnum(value)
 }

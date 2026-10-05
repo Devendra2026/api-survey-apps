@@ -14,6 +14,32 @@ export const STEP_IDS = [
 ] as const
 export type StepId = (typeof STEP_IDS)[number]
 
+/** Short labels on the start-screen step rail. */
+export const STEP_CHIP_LABELS: Record<StepId, string> = {
+  start: "Start",
+  property: "Property",
+  owner: "Owner",
+  address: "Address",
+  taxation: "Taxation",
+  area: "Area",
+  services: "Services",
+  gps: "GPS",
+  photos: "Photos",
+}
+
+/** Circle marks from the survey start screen. Area uses 5 because A is Address. */
+export const STEP_MARKS: Record<StepId, string> = {
+  start: "0",
+  property: "P",
+  owner: "O",
+  address: "A",
+  taxation: "T",
+  area: "5",
+  services: "S",
+  gps: "G",
+  photos: "Ph",
+}
+
 export const STEP_TITLES: Record<StepId, string> = {
   start: "Survey",
   property: "Property",
@@ -29,6 +55,7 @@ export const STEP_TITLES: Record<StepId, string> = {
 /** Merged local + server view the wizard evaluates. */
 export type SurveySnapshot = SurveyEditableFields & {
   wardLabel: string | null
+  locationPinCode: string | null
   floorCount: number
   coOwnerCount: number
   uploadedPhotoTypes: PhotoType[]
@@ -48,6 +75,7 @@ function filled(value: unknown): boolean {
  */
 export function submitRequirements(s: SurveySnapshot): Requirement[] {
   const out: Requirement[] = []
+  if (!filled(s.wardLabel)) out.push({ step: "property", message: "Survey requires a ward" })
   if (!filled(s.propertyId)) out.push({ step: "property", message: "Property ID required" })
   if (!filled(s.ownershipType)) out.push({ step: "property", message: "Ownership type required" })
   if (!filled(s.propertyUse)) out.push({ step: "property", message: "Property use required" })
@@ -86,8 +114,8 @@ export function mobileFieldRequirements(s: SurveySnapshot): Requirement[] {
 }
 
 const STEP_FIELDS: Record<Exclude<StepId, "gps" | "photos">, (keyof SurveySnapshot)[]> = {
-  start: ["wardLabel", "propertyId"],
-  property: ["parcelNumber", "unitSubNo", "propertyIdOld", "ownershipType", "propertyUse", "propertyType"],
+  start: ["assessmentYear", "locationPinCode"],
+  property: ["wardLabel", "parcelNumber", "unitSubNo", "propertyIdOld", "ownershipType", "propertyUse", "propertyType"],
   owner: ["respondentName", "relationshipWithOwner", "mobileNumber", "alternateMobile", "familySize"],
   address: ["houseDoorNo", "locality", "colony", "city", "pinCode"],
   taxation: ["situation", "roadType", "taxRateZone", "assessmentYear"],
@@ -130,6 +158,7 @@ export function stepProgress(s: SurveySnapshot): Record<StepId, StepProgress> {
 }
 
 const SERVER_MESSAGE_STEPS: [RegExp, StepId][] = [
+  [/ward/i, "property"],
   [/floor/i, "area"],
   [/photo/i, "photos"],
   [/gps|latitude|longitude/i, "gps"],

@@ -34,7 +34,7 @@ export class PortalSurveysRepository {
     const where: Prisma.SurveyWhereInput = {
       ulbId,
       deletedAt: null,
-      ...(query.wardId ? { wardId: query.wardId } : {}),
+      wardId: query.wardId ? query.wardId : { not: null },
       ...(query.search
         ? {
             OR: [
@@ -71,16 +71,22 @@ export class PortalSurveysRepository {
       this.prisma.db.survey.count({ where }),
     ])
 
-    const items: PortalSurveySummary[] = rows.map((row) => ({
-      id: row.id,
-      propertyId: row.propertyId,
-      parcelNumber: row.parcelNumber,
-      surveyStatus: row.surveyStatus,
-      qcStatus: row.qcStatus,
-      respondentName: row.respondentName,
-      assessmentYear: row.assessmentYear,
-      ward: row.ward,
-    }))
+    const items: PortalSurveySummary[] = rows.flatMap((row) =>
+      row.ward
+        ? [
+            {
+              id: row.id,
+              propertyId: row.propertyId,
+              parcelNumber: row.parcelNumber,
+              surveyStatus: row.surveyStatus,
+              qcStatus: row.qcStatus,
+              respondentName: row.respondentName,
+              assessmentYear: row.assessmentYear,
+              ward: row.ward,
+            },
+          ]
+        : []
+    )
 
     return toPaginatedResult(items, total, page, limit)
   }

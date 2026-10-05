@@ -17,8 +17,8 @@ import {
   type PhotoExportRow,
   type SurveyExportBundle,
 } from "@workspace/excel-reports"
-import { computeExportTaxSummary, taxRateKey, toTaxNumber, type ExportTaxRateTable } from "@workspace/validation"
 import type { ExportFiltersPayload, ExportJobPayload, ExportReportType } from "@workspace/jobs"
+import { computeExportTaxSummary, taxRateKey, toTaxNumber, type ExportTaxRateTable } from "@workspace/validation"
 import { ZipArchive } from "archiver"
 import ExcelJS from "exceljs"
 import { createWriteStream } from "node:fs"
@@ -54,7 +54,7 @@ type ExportRow = {
   stateId: string
   districtId: string
   ulbId: string
-  wardId: string
+  wardId: string | null
   respondentName: string | null
   mobileNumber: string | null
   totalBuiltAreaSqFt: Prisma.Decimal | null
@@ -905,7 +905,10 @@ export class ExportWorkerService {
 
     const key = reportType === "ward" ? "wardId" : reportType === "ulb" ? "ulbId" : "districtId"
     const grouped: Record<string, number> = {}
-    for (const row of rows) grouped[row[key]] = (grouped[row[key]] ?? 0) + 1
+    for (const row of rows) {
+      const id = String(row[key] ?? "unassigned")
+      grouped[id] = (grouped[id] ?? 0) + 1
+    }
     return { total: rows.length, grouped }
   }
 

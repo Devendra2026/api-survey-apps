@@ -8,7 +8,7 @@ const tenantRoleInclude = {
   role: true,
   state: { select: { id: true, name: true, code: true } },
   district: { select: { id: true, name: true } },
-  ulb: { select: { id: true, name: true, code: true } },
+  ulb: { select: { id: true, name: true, code: true, type: true } },
   ward: { select: { id: true, wardNumber: true, wardName: true } },
 } as const
 

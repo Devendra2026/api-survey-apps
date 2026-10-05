@@ -69,9 +69,32 @@ export type CreateSurveyInput = {
   stateId: string
   districtId: string
   ulbId: string
-  wardId: string
+  wardId?: string
   propertyId: string
   assessmentYear: AssessmentYear
+  locationPinCode?: string
+}
+
+export type SurveyLocationPatch = {
+  stateId?: string
+  districtId?: string
+  ulbId?: string
+  wardId?: string
+  assessmentYear?: AssessmentYear
+  locationPinCode?: string
+}
+
+export type UlbListItem = {
+  id: string
+  name: string
+  code: string
+  type: "MUNICIPAL_COUNCIL" | "TOWN_PANCHAYAT"
+  districtId: string
+}
+
+export type UlbPinCodeItem = {
+  id: string
+  code: string
 }
 
 export function createSurvey(input: CreateSurveyInput): Promise<SurveyRecord> {
@@ -80,6 +103,19 @@ export function createSurvey(input: CreateSurveyInput): Promise<SurveyRecord> {
 
 export function patchSurvey(id: string, patch: SurveyPatch): Promise<SurveyRecord> {
   return apiPatch(`/surveys/${encodeURIComponent(id)}`, patch)
+}
+
+/** Geography and assessment year. Ward is sent only after the Property step. */
+export function patchSurveyLocation(id: string, patch: SurveyLocationPatch): Promise<SurveyRecord> {
+  return apiPatch(`/surveys/${encodeURIComponent(id)}`, patch)
+}
+
+export function listUlbs(districtId: string): Promise<{ items: UlbListItem[] }> {
+  return apiGet(`/ulbs${toQuery({ districtId, limit: 100, sortBy: "name", sortOrder: "asc" })}`)
+}
+
+export function listUlbPinCodes(ulbId: string): Promise<UlbPinCodeItem[]> {
+  return apiGet(`/ulbs/${encodeURIComponent(ulbId)}/pin-codes`)
 }
 
 export function submitSurvey(id: string): Promise<SurveyRecord> {

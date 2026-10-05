@@ -17,7 +17,7 @@ const surveyInclude = {
   assignedTo: { select: { id: true, fullName: true, email: true } },
   ward: { select: { id: true, wardName: true, wardNumber: true, kind: true } },
   originalWard: { select: { id: true, wardName: true, wardNumber: true, kind: true } },
-  ulb: { select: { id: true, name: true, code: true } },
+  ulb: { select: { id: true, name: true, code: true, type: true } },
   district: { select: { id: true, name: true } },
   state: { select: { id: true, name: true } },
 } as const
@@ -85,10 +85,22 @@ export class SurveysRepository {
       createdAt.lte = end
     }
 
+    const ownUnassignedWardDraft: Prisma.SurveyWhereInput | null =
+      scope.parentUlbIds.length > 0
+        ? {
+            wardId: null,
+            ulbId: { in: scope.parentUlbIds },
+            OR: [{ createdById: user.id }, { assignedToId: user.id }],
+          }
+        : null
+    const visibility: Prisma.SurveyWhereInput = ownUnassignedWardDraft
+      ? { OR: [tenantWhere ?? {}, ownUnassignedWardDraft] }
+      : (tenantWhere ?? {})
+
     return {
       deletedAt: null,
       AND: [
-        tenantWhere ?? {},
+        visibility,
         query?.surveyStatus ? { surveyStatus: query.surveyStatus } : {},
         query?.qcStatus ? { qcStatus: query.qcStatus } : {},
         query?.stateId ? { stateId: query.stateId } : {},
@@ -183,6 +195,7 @@ export class SurveysRepository {
 
     const byWard = new Map<string, { id: string; count: number; byStatus: Record<string, number> }>()
     for (const row of rows) {
+      if (!row.wardId) continue
       const current = byWard.get(row.wardId) ?? { id: row.wardId, count: 0, byStatus: {} }
       current.count += row._count._all
       current.byStatus[row.surveyStatus] = (current.byStatus[row.surveyStatus] ?? 0) + row._count._all
@@ -516,7 +529,7 @@ export class SurveysRepository {
       }),
     ])
 
-    const wardIds = [...new Set(statusRows.map((r) => r.wardId))]
+    const wardIds = [...new Set(statusRows.flatMap((r) => (r.wardId ? [r.wardId] : [])))]
     const wardRows = wardIds.length
       ? await this.prisma.db.ward.findMany({
           where: { id: { in: wardIds } },

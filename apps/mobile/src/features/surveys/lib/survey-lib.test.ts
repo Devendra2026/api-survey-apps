@@ -57,6 +57,7 @@ function snapshot(overrides: Partial<SurveySnapshot> = {}): SurveySnapshot {
   return {
     ...fields(),
     wardLabel: "1 · Ward One",
+    locationPinCode: null,
     floorCount: 0,
     coOwnerCount: 0,
     uploadedPhotoTypes: [],

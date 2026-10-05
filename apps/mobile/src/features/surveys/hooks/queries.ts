@@ -1,5 +1,13 @@
 import type { QcStatus, SurveyRecord, SurveyStatus } from "@/features/surveys/types"
-import { getFieldMetrics, getSurveyRecord, listSurveys, listWards, type SurveyListParams } from "@/services/api/surveys"
+import {
+  getFieldMetrics,
+  getSurveyRecord,
+  listSurveys,
+  listUlbPinCodes,
+  listUlbs,
+  listWards,
+  type SurveyListParams,
+} from "@/services/api/surveys"
 import { useAuth } from "@clerk/expo"
 import { useInfiniteQuery, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 import { useCallback, useMemo } from "react"
@@ -18,6 +26,8 @@ export const surveyKeys = {
   metrics: (clerkUserId: string, scope: "self" | "team") => ["surveys", clerkUserId, "metrics", scope] as const,
   /** Ward catalog is shared reference data, not user-owned. */
   wards: (ulbId: string) => ["wards", ulbId] as const,
+  ulbs: (districtId: string) => ["ulbs", districtId] as const,
+  pinCodes: (ulbId: string) => ["ulb-pin-codes", ulbId] as const,
 }
 
 /** Current Clerk userId, or "" while Clerk has no signed-in user (queries stay disabled). */
@@ -68,6 +78,25 @@ export function useSurveyList(filter: SurveyListFilter, enabled = true) {
     getNextPageParam: (last) => last.meta.nextCursor,
     enabled: enabled && Boolean(owner),
     staleTime: 30_000,
+  })
+}
+
+export function useDistrictUlbs(districtId: string | null) {
+  return useQuery({
+    queryKey: surveyKeys.ulbs(districtId ?? ""),
+    queryFn: () => listUlbs(districtId ?? ""),
+    enabled: Boolean(districtId),
+    staleTime: 30 * 60_000,
+  })
+}
+
+export function useUlbPinCodes(ulbId: string | null) {
+  return useQuery({
+    queryKey: surveyKeys.pinCodes(ulbId ?? ""),
+    queryFn: () => listUlbPinCodes(ulbId ?? ""),
+    enabled: Boolean(ulbId),
+    staleTime: 0,
+    refetchOnMount: "always",
   })
 }
 

@@ -208,10 +208,11 @@ export class DashboardRepository {
   }
 
   private toWardCounts(
-    rows: Array<{ wardId: string; surveyStatus: string; _count: { _all: number } }>
+    rows: Array<{ wardId: string | null; surveyStatus: string; _count: { _all: number } }>
   ): Array<{ id: string; count: number; byStatus: Record<string, number> }> {
     const wards = new Map<string, { id: string; count: number; byStatus: Record<string, number> }>()
     for (const row of rows) {
+      if (!row.wardId) continue
       const ward = wards.get(row.wardId) ?? { id: row.wardId, count: 0, byStatus: {} }
       ward.count += row._count._all
       ward.byStatus[row.surveyStatus] = row._count._all

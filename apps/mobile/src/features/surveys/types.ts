@@ -193,7 +193,9 @@ export type SurveyRecord = SurveyEditableFields & {
   stateId: string
   districtId: string
   ulbId: string
-  wardId: string
+  wardId: string | null
+  /** Tenant location PIN from survey start. Distinct from the address `pinCode`. */
+  locationPinCode: string | null
   createdById: string
   assignedToId: string | null
   surveyStatus: SurveyStatus
@@ -214,8 +216,9 @@ export type SurveyRecord = SurveyEditableFields & {
   wardNumber?: string | null
   ward: { id: string; wardName: string; wardNumber: string; kind?: string | null } | null
   originalWard?: { wardNumber?: string | null } | null
-  ulb: { id: string; name: string; code: string | null } | null
+  ulb: { id: string; name: string; code: string | null; type?: string | null } | null
   district: { id: string; name: string } | null
+  state?: { id: string; name: string } | null
   assignedTo: { id: string; fullName: string } | null
 }
 

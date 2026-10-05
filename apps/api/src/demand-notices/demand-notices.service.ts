@@ -81,6 +81,9 @@ export class DemandNoticesService {
     let rateMissingCount = 0
 
     for (const survey of surveys) {
+      if (!survey.wardId || !survey.ward) {
+        throw new BadRequestException("Survey requires a ward")
+      }
       const doc = await this.buildDocumentFromSurvey(survey, { skipPhotos: true })
       const rateMissing = doc.assessment.rateMissing
       if (rateMissing) rateMissingCount += 1
@@ -267,6 +270,7 @@ export class DemandNoticesService {
     survey: SurveyWithRelations,
     opts?: { skipPhotos?: boolean }
   ): Promise<DemandNoticeDocumentDto> {
+    if (!survey.ward) throw new BadRequestException("Survey requires a ward")
     const primaryOwner = survey.coOwners[0]
     const ownerName = resolvePrimaryOwnerName(survey.coOwners, survey.respondentName) ?? "—"
     const fatherName = primaryOwner?.fatherOrHusbandName?.trim() || "—"
@@ -359,6 +363,7 @@ export class DemandNoticesService {
       },
     })
     if (!ayEntry) return empty(`Assessment year catalog entry missing for ${survey.assessmentYear}`)
+    if (!survey.wardId) return empty("Survey requires a ward")
 
     const taxConfig = await this.prisma.db.taxConfig.findUnique({
       where: {

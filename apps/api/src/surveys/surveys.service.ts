@@ -50,6 +50,32 @@ import { mapSurveyToDetailsDto } from "./survey-view.mapper.js"
 import { SurveysRepository } from "./surveys.repository.js"
 
 const EDITABLE: SurveyStatus[] = ["DRAFT", "IN_PROGRESS", "REOPENED"]
+const SURVEY_CREATE_PERMISSION = "survey:create"
+
+type SurveyGeo = {
+  stateId: string
+  districtId: string
+  ulbId: string
+  wardId?: string | null
+}
+
+/**
+ * Ward-scoped surveyors may open a draft for their ULB before a ward is chosen.
+ * Once a ward is present, the usual tenant permission check applies.
+ */
+function canCreateSurveyAtLocation(user: AuthenticatedUser, geo: SurveyGeo): boolean {
+  if (geo.wardId) {
+    return userHasPermissionInTenant(user, SURVEY_CREATE_PERMISSION, geo)
+  }
+  return user.tenantRoles.some((role) => {
+    if (!role.isActive || !role.permissions.includes(SURVEY_CREATE_PERMISSION)) return false
+    if (!role.stateId && !role.districtId && !role.ulbId && !role.wardId) return true
+    if (role.ulbId) return role.ulbId === geo.ulbId
+    if (role.districtId) return role.districtId === geo.districtId
+    if (role.stateId) return role.stateId === geo.stateId
+    return false
+  })
+}
 
 type BulkItemResult = { id: string; reason: string }
 
@@ -322,27 +348,20 @@ export class SurveysService {
 
   async create(dto: CreateSurveyDto, user: AuthenticatedUser) {
     const scope = resolveTenantScope(user.tenantRoles)
-    if (
-      !canAccessTenant(scope, {
-        stateId: dto.stateId,
-        districtId: dto.districtId,
-        ulbId: dto.ulbId,
-        wardId: dto.wardId,
-      })
-    ) {
+    const geo: SurveyGeo = {
+      stateId: dto.stateId,
+      districtId: dto.districtId,
+      ulbId: dto.ulbId,
+      wardId: dto.wardId ?? null,
+    }
+    if (!canAccessTenant(scope, geo)) {
       throw new ForbiddenException("Cannot create survey outside your tenant scope")
     }
-    if (
-      !userHasPermissionInTenant(user, "survey:create", {
-        stateId: dto.stateId,
-        districtId: dto.districtId,
-        ulbId: dto.ulbId,
-        wardId: dto.wardId,
-      })
-    ) {
+    if (!canCreateSurveyAtLocation(user, geo)) {
       throw new ForbiddenException("Missing permission survey:create in this tenant scope")
     }
-    await this.assertGeoHierarchy(dto)
+    await this.assertGeoHierarchy(geo)
+    await this.assertLocationPin(dto.ulbId, dto.locationPinCode)
 
     try {
       const survey = await this.surveysRepository.createWithAudit(
@@ -381,6 +400,10 @@ export class SurveysService {
         throw new ForbiddenException("Cannot move survey outside your tenant scope")
       }
       await this.assertGeoHierarchy(nextGeo)
+    }
+    if (dto.locationPinCode !== undefined || dto.ulbId) {
+      const nextPin = dto.locationPinCode !== undefined ? dto.locationPinCode : survey.locationPinCode
+      await this.assertLocationPin(nextGeo.ulbId, nextPin)
     }
 
     const ulbCode = (survey.ulbCode?.trim() || survey.ulb?.code?.trim() || "").trim()
@@ -476,6 +499,9 @@ export class SurveysService {
     }
 
     const missing: string[] = []
+    if (!survey.wardId) {
+      missing.push("Survey requires a ward")
+    }
     if (!survey.floors.length) {
       missing.push("Survey requires at least one floor")
     }
@@ -877,7 +903,32 @@ export class SurveysService {
     return survey
   }
 
-  private async assertGeoHierarchy(geo: { stateId: string; districtId: string; ulbId: string; wardId: string }) {
+  private async assertLocationPin(ulbId: string, code: string | null | undefined): Promise<void> {
+    if (!code) return
+    const pin = await this.prisma.db.ulbPinCode.findUnique({
+      where: { ulbId_code: { ulbId, code } },
+      select: { id: true },
+    })
+    if (!pin) {
+      throw new BadRequestException("PIN is not registered for this ULB")
+    }
+  }
+
+  private async assertGeoHierarchy(geo: SurveyGeo) {
+    if (!geo.wardId) {
+      const ulb = await this.prisma.db.ulb.findUnique({
+        where: { id: geo.ulbId },
+        include: { district: true },
+      })
+      if (!ulb) throw new BadRequestException("Invalid ulbId")
+      if (ulb.districtId !== geo.districtId) {
+        throw new BadRequestException("ulbId does not belong to districtId")
+      }
+      if (ulb.district.stateId !== geo.stateId) {
+        throw new BadRequestException("districtId does not belong to stateId")
+      }
+      return
+    }
     const ward = await this.prisma.db.ward.findUnique({
       where: { id: geo.wardId },
       include: {
@@ -897,7 +948,7 @@ export class SurveysService {
   }
 
   /** Public wrapper for QC / customer modules that need hierarchy validation. */
-  async assertGeoHierarchyForQc(geo: { stateId: string; districtId: string; ulbId: string; wardId: string }) {
+  async assertGeoHierarchyForQc(geo: SurveyGeo) {
     return this.assertGeoHierarchy(geo)
   }
 }

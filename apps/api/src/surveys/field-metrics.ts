@@ -43,7 +43,7 @@ export type FieldMetricsResult = {
 }
 
 export type StatusGroupRow = {
-  wardId: string
+  wardId: string | null
   assignedToId: string | null
   surveyStatus: SurveyStatus
   qcStatus: QcStatus
@@ -98,9 +98,11 @@ export function buildFieldMetrics(input: BuildFieldMetricsInput): FieldMetricsRe
   for (const row of input.statusRows) {
     addSurveyRowToBuckets(totals, row)
 
-    const wardTotals = byWard.get(row.wardId) ?? emptyBucketTotals()
-    addSurveyRowToBuckets(wardTotals, row)
-    byWard.set(row.wardId, wardTotals)
+    if (row.wardId) {
+      const wardTotals = byWard.get(row.wardId) ?? emptyBucketTotals()
+      addSurveyRowToBuckets(wardTotals, row)
+      byWard.set(row.wardId, wardTotals)
+    }
 
     if (row.assignedToId) {
       const userTotals = byUser.get(row.assignedToId) ?? emptyBucketTotals()

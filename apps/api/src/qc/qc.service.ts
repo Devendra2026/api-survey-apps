@@ -118,7 +118,7 @@ export class QcService {
   }
 
   private async assertCorrectionScope(
-    survey: { stateId: string; districtId: string; ulbId: string; wardId: string },
+    survey: { stateId: string; districtId: string; ulbId: string; wardId: string | null },
     patch: QcSurveyCorrectionDto,
     user: AuthenticatedUser
   ) {

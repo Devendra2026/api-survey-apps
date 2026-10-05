@@ -388,7 +388,7 @@ export class ReportsService {
   private aggregate(
     rows: Array<{
       surveyStatus: SurveyStatus
-      wardId: string
+      wardId: string | null
       ulbId: string
       districtId: string
       totalBuiltAreaSqFt: Prisma.Decimal | number | null

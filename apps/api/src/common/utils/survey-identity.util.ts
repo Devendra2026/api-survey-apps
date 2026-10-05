@@ -17,7 +17,7 @@ export type SurveyIdentityConflict = {
   parcelNumber: string | null
   unitSubNo: string | null
   propertyUse: string | null
-  wardId: string
+  wardId: string | null
   stateId: string
   districtId: string
   ulbCode: string | null

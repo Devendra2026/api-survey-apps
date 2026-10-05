@@ -1,12 +1,13 @@
 import { Screen, StatusView, Text, cardStyle } from "@/components/ui"
 import { getApiErrorMessage, isApiClientError } from "@/services/api/client"
-import { reopenSurvey, submitSurvey } from "@/services/api/surveys"
+import { patchSurveyLocation, reopenSurvey, submitSurvey } from "@/services/api/surveys"
 import { colors, radius, spacing } from "@/theme"
 import type { AuthenticatedProfile } from "@/types/user"
 import { useRouter } from "expo-router"
 import { useCallback, useMemo, useRef, useState } from "react"
 import { Alert, Pressable, ScrollView, StyleSheet, View } from "react-native"
-import { useInvalidateSurveyLists, useRecordCache, useSurveyRecord } from "../hooks/queries"
+import { useInvalidateSurveyLists, useRecordCache, useSurveyRecord, useUlbWards } from "../hooks/queries"
+import { allowedWardIds, surveyAssignments } from "../lib/assignments"
 import { useSurveyAutosave } from "../hooks/use-survey-autosave"
 import { fieldBucket, isAlreadySubmittedError, isFieldEditable, needsReopenBeforeEdit } from "../lib/lifecycle"
 import {
@@ -31,6 +32,7 @@ import { hasUnsyncedChanges } from "../lib/sync-state"
 import { CorrectionPanel } from "../ui/CorrectionPanel"
 import { ReviewSection } from "../ui/ReviewSection"
 import { BottomActionBar, SurveyHeader, ValidationBanner } from "../ui/SurveyChrome"
+import { StartSurveyScreen } from "../ui/start-survey-screen"
 import { SurveyStepBody } from "../ui/SurveyStepBody"
 import { StepChips } from "../ui/primitives"
 
@@ -57,6 +59,7 @@ export function SurveyWizard({
   const [reopening, setReopening] = useState(false)
   const [serverErrors, setServerErrors] = useState<string[]>([])
   const [navHint, setNavHint] = useState<string | null>(null)
+  const [wardSaving, setWardSaving] = useState(false)
   const submitLockRef = useRef(false)
   const scrollRef = useRef<ScrollView>(null)
 
@@ -79,12 +82,29 @@ export function SurveyWizard({
       floorCount: record.floors.length,
       coOwnerCount: record.coOwners.length,
       uploadedPhotoTypes: record.photos.filter((p) => p.objectKey).map((p) => p.photoType),
+      locationPinCode: record.locationPinCode,
     }
   }, [record, autosave.fields])
 
   const progress = useMemo(() => (snapshot ? stepProgress(snapshot) : null), [snapshot])
   const requirements = useMemo(() => (snapshot ? mobileFieldRequirements(snapshot) : []), [snapshot])
   const completionPercent = useMemo(() => (progress ? overallCompletionPercent(progress) : 0), [progress])
+  const assignments = useMemo(() => surveyAssignments(profile), [profile])
+  const wardsQuery = useUlbWards(record?.ulbId ?? null)
+  const wardOptions = useMemo(() => {
+    if (!record) return []
+    const allowed = allowedWardIds(assignments, record.ulbId)
+    const options = (wardsQuery.data?.items ?? [])
+      .filter((ward) => allowed === null || allowed.includes(ward.id))
+      .map((ward) => ({ value: ward.id, label: `${ward.wardNumber} · ${ward.wardName}` }))
+    if (record.ward && !options.some((option) => option.value === record.ward?.id)) {
+      options.unshift({
+        value: record.ward.id,
+        label: `${record.ward.wardNumber} · ${record.ward.wardName}`,
+      })
+    }
+    return options
+  }, [assignments, record, wardsQuery.data])
 
   const goTo = useCallback(
     (next: StepId) => {
@@ -217,6 +237,39 @@ export function SurveyWizard({
     else router.replace("/(app)/survey")
   }
 
+  const selectWard = async (wardId: string) => {
+    if (!editable || wardSaving || wardId === record.wardId) return
+    setWardSaving(true)
+    try {
+      const next = await patchSurveyLocation(record.id, { wardId })
+      recordCache.write(next)
+      invalidateLists()
+    } catch (error) {
+      Alert.alert("Could not save ward", getApiErrorMessage(error))
+    } finally {
+      setWardSaving(false)
+    }
+  }
+
+  if (step === "start") {
+    return (
+      <StartSurveyScreen
+        mode="edit"
+        profile={profile}
+        record={record}
+        completionPercent={completionPercent}
+        editable={editable}
+        onBack={leave}
+        onLeave={(next, target) => {
+          recordCache.write(next)
+          invalidateLists()
+          if (target !== "start") goTo(target)
+        }}
+        onNewSurvey={() => router.push("/(app)/surveys/new")}
+      />
+    )
+  }
+
   const wardLine = `${snapshot.wardLabel ? `Ward ${snapshot.wardLabel}` : "Ward —"}${record.ulb ? ` · ${record.ulb.name}` : ""
     }`
 
@@ -296,6 +349,11 @@ export function SurveyWizard({
           progress={progress[step]}
           editable={editable}
           setFields={autosave.setFields}
+          wardOptions={wardOptions}
+          wardsLoading={wardsQuery.isLoading || wardSaving}
+          wardsError={wardsQuery.isError ? getApiErrorMessage(wardsQuery.error, "Could not load wards.") : null}
+          onRetryWards={() => void wardsQuery.refetch()}
+          onSelectWard={(wardId) => void selectWard(wardId)}
         />
         {isLast ? (
           <>

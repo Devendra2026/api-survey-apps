@@ -104,6 +104,7 @@ export class PhotosService {
   ) {
     if (!file) throw new BadRequestException("Image file is required")
     const survey = await this.surveysService.assertEditableSurvey(surveyId, user)
+    if (!survey.wardId) throw new BadRequestException("Choose a ward before uploading photos")
 
     const uploaded = await this.storageService.uploadImage({
       buffer: file.buffer,
@@ -156,6 +157,7 @@ export class PhotosService {
     if (!file) throw new BadRequestException("Image file is required")
     const existing = await this.photosRepository.findById(id)
     const survey = await this.surveysService.assertEditableSurvey(existing.surveyId, user)
+    if (!survey.wardId) throw new BadRequestException("Choose a ward before uploading photos")
 
     const uploaded = await this.storageService.uploadImage({
       buffer: file.buffer,

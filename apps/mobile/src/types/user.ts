@@ -12,7 +12,7 @@ export type TenantRole = {
   isActive: boolean
   state?: { id: string; name: string; code?: string } | null
   district?: { id: string; name: string } | null
-  ulb?: { id: string; name: string; code?: string } | null
+  ulb?: { id: string; name: string; code?: string; type?: string | null } | null
   ward?: { id: string; wardNumber: string; wardName: string } | null
 }
 

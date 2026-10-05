@@ -31,7 +31,7 @@ export type QcSurveyEditable = {
   stateId: string
   districtId: string
   ulbId: string
-  wardId: string
+  wardId: string | null
   assignedToId: string | null
   respondentName: string | null
   mobileNumber: string | null
@@ -80,7 +80,7 @@ type SurveyForEditable = {
   stateId: string
   districtId: string
   ulbId: string
-  wardId: string
+  wardId: string | null
   assignedToId: string | null
   respondentName: string | null
   mobileNumber: string | null

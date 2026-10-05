@@ -52,6 +52,7 @@ function snapshot(overrides: Partial<SurveySnapshot> = {}): SurveySnapshot {
   return {
     ...fields(),
     wardLabel: "1 · Ward One",
+    locationPinCode: null,
     floorCount: 0,
     coOwnerCount: 0,
     uploadedPhotoTypes: [],
@@ -73,6 +74,13 @@ describe("survey navigation", () => {
     if (!gate.allowed) {
       assert.match(gate.reason, /Ownership type|Property use|Property type|Property ID/i)
     }
+  })
+
+  it("blocks Next on Property until a ward is chosen", () => {
+    const progress = stepProgress(snapshot({ wardLabel: null }))
+    const gate = canAdvanceFromStep("property", progress)
+    assert.equal(gate.allowed, false)
+    if (!gate.allowed) assert.match(gate.reason, /ward/i)
   })
 
   it("allows Next when current step has no submit blockers", () => {

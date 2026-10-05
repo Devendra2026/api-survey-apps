@@ -36,6 +36,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -57,9 +58,11 @@ export class CreateSurveyDto {
   @IsString()
   ulbId!: string
 
-  @ApiProperty()
+  /** Omitted until the Property step. Required before submit. */
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
-  wardId!: string
+  wardId?: string
 
   @ApiProperty()
   @IsString()
@@ -153,6 +156,13 @@ export class CreateSurveyDto {
   @IsOptional()
   @IsString()
   pinCode?: string
+
+  /** Six-digit tenant location PIN registered on the ULB. Not the property address PIN. */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{6}$/)
+  locationPinCode?: string
 
   @ApiPropertyOptional({ enum: OwnershipType })
   @IsOptional()

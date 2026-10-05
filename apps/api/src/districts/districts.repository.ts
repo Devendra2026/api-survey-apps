@@ -101,6 +101,7 @@ export class DistrictsRepository {
       payload.state = { connect: { id: data.stateId } }
     }
     if (data.code !== undefined) payload.code = normalizeDistrictCode(data.code)
+    if (data.status !== undefined) payload.status = data.status
     try {
       return await this.prisma.db.district.update({ where: { id }, data: payload })
     } catch (error) {

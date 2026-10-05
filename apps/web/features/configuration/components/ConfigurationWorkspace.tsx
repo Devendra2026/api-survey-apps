@@ -1,13 +1,14 @@
 "use client"
 
+import { useEffect, useState, type ReactNode } from "react"
+import { usePathname } from "next/navigation"
+import { ConfigurationSideNav } from "./ConfigurationSideNav"
+import { saveConfigLastPath } from "../lib/last-path"
+import { Button } from "@workspace/ui/components/button"
+import { PanelLeftClose, PanelLeft } from "lucide-react"
 import { cn } from "@workspace/ui/lib/utils"
-import Link from "next/link"
-import { usePathname, useSearchParams } from "next/navigation"
-import type { ReactNode } from "react"
-import { Suspense } from "react"
-import { CONFIG_NAV } from "../lib/types"
 
-function ConfigurationWorkspaceInner({
+export function ConfigurationWorkspace({
   title,
   description,
   actions,
@@ -19,57 +20,57 @@ function ConfigurationWorkspaceInner({
   children: ReactNode
 }) {
   const pathname = usePathname()
-  const searchParams = useSearchParams()
-  const search = searchParams.toString()
-  const isMasterHub = pathname.startsWith("/master-data") || pathname.startsWith("/configuration/geography")
+  const [forceExpanded, setForceExpanded] = useState(false)
+  const [isLg, setIsLg] = useState(true)
+
+  useEffect(() => {
+    saveConfigLastPath(pathname)
+  }, [pathname])
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)")
+    const apply = () => setIsLg(mq.matches)
+    apply()
+    mq.addEventListener("change", apply)
+    return () => mq.removeEventListener("change", apply)
+  }, [])
+
+  const collapsed = !isLg && !forceExpanded
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <div className="sticky top-0 z-20 -mx-1 space-y-3 border-b border-border/60 bg-background/95 px-1 pb-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              {isMasterHub ? "Master Data" : "Configuration Registry"}
-            </p>
-            <h1 className="text-2xl font-semibold tracking-tight text-foreground">{title}</h1>
-            {description ? <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{description}</p> : null}
-          </div>
-          {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+    <div className="flex min-h-0 flex-1 gap-0 overflow-hidden rounded-lg border border-border/60 bg-background">
+      <aside className={cn("sticky top-0 self-stretch", forceExpanded && !isLg && "absolute z-30 h-full shadow-lg")}>
+        <div className="flex h-full flex-col">
+          {!isLg ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="m-1 size-8 cursor-pointer"
+              aria-label={forceExpanded ? "Collapse navigation" : "Expand navigation"}
+              onClick={() => setForceExpanded((value) => !value)}
+            >
+              {forceExpanded ? <PanelLeftClose className="size-4" /> : <PanelLeft className="size-4" />}
+            </Button>
+          ) : null}
+          <ConfigurationSideNav collapsed={collapsed} />
         </div>
-        <nav className="flex flex-wrap gap-1" aria-label="Configuration modules">
-          {CONFIG_NAV.map((item) => {
-            const active = item.match(pathname, search)
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "cursor-pointer rounded-md px-3 py-1.5 text-sm font-medium transition-colors duration-200",
-                  active
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                )}
-              >
-                {item.label}
-              </Link>
-            )
-          })}
-        </nav>
+      </aside>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="sticky top-0 z-10 space-y-1 border-b border-border/60 bg-background/95 px-4 py-3 backdrop-blur">
+          <p className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
+            Configuration Registry
+          </p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
+              {description ? <p className="mt-0.5 max-w-3xl text-sm text-muted-foreground">{description}</p> : null}
+            </div>
+            {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+          </div>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto p-4">{children}</div>
       </div>
-      <div className="min-h-0 flex-1">{children}</div>
     </div>
-  )
-}
-
-export function ConfigurationWorkspace(props: {
-  title: string
-  description?: string
-  actions?: ReactNode
-  children: ReactNode
-}) {
-  return (
-    <Suspense fallback={<div className="text-sm text-muted-foreground">Loading…</div>}>
-      <ConfigurationWorkspaceInner {...props} />
-    </Suspense>
   )
 }

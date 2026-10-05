@@ -47,7 +47,7 @@ export function ReferenceCategoryCard({
       </CardContent>
       <CardFooter className="flex flex-wrap gap-2 border-t border-border/60 pt-4">
         <Button asChild size="sm" className="cursor-pointer">
-          <Link href={`/master-data?tab=reference&category=${encodeURIComponent(category.code)}`}>
+          <Link href={`/configuration/reference/${encodeURIComponent(category.code)}`}>
             Open
             <ArrowRight className="size-3.5" />
           </Link>

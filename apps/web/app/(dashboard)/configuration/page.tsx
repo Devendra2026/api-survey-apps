@@ -11,17 +11,35 @@ import {
   useReferenceCategories,
   useReferenceMutations,
 } from "@/features/configuration/hooks/use-configuration"
+import { loadConfigLastPath } from "@/features/configuration/lib/last-path"
+import { CONFIG_BASE } from "@/features/configuration/lib/types"
 import { useAuthStore } from "@/stores/app-store"
 import { Button } from "@workspace/ui/components/button"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import Link from "next/link"
-import { useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
+import { useLayoutEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
 export default function ConfigurationHomePage() {
+  const router = useRouter()
   const hasPermission = useAuthStore((s) => s.hasPermission)
   const canView = hasPermission("settings:view") || hasPermission("settings:manage") || hasPermission("role:assign")
   const canManage = hasPermission("settings:manage") || hasPermission("role:assign")
+  const [allowOverview, setAllowOverview] = useState(false)
+  const [redirecting, setRedirecting] = useState(false)
+
+  useLayoutEffect(() => {
+    if (!canView) return
+    const stay = new URLSearchParams(window.location.search).get("stay") === "1"
+    const last = loadConfigLastPath()
+    if (!stay && !last) {
+      setRedirecting(true)
+      router.replace(`${CONFIG_BASE}/geography`)
+      return
+    }
+    setAllowOverview(true)
+  }, [canView, router])
 
   const { data: categories, isLoading, isError, error, refetch } = useReferenceCategories()
   const mutations = useReferenceMutations()
@@ -31,7 +49,7 @@ export default function ConfigurationHomePage() {
   const audit = useConfigAudit({ entityType: "ReferenceEntry" })
 
   const stats = useMemo(() => {
-    const totalEntries = categories?.reduce((sum, c) => sum + c._count.entries, 0) ?? 0
+    const totalEntries = categories?.reduce((sum, category) => sum + category._count.entries, 0) ?? 0
     return [
       { label: "Catalogs", value: categories?.length ?? 0, hint: "Reference categories" },
       { label: "Entries", value: totalEntries, hint: "Active + archived values" },
@@ -49,6 +67,20 @@ export default function ConfigurationHomePage() {
     )
   }
 
+  if (redirecting || !allowOverview) {
+    return (
+      <div className="space-y-4 p-4" aria-busy="true" aria-label="Loading configuration">
+        <Skeleton className="h-8 w-64 rounded-lg" />
+        <Skeleton className="h-4 w-96 max-w-full rounded-lg" />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <Skeleton key={index} className="h-24 rounded-lg" />
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <ConfigurationWorkspace
       title="Configuration Registry"
@@ -56,17 +88,16 @@ export default function ConfigurationHomePage() {
       actions={
         <>
           <Button asChild variant="outline" className="cursor-pointer">
-            <Link href="/master-data?tab=tenants">Geography</Link>
+            <Link href={`${CONFIG_BASE}/geography`}>Geography</Link>
           </Button>
           <Button asChild className="cursor-pointer">
-            <Link href="/master-data?tab=tax-rates">Tax Engine</Link>
+            <Link href={`${CONFIG_BASE}/tax-engine`}>Tax Engine</Link>
           </Button>
         </>
       }
     >
       <div className="space-y-6">
         <ConfigurationStats stats={stats} loading={isLoading} />
-
         <div>
           <div className="mb-3 flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold tracking-wide text-muted-foreground uppercase">Reference Data</h2>
@@ -80,11 +111,10 @@ export default function ConfigurationHomePage() {
               Registry audit
             </Button>
           </div>
-
           {isLoading ? (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <Skeleton key={i} className="h-48 rounded-xl" />
+              {Array.from({ length: 6 }).map((_, index) => (
+                <Skeleton key={index} className="h-40 rounded-lg" />
               ))}
             </div>
           ) : isError ? (
@@ -118,7 +148,6 @@ export default function ConfigurationHomePage() {
           )}
         </div>
       </div>
-
       <ReferenceDrawer
         open={drawerOpen}
         onOpenChange={setDrawerOpen}

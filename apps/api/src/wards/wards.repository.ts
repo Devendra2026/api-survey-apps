@@ -167,6 +167,7 @@ export class WardsRepository {
           ...(wardNumber !== undefined ? { wardNumber } : {}),
           ...(data.wardName !== undefined ? { wardName: data.wardName.trim() } : {}),
           ...(wardCode !== undefined ? { wardCode } : {}),
+          ...(data.status !== undefined ? { status: data.status } : {}),
         },
       })
     } catch (error) {

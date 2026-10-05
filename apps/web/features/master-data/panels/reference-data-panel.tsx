@@ -147,6 +147,15 @@ export function ReferenceDataPanel({ initialCategory }: { initialCategory?: stri
             <ReferenceTable
               items={items}
               selectedIds={selectedIds}
+              canManage={canManage}
+              onToggleStatus={async (entry, nextStatus) => {
+                try {
+                  await mutations.update.mutateAsync({ id: entry.id, status: nextStatus })
+                  toast.success(nextStatus === "ACTIVE" ? "Entry enabled" : "Entry disabled")
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : "Status update failed")
+                }
+              }}
               onToggle={(id) =>
                 setSelectedIds((prev) => {
                   const next = new Set(prev)

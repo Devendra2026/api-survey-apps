@@ -172,6 +172,7 @@ export class UlbsRepository {
           ...(name !== undefined ? { name } : {}),
           ...(code !== undefined ? { code } : {}),
           ...(data.type !== undefined ? { type: data.type } : {}),
+          ...(data.status !== undefined ? { status: data.status } : {}),
         },
       })
     } catch (error) {

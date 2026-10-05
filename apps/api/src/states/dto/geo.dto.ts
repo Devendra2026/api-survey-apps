@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from "@nestjs/swagger"
-import { UlbType } from "@workspace/database"
+import { GeoEntityStatus, UlbType } from "@workspace/database"
 import { IsEnum, IsOptional, IsString, Matches, MaxLength, MinLength } from "class-validator"
 
 export class CreateStateDto {
@@ -16,7 +16,12 @@ export class CreateStateDto {
   code!: string
 }
 
-export class UpdateStateDto extends PartialType(CreateStateDto) {}
+export class UpdateStateDto extends PartialType(CreateStateDto) {
+  @ApiPropertyOptional({ enum: GeoEntityStatus })
+  @IsOptional()
+  @IsEnum(GeoEntityStatus)
+  status?: GeoEntityStatus
+}
 
 export class CreateDistrictDto {
   @ApiProperty()
@@ -53,6 +58,11 @@ export class UpdateDistrictDto {
   @IsString()
   @Matches(/^[A-Za-z]{3}$/, { message: "District code must be exactly 3 letters (A–Z)" })
   code?: string
+
+  @ApiPropertyOptional({ enum: GeoEntityStatus })
+  @IsOptional()
+  @IsEnum(GeoEntityStatus)
+  status?: GeoEntityStatus
 }
 
 export class CreateUlbDto {
@@ -101,6 +111,11 @@ export class UpdateUlbDto {
   @IsOptional()
   @IsEnum(UlbType)
   type?: UlbType
+
+  @ApiPropertyOptional({ enum: GeoEntityStatus })
+  @IsOptional()
+  @IsEnum(GeoEntityStatus)
+  status?: GeoEntityStatus
 }
 
 export class CreateWardDto {
@@ -152,4 +167,9 @@ export class UpdateWardDto {
   @IsString()
   @MaxLength(64)
   wardCode?: string
+
+  @ApiPropertyOptional({ enum: GeoEntityStatus })
+  @IsOptional()
+  @IsEnum(GeoEntityStatus)
+  status?: GeoEntityStatus
 }

@@ -124,46 +124,79 @@ export interface TaxConfigVersion {
   createdAt: string
 }
 
-export type ConfigNavMatch = (pathname: string, search?: string) => boolean
+export const CONFIG_BASE = "/configuration"
 
-function masterTab(search: string | undefined, tab: string): boolean {
-  const params = new URLSearchParams(search ?? "")
-  const current = params.get("tab") ?? "reference"
-  return current === tab
-}
+export type ConfigNavGroupId = "geo" | "reference" | "tax" | "system"
 
-export const CONFIG_NAV: ReadonlyArray<{
+export type ConfigNavItem = {
   href: string
   label: string
-  match: ConfigNavMatch
-}> = [
-  { href: "/configuration", label: "Overview", match: (p) => p === "/configuration" },
+  /** lucide icon name key resolved in SideNav */
+  icon?: "map" | "layers" | "calculator" | "fileText" | "layout" | "settings"
+  match: (pathname: string) => boolean
+}
+
+export type ConfigNavGroup = {
+  id: ConfigNavGroupId
+  label: string
+  items: ConfigNavItem[]
+}
+
+export const CONFIG_NAV_GROUPS: ConfigNavGroup[] = [
   {
-    href: "/master-data?tab=reference",
-    label: "Reference Data",
-    match: (p, s) =>
-      p.startsWith("/configuration/reference") || (p.startsWith("/master-data") && masterTab(s, "reference")),
-  },
-  {
-    href: "/master-data?tab=tenants",
+    id: "geo",
     label: "Geographic Hierarchy",
-    match: (p, s) =>
-      p.startsWith("/configuration/geography") || (p.startsWith("/master-data") && masterTab(s, "tenants")),
+    items: [
+      {
+        href: `${CONFIG_BASE}/geography`,
+        label: "Tenants & Wards",
+        icon: "map",
+        match: (pathname) => pathname.startsWith(`${CONFIG_BASE}/geography`),
+      },
+    ],
   },
   {
-    href: "/master-data?tab=tax-rates",
-    label: "Tax Engine",
-    match: (p, s) =>
-      p.startsWith("/configuration/tax-engine") || (p.startsWith("/master-data") && masterTab(s, "tax-rates")),
+    id: "reference",
+    label: "Reference Data",
+    items: [],
   },
   {
-    href: "/configuration/demand-rules",
-    label: "Demand Rules",
-    match: (p) => p.startsWith("/configuration/demand-rules"),
+    id: "tax",
+    label: "Tax & Rules",
+    items: [
+      {
+        href: `${CONFIG_BASE}/tax-engine`,
+        label: "Tax Engine",
+        icon: "calculator",
+        match: (pathname) => pathname.startsWith(`${CONFIG_BASE}/tax-engine`),
+      },
+      {
+        href: `${CONFIG_BASE}/demand-rules`,
+        label: "Demand Rules",
+        icon: "fileText",
+        match: (pathname) => pathname.startsWith(`${CONFIG_BASE}/demand-rules`),
+      },
+    ],
   },
   {
-    href: "/configuration/settings",
-    label: "Settings",
-    match: (p) => p.startsWith("/configuration/settings"),
+    id: "system",
+    label: "System",
+    items: [
+      {
+        href: CONFIG_BASE,
+        label: "Overview",
+        icon: "layout",
+        match: (pathname) => pathname === CONFIG_BASE,
+      },
+      {
+        href: `${CONFIG_BASE}/settings`,
+        label: "Settings",
+        icon: "settings",
+        match: (pathname) => pathname.startsWith(`${CONFIG_BASE}/settings`),
+      },
+    ],
   },
 ]
+
+/** Flat list for leftover consumers of the old horizontal tabs. */
+export const CONFIG_NAV = CONFIG_NAV_GROUPS.flatMap((group) => group.items)

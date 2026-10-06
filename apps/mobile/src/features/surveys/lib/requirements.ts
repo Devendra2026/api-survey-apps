@@ -97,7 +97,7 @@ export function submitRequirements(s: SurveySnapshot): Requirement[] {
 
 /**
  * Field-survey gates on top of the API submit rules.
- * Parcel (5 digits), unit (3 digits), relationship, and side photo are required in the mobile wizard.
+ * Parcel (5 digits), unit (3 digits), relationship, side photo, and plot area are required in the mobile wizard.
  * The API still accepts a draft without them; submission from the app does not.
  */
 export function mobileFieldRequirements(s: SurveySnapshot): Requirement[] {
@@ -113,6 +113,7 @@ export function mobileFieldRequirements(s: SurveySnapshot): Requirement[] {
   if (!s.uploadedPhotoTypes.includes("SIDE")) {
     out.push({ step: "photos", message: "Side photo is required." })
   }
+  if (!filled(s.plotAreaSqFt)) out.push({ step: "area", message: "Plot area (sq ft)" })
   return out
 }
 

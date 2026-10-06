@@ -316,9 +316,19 @@ export function parseNumber(raw?: string | number | null): number | undefined {
   return Number.isFinite(n) ? n : undefined
 }
 
+/** GIS survey factor: square meters = square feet × this value, rounded to 4 decimals. */
+const SQ_FT_TO_SQ_METER = 0.092903
+const AREA_DECIMAL_SCALE = 10000
+
 export function sqFtToSqMeter(sqFt: number | undefined): number | undefined {
   if (sqFt == null) return undefined
-  return Math.round(sqFt * 0.092903 * 10000) / 10000
+  return Math.round(sqFt * SQ_FT_TO_SQ_METER * AREA_DECIMAL_SCALE) / AREA_DECIMAL_SCALE
+}
+
+/** Inverse of {@link sqFtToSqMeter}. Square feet stay the stored source of truth. */
+export function sqMeterToSqFt(sqMeter: number | undefined): number | undefined {
+  if (sqMeter == null) return undefined
+  return Math.round((sqMeter / SQ_FT_TO_SQ_METER) * AREA_DECIMAL_SCALE) / AREA_DECIMAL_SCALE
 }
 
 /** Convex full-export sheet names */

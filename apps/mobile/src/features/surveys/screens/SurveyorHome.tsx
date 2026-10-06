@@ -5,8 +5,9 @@ import type { AuthenticatedProfile } from "@/types/user"
 import { useFocusEffect, useRouter } from "expo-router"
 import { useCallback, useState, type ReactNode } from "react"
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native"
-import { useFieldMetrics, useSurveyList } from "../hooks/queries"
+import { useFieldMetrics, useSurveyList, useTodayDrafts } from "../hooks/queries"
 import { listPendingSurveyIds } from "../lib/pending-store"
+import { NewSurveyButton } from "../ui/new-survey-button"
 import { MetricTile } from "../ui/primitives"
 import { SurveyRow } from "../ui/SurveyRow"
 import type { ListFilterId } from "./SurveyListScreen"
@@ -24,7 +25,7 @@ export function SurveyorHome({
   const metrics = useFieldMetrics("self")
   const returned = useSurveyList({ surveyorId: profile.id, surveyStatus: "REJECTED" })
   const reopened = useSurveyList({ surveyorId: profile.id, surveyStatus: "REOPENED" })
-  const inProgress = useSurveyList({ surveyorId: profile.id, surveyStatus: "IN_PROGRESS" })
+  const todayDrafts = useTodayDrafts(profile.id)
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set())
 
   useFocusEffect(
@@ -39,12 +40,13 @@ export function SurveyorHome({
     }, [profile.id]),
   )
 
-  const refreshing = metrics.isRefetching || returned.isRefetching || inProgress.isRefetching || reopened.isRefetching
+  const refreshing =
+    metrics.isRefetching || returned.isRefetching || reopened.isRefetching || todayDrafts.isRefetching
   const refresh = () => {
     void metrics.refetch()
     void returned.refetch()
     void reopened.refetch()
-    void inProgress.refetch()
+    todayDrafts.refetch()
   }
   const openList = (filter: ListFilterId) =>
     router.push({ pathname: "/(app)/surveys/list", params: { filter, surveyorId: profile.id } })
@@ -54,15 +56,12 @@ export function SurveyorHome({
     ...(returned.data?.pages[0]?.items ?? []),
     ...(reopened.data?.pages[0]?.items ?? []),
   ].slice(0, 5)
-  const drafts = (inProgress.data?.pages[0]?.items ?? []).slice(0, 5)
+  const drafts = todayDrafts.items
   const t = metrics.data?.totals
 
   return (
     <Screen padded={false}>
-      <ScrollView
-        contentContainerStyle={styles.body}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
-      >
+      <View style={styles.pinned}>
         <View style={styles.header}>
           <View style={styles.flex}>
             <Text variant="caption" tone="secondary">
@@ -74,7 +73,6 @@ export function SurveyorHome({
           </View>
           <Button title="Sign out" variant="ghost" onPress={onSignOut} />
         </View>
-
         {submittedId ? (
           <View style={styles.success}>
             <Text variant="bodyStrong" style={{ color: colors.success }}>
@@ -85,9 +83,13 @@ export function SurveyorHome({
             </Text>
           </View>
         ) : null}
-
-        <Button title="+ New survey" onPress={() => router.push("/(app)/surveys/new")} style={styles.cta} />
-
+        <NewSurveyButton onPress={() => router.push("/(app)/surveys/new")} />
+      </View>
+      <ScrollView
+        style={styles.flex}
+        contentContainerStyle={styles.body}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
+      >
         <Text variant="label" tone="secondary" style={styles.sectionLabel}>
           My progress
         </Text>
@@ -117,7 +119,14 @@ export function SurveyorHome({
               </Tap>
             </View>
             <View style={[cardStyle, styles.today]}>
-              <TodayStat label="Created today" value={t.createdToday} />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Created today"
+                onPress={() => openList("today")}
+                style={styles.todayStat}
+              >
+                <TodayStat label="Created today" value={t.createdToday} />
+              </Pressable>
               <TodayStat label="Submitted today" value={t.submittedToday} />
               <TodayStat label="Resubmitted" value={t.resubmitted} />
             </View>
@@ -147,8 +156,15 @@ export function SurveyorHome({
             </Text>
           </Pressable>
         </View>
-        {inProgress.isPending ? (
+        {todayDrafts.isLoading ? (
           <ActivityIndicator color={colors.primary} />
+        ) : todayDrafts.isError ? (
+          <View style={[cardStyle, styles.gap]}>
+            <Text variant="caption" tone="danger">
+              {getApiErrorMessage(todayDrafts.error, "Could not load today's drafts")}
+            </Text>
+            <Button title="Retry" variant="secondary" onPress={() => todayDrafts.refetch()} />
+          </View>
         ) : drafts.length ? (
           <View style={styles.gap}>
             {drafts.map((s) => (
@@ -157,7 +173,7 @@ export function SurveyorHome({
           </View>
         ) : (
           <Text variant="caption" tone="secondary">
-            No drafts in progress.
+            No drafts created today.
           </Text>
         )}
 
@@ -213,16 +229,20 @@ function TodayStat({ label, value }: { label: string; value: number }) {
 
 const styles = StyleSheet.create({
   body: { padding: spacing.lg, paddingBottom: spacing.xxxl },
-  header: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginBottom: spacing.lg },
+  header: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   flex: { flex: 1 },
+  pinned: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.md,
+    gap: spacing.sm,
+  },
   success: {
     gap: 2,
     padding: spacing.lg,
-    marginBottom: spacing.lg,
     borderRadius: radius.md,
     backgroundColor: colors.successMuted,
   },
-  cta: { marginBottom: spacing.lg },
   sectionLabel: { marginTop: spacing.lg, marginBottom: spacing.sm },
   sectionRow: {
     flexDirection: "row",

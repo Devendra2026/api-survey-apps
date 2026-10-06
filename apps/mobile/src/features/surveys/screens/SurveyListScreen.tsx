@@ -5,15 +5,16 @@ import type { AuthenticatedProfile } from "@/types/user"
 import { useFocusEffect, useRouter } from "expo-router"
 import { useCallback, useMemo, useState } from "react"
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native"
-import { useSurveyList, type SurveyListFilter } from "../hooks/queries"
+import { useSurveyList, useTodayDrafts, type SurveyListFilter } from "../hooks/queries"
 import { listPendingSurveyIds } from "../lib/pending-store"
 import type { QcStatus, SurveyStatus } from "../types"
 import { SurveyRow } from "../ui/SurveyRow"
 
-export type ListFilterId = "all" | "draft" | "inProgress" | "underQc" | "returned" | "inCorrection" | "approved"
+export type ListFilterId = "all" | "today" | "draft" | "inProgress" | "underQc" | "returned" | "inCorrection" | "approved"
 
 const FILTERS: { id: ListFilterId; label: string; surveyStatus?: SurveyStatus; qcStatus?: QcStatus }[] = [
   { id: "all", label: "All" },
+  { id: "today", label: "Today" },
   { id: "draft", label: "New", surveyStatus: "DRAFT" },
   { id: "inProgress", label: "In progress", surveyStatus: "IN_PROGRESS" },
   { id: "underQc", label: "Under QC", surveyStatus: "SUBMITTED", qcStatus: "PENDING" },
@@ -41,6 +42,7 @@ export function SurveyListScreen({
   const router = useRouter()
   const [filterId, setFilterId] = useState<ListFilterId>(initialFilter)
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set())
+  const isToday = filterId === "today"
   const filterDef = FILTERS.find((f) => f.id === filterId) ?? FILTERS[0]!
   const filter = useMemo<SurveyListFilter>(
     () => ({
@@ -50,8 +52,27 @@ export function SurveyListScreen({
     }),
     [filterDef, surveyorId],
   )
-  const query = useSurveyList(filter)
-  const items = useMemo(() => query.data?.pages.flatMap((p) => p.items) ?? [], [query.data])
+  const query = useSurveyList(filter, !isToday)
+  const today = useTodayDrafts(surveyorId, isToday)
+  const items = useMemo(
+    () => (isToday ? today.items : (query.data?.pages.flatMap((p) => p.items) ?? [])),
+    [isToday, query.data, today.items],
+  )
+  const isPending = isToday ? today.isLoading : query.isPending
+  const isError = isToday ? today.isError : query.isError
+  const listError = isToday ? today.error : query.error
+  const isRefetching = isToday ? today.isRefetching && !today.isFetchingNextPage : query.isRefetching && !query.isFetchingNextPage
+  const refresh = () => {
+    if (isToday) today.refetch()
+    else void query.refetch()
+  }
+  const loadMore = () => {
+    if (isToday) {
+      if (today.hasNextPage && !today.isFetchingNextPage) today.fetchNextPage()
+      return
+    }
+    if (query.hasNextPage && !query.isFetchingNextPage) void query.fetchNextPage()
+  }
   const isSelf = surveyorId === profile.id
 
   useFocusEffect(
@@ -94,15 +115,15 @@ export function SurveyListScreen({
           })}
         </ScrollView>
       </View>
-      {query.isPending ? (
+      {isPending ? (
         <StatusView variant="loading" title="Loading surveys…" />
-      ) : query.isError ? (
+      ) : isError ? (
         <StatusView
           variant="error"
           title="Could not load surveys"
-          description={getApiErrorMessage(query.error)}
+          description={getApiErrorMessage(listError)}
           actionLabel="Retry"
-          onAction={() => void query.refetch()}
+          onAction={refresh}
         />
       ) : (
         <FlatList
@@ -119,18 +140,18 @@ export function SurveyListScreen({
             />
           )}
           onEndReachedThreshold={0.4}
-          onEndReached={() => {
-            if (query.hasNextPage && !query.isFetchingNextPage) void query.fetchNextPage()
-          }}
-          refreshControl={
-            <RefreshControl refreshing={query.isRefetching && !query.isFetchingNextPage} onRefresh={() => void query.refetch()} />
-          }
+          onEndReached={loadMore}
+          refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refresh} />}
           ListEmptyComponent={
             <Text variant="body" tone="secondary" style={styles.empty}>
-              No surveys in this list.
+              {isToday ? "No drafts created today." : "No surveys in this list."}
             </Text>
           }
-          ListFooterComponent={query.isFetchingNextPage ? <ActivityIndicator color={colors.primary} style={styles.more} /> : null}
+          ListFooterComponent={
+            (isToday ? today.isFetchingNextPage : query.isFetchingNextPage) ? (
+              <ActivityIndicator color={colors.primary} style={styles.more} />
+            ) : null
+          }
         />
       )}
     </Screen>

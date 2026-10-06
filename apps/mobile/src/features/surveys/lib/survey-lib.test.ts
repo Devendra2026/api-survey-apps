@@ -151,6 +151,17 @@ describe("submit requirements", () => {
     assert.deepEqual(submitRequirements({ ...complete(), ownershipType: "JOINT", coOwnerCount: 1 }), [])
   })
 
+  it("requires plot area on the area step and still lets the API submit without it", () => {
+    const empty = stepProgress(snapshot({ floorCount: 1 }))
+    assert.equal(empty.area.missing.includes("Plot area (sq ft)"), true)
+    const set = stepProgress(snapshot({ floorCount: 1, plotAreaSqFt: 100 }))
+    assert.equal(set.area.missing.includes("Plot area (sq ft)"), false)
+    assert.equal(
+      submitRequirements(snapshot({ floorCount: 1 })).some((item) => item.message === "Plot area (sq ft)"),
+      false
+    )
+  })
+
   it("counts only confirmed photo types", () => {
     const p = stepProgress({ ...complete(), uploadedPhotoTypes: ["FRONT", "FRONT", "SIDE"] })
     assert.deepEqual(p.photos, { filled: 2, total: 2, missing: [] })

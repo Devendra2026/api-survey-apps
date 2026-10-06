@@ -1,5 +1,4 @@
 import { Text } from "@/components/ui"
-import { areaMeasurePatch, summarizeAreas } from "../lib/area-summary"
 import { displayPropertyId, propertyIdPreview } from "../lib/property-identity"
 import { relationshipOptions } from "../lib/relationships"
 import type { StepId, StepProgress } from "../lib/requirements"
@@ -13,14 +12,13 @@ import {
   SITUATIONS,
   SOURCES_OF_WATER,
   TAX_RATE_ZONES,
-  type DecimalWire,
   type SurveyEditableFields,
   type SurveyPatch,
   type SurveyRecord,
 } from "../types"
 import { AddressPinField } from "./address-pin-field"
+import { AreaStep } from "./area-step"
 import { AssessmentYearField } from "./assessment-year-field"
-import { FloorsEditor } from "./ChildEditors"
 import { GpsStep } from "./GpsStep"
 import { NativeYesNoField } from "./NativeYesNoField"
 import { OwnersEditor } from "./owners-editor"
@@ -42,12 +40,6 @@ type TextKey =
   | "locality"
   | "colony"
   | "city"
-
-function toNumber(value: DecimalWire): number | null {
-  if (value === null) return null
-  const n = typeof value === "number" ? value : Number(value)
-  return Number.isFinite(n) ? n : null
-}
 
 type Props = {
   step: StepId
@@ -71,7 +63,6 @@ export function SurveyStepBody({ step, record, fields, progress, editable, canPi
     propertyUse: fields.propertyUse,
   })
   const propertyIdLabel = displayPropertyId(identity)
-  const areas = summarizeAreas(fields.propertyUse, record.floors)
 
   const setText = (key: TextKey, text: string) => {
     const patch: SurveyPatch = {}
@@ -242,28 +233,13 @@ export function SurveyStepBody({ step, record, fields, progress, editable, canPi
       )
     case "area":
       return (
-        <SectionCard title={STEP_TITLES.area} progress={progress}>
-          <BoundNumberField
-            label="Plot area (sq ft)"
-            value={toNumber(fields.plotAreaSqFt)}
-            editable={editable}
-            onCommit={(v) => setFields(areaMeasurePatch("plot", v))}
-          />
-          <BoundNumberField
-            label="Plinth area (sq ft)"
-            value={toNumber(fields.plinthAreaSqFt)}
-            editable={editable}
-            onCommit={(v) => setFields(areaMeasurePatch("plinth", v))}
-          />
-          <Field label="Built-up floors" value={record.floors.length ? String(areas.builtUpFloorCount) : "—"} />
-          <Field label="Total built-up area" value={formatSqFt(areas.builtUpSqFt, record.floors.length > 0)} />
-          <Field label="Open land area" value={formatSqFt(areas.openLandSqFt, areas.openLandFloorCount > 0)} />
-          <Field label="Total open land area" value={formatSqFt(areas.openLandSqFt, areas.openLandFloorCount > 0)} />
-          <Text variant="caption" tone="secondary">
-            Built-up and open land follow the server floor totals. Open land is the sum of open-land floor rows.
-          </Text>
-          <FloorsEditor surveyId={record.id} floors={record.floors} editable={editable} />
-        </SectionCard>
+        <AreaStep
+          record={record}
+          fields={fields}
+          progress={progress}
+          editable={editable}
+          setFields={setFields}
+        />
       )
     case "services":
       return (
@@ -315,11 +291,6 @@ export function SurveyStepBody({ step, record, fields, progress, editable, canPi
       return exhaustive
     }
   }
-}
-
-function formatSqFt(value: number, show: boolean): string {
-  if (!show) return "—"
-  return `${String(value)} sq ft`
 }
 
 function Field({ label, value }: { label: string; value: string }) {

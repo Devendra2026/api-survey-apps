@@ -68,6 +68,7 @@ export type SurveyListFilter = {
   surveyorId?: string
   wardId?: string
   search?: string
+  dateFrom?: string
 }
 
 export function useSurveyList(filter: SurveyListFilter, enabled = true) {
@@ -80,6 +81,49 @@ export function useSurveyList(filter: SurveyListFilter, enabled = true) {
     enabled: enabled && Boolean(owner),
     staleTime: 30_000,
   })
+}
+
+function listItems(data: { pages: { items: SurveyRecord[] }[] } | undefined): SurveyRecord[] {
+  return data?.pages.flatMap((page) => page.items) ?? []
+}
+
+/**
+ * Draft-mode surveys created since local midnight.
+ * The list endpoint accepts one status, so DRAFT and IN_PROGRESS are loaded separately and merged.
+ */
+export function useTodayDrafts(surveyorId: string | null, enabled = true) {
+  const dateFrom = localDayStartIso()
+  const scope = {
+    dateFrom,
+    ...(surveyorId ? { surveyorId } : {}),
+  }
+  const drafts = useSurveyList({ ...scope, surveyStatus: "DRAFT" }, enabled)
+  const inProgress = useSurveyList({ ...scope, surveyStatus: "IN_PROGRESS" }, enabled)
+  const items = useMemo(() => {
+    const merged = new Map<string, SurveyRecord>()
+    for (const item of listItems(drafts.data)) merged.set(item.id, item)
+    for (const item of listItems(inProgress.data)) merged.set(item.id, item)
+    return [...merged.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+  }, [drafts.data, inProgress.data])
+  const refetch = () => {
+    void drafts.refetch()
+    void inProgress.refetch()
+  }
+  const fetchNextPage = () => {
+    if (drafts.hasNextPage && !drafts.isFetchingNextPage) void drafts.fetchNextPage()
+    if (inProgress.hasNextPage && !inProgress.isFetchingNextPage) void inProgress.fetchNextPage()
+  }
+  return {
+    items,
+    isLoading: enabled && (drafts.isLoading || inProgress.isLoading),
+    isError: drafts.isError || inProgress.isError,
+    error: drafts.error ?? inProgress.error,
+    isRefetching: drafts.isRefetching || inProgress.isRefetching,
+    isFetchingNextPage: drafts.isFetchingNextPage || inProgress.isFetchingNextPage,
+    hasNextPage: Boolean(drafts.hasNextPage || inProgress.hasNextPage),
+    refetch,
+    fetchNextPage,
+  }
 }
 
 export function useUlbWards(ulbId: string | null) {

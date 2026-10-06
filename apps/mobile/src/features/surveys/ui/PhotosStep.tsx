@@ -14,8 +14,6 @@ import { type PhotoType, type SurveyPhoto } from "../types"
 const PHOTO_SLOTS: { type: PhotoType; hint: string; required: boolean }[] = [
   { type: "FRONT", hint: "Full front of the building from the street", required: true },
   { type: "SIDE", hint: "Side elevation along the property boundary", required: true },
-  { type: "INSIDE", hint: "Optional interior view", required: false },
-  { type: "DOCUMENT", hint: "Optional supporting document", required: false },
 ]
 
 const MAX_WIDTH = 1600

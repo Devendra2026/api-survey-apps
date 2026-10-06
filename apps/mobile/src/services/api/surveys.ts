@@ -25,6 +25,8 @@ export type SurveyListParams = {
   wardId?: string
   surveyorId?: string
   search?: string
+  /** Inclusive createdAt lower bound (ISO). Matches field-metrics local midnight. */
+  dateFrom?: string
   cursor?: string | null
   limit?: number
 }
@@ -53,6 +55,7 @@ export function listSurveys(params: SurveyListParams): Promise<CursorPage<Survey
       wardId: params.wardId,
       surveyorId: params.surveyorId,
       search: params.search,
+      dateFrom: params.dateFrom,
     })}`
   )
 }

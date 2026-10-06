@@ -2,6 +2,7 @@ import { Text } from "@/components/ui"
 import { colors, radius, spacing } from "@/theme"
 import { Pressable, StyleSheet, View } from "react-native"
 import { fieldBucket } from "../lib/lifecycle"
+import { surveyListLabel } from "../lib/survey-list-label"
 import type { SurveyRecord } from "../types"
 import { Pill, StatusBadge } from "./primitives"
 
@@ -17,20 +18,26 @@ export function SurveyRow({
   onPress: () => void
 }) {
   const bucket = fieldBucket(survey.surveyStatus, survey.qcStatus)
-  const ward = survey.ward ? `Ward ${survey.ward.wardNumber}` : "Ward —"
+  const label = surveyListLabel({
+    propertyId: survey.propertyId,
+    houseDoorNo: survey.houseDoorNo,
+    respondentName: survey.respondentName,
+    wardNumber: survey.ward?.wardNumber ?? null,
+  })
+  const subtitle = [label.subtitle, showAssignee ? survey.assignedTo?.fullName : null].filter(Boolean).join(" · ")
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Survey ${survey.propertyId}`}
+      accessibilityLabel={`Survey ${label.title}`}
       onPress={onPress}
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
     >
       <View style={styles.main}>
         <Text variant="bodyStrong" numberOfLines={1}>
-          {survey.propertyId}
+          {label.title}
         </Text>
         <Text variant="caption" tone="secondary" numberOfLines={1}>
-          {[survey.respondentName, ward, showAssignee ? survey.assignedTo?.fullName : null].filter(Boolean).join(" · ")}
+          {subtitle}
         </Text>
         <Text variant="caption" tone="secondary">
           Updated {new Date(survey.updatedAt).toLocaleString()}

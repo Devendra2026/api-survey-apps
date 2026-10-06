@@ -1,8 +1,9 @@
 import { Text, cardStyle } from "@/components/ui"
 import { colors, spacing } from "@/theme"
+import { isOpenLandPropertyUse } from "@workspace/validation"
 import type { ReactNode } from "react"
 import { Pressable, StyleSheet, View } from "react-native"
-import { summarizeAreas } from "../lib/area-summary"
+import { formatAreaBothUnits, measureNumber, summarizeAreas } from "../lib/area-summary"
 import { gpsFreshnessWarning } from "../lib/gps-freshness"
 import { optionLabel } from "../lib/labels"
 import { sortOwners } from "../lib/owner-mapping"
@@ -45,11 +46,10 @@ export function ReviewSection({
   const lng = toCoord(snapshot.longitude)
   const accuracy = toCoord(snapshot.gpsAccuracyMeters)
   const areas = summarizeAreas(snapshot.propertyUse, record.floors)
+  const showBuiltUp = isOpenLandPropertyUse(snapshot.propertyUse) || areas.builtUpFloorCount > 0
   const owners = sortOwners(record.coOwners)
   const hasFront = snapshot.uploadedPhotoTypes.includes("FRONT")
   const hasSide = snapshot.uploadedPhotoTypes.includes("SIDE")
-  const hasInside = snapshot.uploadedPhotoTypes.includes("INSIDE")
-  const hasDocument = snapshot.uploadedPhotoTypes.includes("DOCUMENT")
   const freshness = gpsFreshnessWarning(snapshot.capturedAt)
   const identity = propertyIdPreview({
     ulbCode: record.ulbCode ?? record.ulb?.code,
@@ -119,12 +119,15 @@ export function ReviewSection({
         <Line label="Road size tax zone" value={labeled(snapshot.taxRateZone)} />
       </ReviewCard>
       <ReviewCard title="Area" onEdit={edit ? () => edit("area") : undefined}>
-        <Line label="Plot area" value={snapshot.plotAreaSqFt === null ? "—" : `${String(snapshot.plotAreaSqFt)} sq ft`} />
-        <Line label="Plinth area" value={snapshot.plinthAreaSqFt === null ? "—" : `${String(snapshot.plinthAreaSqFt)} sq ft`} />
+        <Line label="Plot area" value={formatAreaBothUnits(measureNumber(snapshot.plotAreaSqFt))} />
+        <Line label="Plinth area" value={formatAreaBothUnits(measureNumber(snapshot.plinthAreaSqFt))} />
         <Line label="Built-up floors" value={String(areas.builtUpFloorCount)} />
-        <Line label="Total built-up area" value={record.floors.length ? `${areas.builtUpSqFt} sq ft` : "—"} />
-        <Line label="Open land area" value={areas.openLandFloorCount ? `${areas.openLandSqFt} sq ft` : "—"} />
-        <Line label="Total open land area" value={areas.openLandFloorCount ? `${areas.openLandSqFt} sq ft` : "—"} />
+        <Line label="Total built-up area" value={formatAreaBothUnits(showBuiltUp ? areas.builtUpSqFt : null)} />
+        <Line label="Open land area" value={formatAreaBothUnits(areas.openLandFloorCount ? areas.openLandSqFt : null)} />
+        <Line
+          label="Total open land area"
+          value={formatAreaBothUnits(areas.openLandFloorCount ? areas.openLandSqFt : null)}
+        />
       </ReviewCard>
       <ReviewCard title="Floors" onEdit={edit ? () => edit("area") : undefined}>
         {record.floors.length === 0 ? <Line label="Floors" value="—" /> : null}
@@ -158,8 +161,6 @@ export function ReviewSection({
         <Line label="Required photos" value={`${Number(hasFront) + Number(hasSide)}/2`} />
         <Line label="Front view" value={hasFront ? "Added" : "Required"} />
         <Line label="Side view" value={hasSide ? "Added" : "Required"} />
-        <Line label="Inside view" value={hasInside ? "Added" : "Optional"} />
-        <Line label="Document" value={hasDocument ? "Added" : "Optional"} />
       </ReviewCard>
     </View>
   )

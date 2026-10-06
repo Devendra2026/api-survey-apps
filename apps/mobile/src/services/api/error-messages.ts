@@ -14,6 +14,8 @@ export function friendlyHttpMessage(statusCode: number, serverMessage: string): 
       return trimmed || "The requested resource was not found."
     case 409:
       return trimmed || "This request conflicts with existing data."
+    case 413:
+      return trimmed || "This file is too large. Choose a smaller photo and try again."
     case 422:
       return trimmed || "Please check the form and try again."
     case 429:

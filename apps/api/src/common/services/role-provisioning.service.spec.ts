@@ -100,6 +100,8 @@ describe("RoleProvisioningService", () => {
     })
     await expect(service.ensureBootstrapAdmin(userId, clerkUserId)).resolves.toBe(false)
     expect(userTenantRole.create).not.toHaveBeenCalled()
+    await expect(service.ensureBootstrapAdmin(userId, clerkUserId)).resolves.toBe(false)
+    expect(userTenantRole.count).toHaveBeenCalledTimes(1)
   })
 
   it("promotes first signed-in user when no signed-in admin exists", async () => {

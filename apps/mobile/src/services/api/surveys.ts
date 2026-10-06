@@ -17,7 +17,7 @@ import type {
   WardOption,
 } from "@/features/surveys/types"
 import { File } from "expo-file-system"
-import { apiDelete, apiGet, apiPatch, apiPost, apiPostForm } from "./client"
+import { apiDelete, apiGet, apiPatch, apiPost, apiPostForm, apiPutForm } from "./client"
 
 export type SurveyListParams = {
   surveyStatus?: SurveyStatus
@@ -146,16 +146,27 @@ export type UploadPhotoInput = {
   capturedAt: string
 }
 
-/** `POST /photos/upload` stores the object in MinIO/S3 and returns the Photo row with its `objectKey`. */
-export function uploadSurveyPhoto(input: UploadPhotoInput): Promise<SurveyPhoto> {
-  const form = new FormData()
+function appendPhotoFile(form: FormData, input: UploadPhotoInput, includeSurveyId: boolean): void {
   form.append("file", new File(input.uri))
-  form.append("surveyId", input.surveyId)
+  if (includeSurveyId) form.append("surveyId", input.surveyId)
   form.append("photoType", input.photoType)
   form.append("capturedAt", input.capturedAt)
   if (input.width) form.append("width", String(Math.round(input.width)))
   if (input.height) form.append("height", String(Math.round(input.height)))
+}
+
+/** `POST /photos/upload` stores the object in MinIO/S3 and returns the Photo row with its `objectKey`. */
+export function uploadSurveyPhoto(input: UploadPhotoInput): Promise<SurveyPhoto> {
+  const form = new FormData()
+  appendPhotoFile(form, input, true)
   return apiPostForm("/photos/upload", form)
+}
+
+/** `PUT /photos/:id/replace` updates the existing photo row. Use this for retakes. */
+export function replaceSurveyPhoto(photoId: string, input: UploadPhotoInput): Promise<SurveyPhoto> {
+  const form = new FormData()
+  appendPhotoFile(form, input, false)
+  return apiPutForm(`/photos/${encodeURIComponent(photoId)}/replace`, form)
 }
 
 export function deleteSurveyPhoto(id: string): Promise<unknown> {

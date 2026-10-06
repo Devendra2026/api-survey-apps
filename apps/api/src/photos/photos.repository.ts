@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common"
-import { PhotoType } from "@workspace/database"
+import { PhotoType, Prisma } from "@workspace/database"
 import type { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
 import { buildOrderBy, getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
 import type { CreatePhotoDto, UpdatePhotoDto } from "../floors/dto/related.dto.js"
@@ -31,39 +31,40 @@ export class PhotosRepository {
   }
 
   async create(data: CreatePhotoDto) {
-    if (data.photoType === PhotoType.FRONT) {
-      const existingFront = await this.prisma.db.photo.findFirst({
-        where: { surveyId: data.surveyId, photoType: PhotoType.FRONT },
-      })
-      if (existingFront) {
-        throw new BadRequestException("A FRONT photo already exists for this survey")
+    return this.prisma.db.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM surveys WHERE id = ${data.surveyId} FOR UPDATE`)
+      if (data.photoType === PhotoType.FRONT) {
+        const existingFront = await tx.photo.findFirst({
+          where: { surveyId: data.surveyId, photoType: PhotoType.FRONT },
+        })
+        if (existingFront) {
+          throw new BadRequestException("A FRONT photo already exists for this survey")
+        }
       }
-    }
-
-    if (data.width != null && data.width <= 0) {
-      throw new BadRequestException("Invalid image width")
-    }
-    if (data.height != null && data.height <= 0) {
-      throw new BadRequestException("Invalid image height")
-    }
-
-    return this.prisma.db.photo.create({
-      data: {
-        surveyId: data.surveyId,
-        photoType: data.photoType,
-        url: data.url,
-        width: data.width,
-        height: data.height,
-        sizeKB: data.sizeKB,
-        storageProvider: data.storageProvider,
-        bucket: data.bucket,
-        objectKey: data.objectKey,
-        mimeType: data.mimeType,
-        sizeBytes: data.sizeBytes,
-        checksum: data.checksum,
-        etag: data.etag,
-        capturedAt: data.capturedAt ? new Date(data.capturedAt) : undefined,
-      },
+      if (data.width != null && data.width <= 0) {
+        throw new BadRequestException("Invalid image width")
+      }
+      if (data.height != null && data.height <= 0) {
+        throw new BadRequestException("Invalid image height")
+      }
+      return tx.photo.create({
+        data: {
+          surveyId: data.surveyId,
+          photoType: data.photoType,
+          url: data.url,
+          width: data.width,
+          height: data.height,
+          sizeKB: data.sizeKB,
+          storageProvider: data.storageProvider,
+          bucket: data.bucket,
+          objectKey: data.objectKey,
+          mimeType: data.mimeType,
+          sizeBytes: data.sizeBytes,
+          checksum: data.checksum,
+          etag: data.etag,
+          capturedAt: data.capturedAt ? new Date(data.capturedAt) : undefined,
+        },
+      })
     })
   }
 

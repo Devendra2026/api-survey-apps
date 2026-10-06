@@ -1,8 +1,9 @@
 import type { SurveyEditableFields, SurveyPatch, SurveyRecord } from "@/features/surveys/types"
-import { getApiErrorMessage, isRetryableNetworkError } from "@/services/api/client"
+import { getApiErrorMessage, isApiClientError } from "@/services/api/client"
 import { patchSurvey } from "@/services/api/surveys"
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react"
 import { AppState } from "react-native"
+import { isAutosaveAutoRetryable, nextAutosaveRetryDelayMs } from "../lib/autosave-retry"
 import { applyPatch, isEmptyPatch, mergePatch, recordToFields, subtractSentPatch } from "../lib/patch"
 import { clearPendingPatch, loadPendingPatch, savePendingPatch } from "../lib/pending-store"
 import { syncReducer, type SyncStatus } from "../lib/sync-state"
@@ -10,7 +11,6 @@ import { useRecordCache } from "./queries"
 
 const SAVE_DEBOUNCE_MS = 800
 const PERSIST_DEBOUNCE_MS = 250
-const RETRY_DELAYS_MS = [3_000, 10_000, 30_000, 60_000]
 
 export type FlushResult = { ok: true } | { ok: false; reason: "offline" | "rejected"; message: string }
 
@@ -82,7 +82,9 @@ export function useSurveyAutosave({ userId, record, enabled }: Options): SurveyA
       return { ok: true }
     } catch (error) {
       await savePendingPatch(userId, surveyId, pendingRef.current)
-      const network = isRetryableNetworkError(error)
+      const network = isApiClientError(error)
+        ? isAutosaveAutoRetryable({ kind: error.kind, statusCode: error.statusCode })
+        : false
       const message = getApiErrorMessage(error, "Could not save")
       dispatch({ type: "saveError", message, network })
       return network ? { ok: false, reason: "offline", message } : { ok: false, reason: "rejected", message }
@@ -118,9 +120,10 @@ export function useSurveyAutosave({ userId, record, enabled }: Options): SurveyA
             if (outcome.ok || outcome.reason !== "offline" || !mountedRef.current || isEmptyPatch(pendingRef.current)) {
               return
             }
-            const attempt = Math.min(retryAttemptRef.current, RETRY_DELAYS_MS.length - 1)
+            const delay = nextAutosaveRetryDelayMs(retryAttemptRef.current)
+            if (delay === null) return
             retryAttemptRef.current += 1
-            arm(RETRY_DELAYS_MS[attempt]!)
+            arm(delay)
           })
         }, ms)
       }
@@ -166,6 +169,7 @@ export function useSurveyAutosave({ userId, record, enabled }: Options): SurveyA
 
   const setFields = useCallback(
     (patch: SurveyPatch, options?: { immediate?: boolean }) => {
+      retryAttemptRef.current = 0
       updatePending(mergePatch(pendingRef.current, patch))
       dispatch({ type: "edit" })
       persistSoon()

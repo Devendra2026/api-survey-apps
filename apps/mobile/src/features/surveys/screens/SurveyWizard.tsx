@@ -29,6 +29,7 @@ import {
   type StepId,
   type SurveySnapshot,
 } from "../lib/requirements"
+import { createSingleFlight } from "../lib/single-flight"
 import { hasUnsyncedChanges } from "../lib/sync-state"
 import { CorrectionPanel } from "../ui/CorrectionPanel"
 import { ReviewSection } from "../ui/ReviewSection"
@@ -61,7 +62,7 @@ export function SurveyWizard({
   const [savingDraft, setSavingDraft] = useState(false)
   const [reopening, setReopening] = useState(false)
   const [serverErrors, setServerErrors] = useState<string[]>([])
-  const submitLockRef = useRef(false)
+  const submitFlight = useRef(createSingleFlight())
   const scrollRef = useRef<ScrollView>(null)
 
   const snapshot = useMemo<SurveySnapshot | null>(() => {
@@ -136,12 +137,12 @@ export function SurveyWizard({
   }
 
   const submit = async () => {
-    if (!record || submitLockRef.current) return
+    if (!record) return
     if (requirements.length > 0) {
       setStep(requirements[0]!.step)
       return
     }
-    submitLockRef.current = true
+    if (!submitFlight.current.tryBegin()) return
     setSubmitting(true)
     setServerErrors([])
     try {
@@ -175,7 +176,7 @@ export function SurveyWizard({
       if (target) setStep(target)
       await recordQuery.refetch()
     } finally {
-      submitLockRef.current = false
+      submitFlight.current.end()
       setSubmitting(false)
     }
   }

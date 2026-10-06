@@ -197,6 +197,11 @@ export async function apiPostForm<T>(path: string, form: FormData): Promise<T> {
   return apiRequest<T>(path, { method: "POST", body: form }, UPLOAD_TIMEOUT_MS, expoFetch)
 }
 
+/** Multipart replacement. Same transport as upload, PUT so the server updates one photo row. */
+export async function apiPutForm<T>(path: string, form: FormData): Promise<T> {
+  return apiRequest<T>(path, { method: "PUT", body: form }, UPLOAD_TIMEOUT_MS, expoFetch)
+}
+
 /** Absolute URL for authenticated binary GETs (e.g. `expo-image` sources with an Authorization header). */
 export function apiUrl(path: string): string {
   return resolveUrl(path)

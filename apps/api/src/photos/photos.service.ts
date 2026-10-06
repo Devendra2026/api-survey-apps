@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common"
+import { BadRequestException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from "@nestjs/common"
 import { PhotoType } from "@workspace/database"
 import type { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
@@ -133,10 +133,17 @@ export class PhotosService {
         etag: uploaded.etag,
         capturedAt: meta?.capturedAt,
       })
-      this.logger.log(`Photo uploaded survey=${surveyId} type=${photoType}`)
+      this.logger.log(
+        `operation=upload surveyId=${surveyId} photoId=${photo.id} photoType=${photoType} userId=${user.id}`
+      )
       return photo
     } catch (err) {
-      await this.storageService.deleteObject(uploaded.key)
+      const removed = await this.storageService.deleteObject(uploaded.key)
+      if (!removed.deleted) {
+        this.logger.error(
+          `operation=upload surveyId=${surveyId} photoType=${photoType} userId=${user.id} storageRollback=failed`
+        )
+      }
       throw err
     }
   }
@@ -184,10 +191,26 @@ export class PhotosService {
         etag: uploaded.etag,
         capturedAt: meta?.capturedAt,
       })
-      await this.storageService.deleteObject(existing.objectKey ?? existing.url)
+      const previousKey = existing.objectKey
+      if (previousKey && previousKey !== uploaded.key) {
+        const removed = await this.storageService.deleteObject(previousKey)
+        if (!removed.deleted) {
+          this.logger.error(
+            `operation=replace photoId=${id} surveyId=${existing.surveyId} photoType=${existing.photoType} userId=${user.id} storageCleanup=failed`
+          )
+        }
+      }
+      this.logger.log(
+        `operation=replace photoId=${id} surveyId=${existing.surveyId} photoType=${photo.photoType} userId=${user.id}`
+      )
       return photo
     } catch (err) {
-      await this.storageService.deleteObject(uploaded.key)
+      const removed = await this.storageService.deleteObject(uploaded.key)
+      if (!removed.deleted) {
+        this.logger.error(
+          `operation=replace photoId=${id} surveyId=${existing.surveyId} photoType=${existing.photoType} userId=${user.id} storageRollback=failed`
+        )
+      }
       throw err
     }
   }
@@ -195,8 +218,14 @@ export class PhotosService {
   async delete(id: string, user: AuthenticatedUser) {
     const photo = await this.photosRepository.findById(id)
     await this.surveysService.assertEditableSurvey(photo.surveyId, user)
-    const deleted = await this.photosRepository.delete(id)
-    await this.storageService.deleteObject(photo.objectKey ?? photo.url)
-    return deleted
+    const storageKey = photo.objectKey ?? photo.url
+    const removed = await this.storageService.deleteObject(storageKey)
+    if (storageKey && !removed.deleted) {
+      this.logger.error(
+        `operation=delete photoId=${id} surveyId=${photo.surveyId} photoType=${photo.photoType} userId=${user.id} storageDelete=failed`
+      )
+      throw new ServiceUnavailableException("The photo could not be removed from storage. Try again.")
+    }
+    return this.photosRepository.delete(id)
   }
 }

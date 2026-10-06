@@ -145,16 +145,26 @@ export class StorageService {
     }
   }
 
-  async deleteObject(keyOrUrl: string) {
-    if (!this.isConfigured()) return
+  /**
+   * Deletes a stored object. Failures are logged and returned so callers can decide
+   * whether the database row may be removed. The error text is not returned to clients.
+   */
+  async deleteObject(keyOrUrl: string): Promise<{ deleted: boolean }> {
+    if (!this.isConfigured()) {
+      return { deleted: true }
+    }
     const key = this.extractKey(keyOrUrl)
-    if (!key) return
-
+    if (!key) {
+      return { deleted: true }
+    }
     try {
       await this.storageService.deleteObject(key)
       this.logger.log(`Object delete success key=${key}`)
+      return { deleted: true }
     } catch (err) {
-      this.logger.warn(`Object delete failed for key=${key}: ${String(err)}`)
+      const name = err instanceof Error ? err.name : "Error"
+      this.logger.error(`Object delete failed key=${key} errorName=${name}`)
+      return { deleted: false }
     }
   }
 

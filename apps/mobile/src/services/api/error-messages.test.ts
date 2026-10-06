@@ -20,6 +20,11 @@ describe("friendlyHttpMessage", () => {
   it("keeps Nest message on 401", () => {
     assert.equal(friendlyHttpMessage(401, "Invalid or expired token"), "Invalid or expired token")
   })
+
+  it("explains a file that is too large", () => {
+    assert.match(friendlyHttpMessage(413, ""), /too large/i)
+    assert.match(friendlyHttpMessage(429, ""), /wait a moment/i)
+  })
 })
 
 describe("profileLoadUserMessage", () => {

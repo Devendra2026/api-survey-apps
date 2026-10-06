@@ -21,6 +21,42 @@ import {
   type SessionTokenDiagnostics,
 } from "./clerk-instance.js"
 
+/** How long a verified local profile may be reused before Clerk and lastLoginAt are refreshed. */
+export const CLERK_PROFILE_SYNC_TTL_MS = 60_000
+
+/**
+ * Clerk `users.getUser` and the `lastLoginAt` write run on this interval, not on every autosave.
+ * JWT verification and permission loading still happen on every request.
+ */
+export function shouldSyncClerkProfile(input: {
+  isActive: boolean
+  email: string | null
+  lastLoginAt: Date | null
+  nowMs: number
+  ttlMs: number
+}): boolean {
+  if (!input.isActive) {
+    return true
+  }
+  if (!input.lastLoginAt) {
+    return true
+  }
+  if (!input.email || input.email.endsWith("@clerk.local")) {
+    return true
+  }
+  return input.nowMs - input.lastLoginAt.getTime() >= input.ttlMs
+}
+
+type LocalUserRecord = {
+  id: string
+  clerkUserId: string
+  email: string
+  fullName: string
+  phone: string | null
+  isActive: boolean
+  lastLoginAt?: Date | null
+}
+
 /** Decode JWT payload claims for safe failure logs only. Never trust for authorization. */
 function peekSessionTokenClaims(token: string): SessionTokenDiagnostics {
   const segment = token.split(".")[1]
@@ -152,23 +188,37 @@ export class ClerkAuthGuard implements CanActivate {
       throw new UnauthorizedException(unauthorizedMessageForVerifyKind(lastVerifyKind))
     }
 
-    try {
-      const clerkUser = await clerkClientFor(matched.secretKey).users.getUser(clerkUserId)
-      const verification = resolveClerkEmailVerification(clerkUser)
-      email = verification.email
-      emailVerified = verification.verified
-      verificationDetail =
-        `emailStatus=${verification.primaryStatus} emailStrategy=${verification.primaryStrategy} ` +
-        `providers=${verification.providers.join(",") || "none"} via=${verification.via} instance=${matched.name}`
-      fullName =
-        [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim() ||
-        clerkUser.username ||
-        email ||
-        "User"
-      phone = clerkUser.primaryPhoneNumber?.phoneNumber ?? null
-      profileFetched = Boolean(email)
-    } catch (err) {
-      this.logger.warn(`Failed to fetch Clerk user ${clerkUserId} (${matched.name}): ${String(err)}`)
+    const preview = await this.prisma.db.user.findUnique({ where: { clerkUserId } })
+    if (preview && !preview.isActive) {
+      throw new UnauthorizedException("Your account has been disabled. Please contact the system administrator.")
+    }
+    const syncProfile = shouldSyncClerkProfile({
+      isActive: preview?.isActive ?? false,
+      email: preview?.email ?? null,
+      lastLoginAt: preview?.lastLoginAt ?? null,
+      nowMs: Date.now(),
+      ttlMs: CLERK_PROFILE_SYNC_TTL_MS,
+    })
+
+    if (syncProfile) {
+      try {
+        const clerkUser = await clerkClientFor(matched.secretKey).users.getUser(clerkUserId)
+        const verification = resolveClerkEmailVerification(clerkUser)
+        email = verification.email
+        emailVerified = verification.verified
+        verificationDetail =
+          `emailStatus=${verification.primaryStatus} emailStrategy=${verification.primaryStrategy} ` +
+          `providers=${verification.providers.join(",") || "none"} via=${verification.via} instance=${matched.name}`
+        fullName =
+          [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim() ||
+          clerkUser.username ||
+          email ||
+          "User"
+        phone = clerkUser.primaryPhoneNumber?.phoneNumber ?? null
+        profileFetched = Boolean(email)
+      } catch (err) {
+        this.logger.warn(`Failed to fetch Clerk user ${clerkUserId} (${matched.name}): ${String(err)}`)
+      }
     }
 
     request.user = await this.resolveLocalUser({
@@ -179,6 +229,8 @@ export class ClerkAuthGuard implements CanActivate {
       profileFetched,
       emailVerified,
       verificationDetail,
+      touchLogin: syncProfile,
+      existing: preview,
     })
     return true
   }
@@ -192,12 +244,20 @@ export class ClerkAuthGuard implements CanActivate {
     emailVerified?: boolean
     /** Log-safe Clerk verification summary (status, strategy, providers). Never tokens. */
     verificationDetail?: string
+    /** False skips the lastLoginAt write when the Clerk profile is still inside the sync TTL. */
+    touchLogin?: boolean
+    /** Already loaded row. `null` means the lookup ran and found nobody. */
+    existing?: LocalUserRecord | null
   }): Promise<AuthenticatedUser> {
     const now = new Date()
+    const touchLogin = input.touchLogin !== false
     const verifiedClerkUserId = input.clerkUserId
-    let existing = await this.prisma.db.user.findUnique({
-      where: { clerkUserId: verifiedClerkUserId },
-    })
+    let existing =
+      input.existing !== undefined
+        ? input.existing
+        : await this.prisma.db.user.findUnique({
+            where: { clerkUserId: verifiedClerkUserId },
+          })
 
     const normalizedEmail = input.profileFetched && input.email ? normalizeEmail(input.email) : (existing?.email ?? "")
 
@@ -262,20 +322,23 @@ export class ClerkAuthGuard implements CanActivate {
     const fullName =
       input.profileFetched && input.fullName !== "User" ? input.fullName : (existing?.fullName ?? input.fullName)
 
+    const skipLoginWrite = !touchLogin && !input.profileFetched && existing
     const user = existing
-      ? await this.prisma.db.user.update({
-          where: { id: existing.id },
-          data: {
-            ...(input.profileFetched
-              ? {
-                  email,
-                  fullName,
-                  phone: input.phone ?? undefined,
-                }
-              : {}),
-            lastLoginAt: now,
-          },
-        })
+      ? skipLoginWrite
+        ? existing
+        : await this.prisma.db.user.update({
+            where: { id: existing.id },
+            data: {
+              ...(input.profileFetched
+                ? {
+                    email,
+                    fullName,
+                    phone: input.phone ?? undefined,
+                  }
+                : {}),
+              lastLoginAt: now,
+            },
+          })
       : await this.prisma.db.user.create({
           data: {
             clerkUserId: verifiedClerkUserId,

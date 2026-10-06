@@ -1,6 +1,7 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from "@nestjs/common"
 import type { Request, Response } from "express"
 import type { ApiResponse } from "../interfaces/api-response.interface.js"
+import { safeLogText } from "../logging/safe-log-text.js"
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
@@ -54,7 +55,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       status = exception.getStatus()
       const body = exception.getResponse()
       // Log full validation / HTTP response body (e.g. class-validator messages)
-      this.logger.warn(`HttpException ${status} ${request.method} ${request.url} → ${JSON.stringify(body)}`)
+      this.logger.warn(
+        `requestId=${requestIdOf(request)} method=${request.method} route=${routeOf(request)} status=${status} errorCode=${status} message=${safeLogText(JSON.stringify(body))}`
+      )
       if (typeof body === "string") {
         message = body
       } else if (typeof body === "object" && body !== null) {
@@ -67,6 +70,18 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           errors = Array.isArray(obj.errors) ? obj.errors : [obj.errors]
         }
       }
+    } else if (isFileTooLarge(exception)) {
+      status = HttpStatus.PAYLOAD_TOO_LARGE
+      message = "The uploaded file is too large."
+      this.logger.warn(
+        `requestId=${requestIdOf(request)} method=${request.method} route=${routeOf(request)} status=413 errorCode=413`
+      )
+    } else if (isUpstreamTimeout(exception)) {
+      status = HttpStatus.GATEWAY_TIMEOUT
+      message = "The request timed out while contacting storage. Please try again."
+      this.logger.error(
+        `requestId=${requestIdOf(request)} method=${request.method} route=${routeOf(request)} status=504 errorCode=504`
+      )
     } else if (this.isPrismaUniqueConflict(exception)) {
       status = HttpStatus.CONFLICT
       message = this.uniqueConflictMessage(exception)
@@ -108,4 +123,23 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     response.status(status).json(payload)
   }
+}
+
+function routeOf(request: Request): string {
+  return request.url.split("?")[0] ?? request.url
+}
+
+function requestIdOf(request: Request): string {
+  const header = request.header("x-request-id")
+  return header && header.length > 0 ? header : "none"
+}
+
+function isFileTooLarge(exception: unknown): boolean {
+  return (
+    typeof exception === "object" && exception !== null && "code" in exception && exception.code === "LIMIT_FILE_SIZE"
+  )
+}
+
+function isUpstreamTimeout(exception: unknown): boolean {
+  return exception instanceof Error && (exception.name === "TimeoutError" || exception.name === "AbortError")
 }

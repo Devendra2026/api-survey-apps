@@ -1,14 +1,15 @@
 import { Button, Text } from "@/components/ui"
-import { apiUrl, getApiAuthHeader, getApiErrorMessage } from "@/services/api/client"
-import { deleteSurveyPhoto, photoFilePath, uploadSurveyPhoto } from "@/services/api/surveys"
+import { apiUrl, getApiAuthHeader, getApiErrorMessage, isApiClientError } from "@/services/api/client"
+import { deleteSurveyPhoto, replaceSurveyPhoto, uploadSurveyPhoto } from "@/services/api/surveys"
 import { colors, radius, spacing } from "@/theme"
 import { Image } from "expo-image"
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator"
 import * as ImagePicker from "expo-image-picker"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { ActivityIndicator, Alert, Linking, StyleSheet, View } from "react-native"
 import { useRecordCache } from "../hooks/queries"
 import { optionLabel } from "../lib/labels"
+import { createPhotoSlotGuard, photoPreviewPath, photoWriteTarget } from "../lib/photo-upload"
 import { type PhotoType, type SurveyPhoto } from "../types"
 
 const PHOTO_SLOTS: { type: PhotoType; hint: string; required: boolean }[] = [
@@ -19,7 +20,15 @@ const PHOTO_SLOTS: { type: PhotoType; hint: string; required: boolean }[] = [
 const MAX_WIDTH = 1600
 const JPEG_QUALITY = 0.7
 
-type LocalUpload = { uri: string; width: number; height: number; status: "uploading" | "failed"; error?: string; replaceId?: string }
+type LocalUpload = {
+  uri: string
+  width: number
+  height: number
+  status: "uploading" | "failed"
+  error?: string
+  replaceId?: string
+  canRetry: boolean
+}
 
 async function compress(asset: ImagePicker.ImagePickerAsset): Promise<{ uri: string; width: number; height: number }> {
   const context = ImageManipulator.manipulate(asset.uri)
@@ -39,6 +48,7 @@ export function PhotosStep({
   editable: boolean
 }) {
   const recordCache = useRecordCache()
+  const slots = useRef(createPhotoSlotGuard())
   const [local, setLocal] = useState<Partial<Record<PhotoType, LocalUpload>>>({})
   const [authHeaders, setAuthHeaders] = useState<Record<string, string> | null>(null)
 
@@ -60,52 +70,75 @@ export function PhotosStep({
       return copy
     })
 
-  const upload = async (type: PhotoType, file: { uri: string; width: number; height: number }, replaceId?: string) => {
-    setLocalFor(type, { ...file, status: "uploading", replaceId })
+  const send = async (type: PhotoType, file: { uri: string; width: number; height: number }, replaceId?: string) => {
+    const write = photoWriteTarget(replaceId)
+    setLocalFor(type, { ...file, status: "uploading", replaceId, canRetry: false })
     try {
-      const row = await uploadSurveyPhoto({
+      const input = {
         surveyId,
         photoType: type,
         uri: file.uri,
         width: file.width,
         height: file.height,
         capturedAt: new Date().toISOString(),
-      })
-      if (!row.objectKey) throw new Error("Upload was not confirmed by storage. Try again.")
-      recordCache.update(surveyId, (r) => ({ ...r, photos: [...r.photos, row] }))
-      setLocalFor(type, undefined)
-      if (replaceId) {
-        await deleteSurveyPhoto(replaceId).catch(() => undefined)
-        recordCache.update(surveyId, (r) => ({ ...r, photos: r.photos.filter((p) => p.id !== replaceId) }))
       }
+      const row = write.mode === "replace" ? await replaceSurveyPhoto(write.photoId, input) : await uploadSurveyPhoto(input)
+      if (!row.objectKey) throw new Error("Upload was not confirmed by storage. Try again.")
+      recordCache.update(surveyId, (record) => ({
+        ...record,
+        photos:
+          write.mode === "replace"
+            ? record.photos.map((photo) => (photo.id === write.photoId ? row : photo))
+            : [...record.photos, row],
+      }))
+      setLocalFor(type, undefined)
     } catch (e) {
-      setLocalFor(type, { ...file, status: "failed", error: getApiErrorMessage(e, "Upload failed"), replaceId })
+      const tooLarge = isApiClientError(e) && e.statusCode === 413
+      setLocalFor(type, {
+        ...file,
+        status: "failed",
+        error: getApiErrorMessage(e, "Upload failed"),
+        replaceId,
+        canRetry: !tooLarge,
+      })
+    }
+  }
+
+  const upload = async (type: PhotoType, file: { uri: string; width: number; height: number }, replaceId?: string) => {
+    if (!slots.current.tryAcquire(type)) return
+    try {
+      await send(type, file, replaceId)
+    } finally {
+      slots.current.release(type)
     }
   }
 
   const pick = async (type: PhotoType, source: "camera" | "library", replaceId?: string) => {
-    const permission =
-      source === "camera"
-        ? await ImagePicker.requestCameraPermissionsAsync()
-        : await ImagePicker.requestMediaLibraryPermissionsAsync()
-    if (!permission.granted) {
-      Alert.alert(
-        "Permission needed",
-        source === "camera" ? "Camera access is required to photograph the property." : "Photo library access is required.",
-        permission.canAskAgain ? undefined : [{ text: "Cancel" }, { text: "Open settings", onPress: () => void Linking.openSettings() }],
-      )
-      return
-    }
-    const options: ImagePicker.ImagePickerOptions = { mediaTypes: "images", quality: 1, exif: false }
-    const result =
-      source === "camera" ? await ImagePicker.launchCameraAsync(options) : await ImagePicker.launchImageLibraryAsync(options)
-    const asset = result.canceled ? undefined : result.assets[0]
-    if (!asset) return
+    if (!slots.current.tryAcquire(type)) return
     try {
+      const permission =
+        source === "camera"
+          ? await ImagePicker.requestCameraPermissionsAsync()
+          : await ImagePicker.requestMediaLibraryPermissionsAsync()
+      if (!permission.granted) {
+        Alert.alert(
+          "Permission needed",
+          source === "camera" ? "Camera access is required to photograph the property." : "Photo library access is required.",
+          permission.canAskAgain ? undefined : [{ text: "Cancel" }, { text: "Open settings", onPress: () => void Linking.openSettings() }],
+        )
+        return
+      }
+      const options: ImagePicker.ImagePickerOptions = { mediaTypes: "images", quality: 1, exif: false }
+      const result =
+        source === "camera" ? await ImagePicker.launchCameraAsync(options) : await ImagePicker.launchImageLibraryAsync(options)
+      const asset = result.canceled ? undefined : result.assets[0]
+      if (!asset) return
       const file = await compress(asset)
-      await upload(type, file, replaceId)
+      await send(type, file, replaceId)
     } catch (e) {
       Alert.alert("Could not process photo", getApiErrorMessage(e))
+    } finally {
+      slots.current.release(type)
     }
   }
 
@@ -159,7 +192,7 @@ export function PhotosStep({
                 <Image source={{ uri: pending.uri }} style={styles.image} contentFit="cover" />
               ) : latest && authHeaders ? (
                 <Image
-                  source={{ uri: apiUrl(photoFilePath(latest.id)), headers: authHeaders }}
+                  source={{ uri: apiUrl(photoPreviewPath(latest.id, latest.objectKey)), headers: authHeaders }}
                   style={styles.image}
                   contentFit="cover"
                   cachePolicy="memory-disk"
@@ -185,7 +218,9 @@ export function PhotosStep({
                   {pending.error}
                 </Text>
                 <View style={styles.actions}>
-                  <Button title="Retry" onPress={() => void upload(type, pending, pending.replaceId)} style={styles.flex} />
+                  {pending.canRetry ? (
+                    <Button title="Retry" onPress={() => void upload(type, pending, pending.replaceId)} style={styles.flex} />
+                  ) : null}
                   <Button title="Discard" variant="secondary" onPress={() => setLocalFor(type, undefined)} style={styles.flex} />
                 </View>
               </View>

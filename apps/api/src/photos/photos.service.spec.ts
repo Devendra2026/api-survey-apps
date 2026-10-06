@@ -1,8 +1,10 @@
-import { NotFoundException } from "@nestjs/common"
-import { PhotosRepository } from "./photos.repository.js"
-import { PhotosService } from "./photos.service.js"
+import { jest } from "@jest/globals"
+import { NotFoundException, ServiceUnavailableException } from "@nestjs/common"
+import { PhotoType } from "@workspace/database"
 import { StorageService } from "../storage/storage.service.js"
 import { SurveysService } from "../surveys/surveys.service.js"
+import { PhotosRepository } from "./photos.repository.js"
+import { PhotosService } from "./photos.service.js"
 
 describe("PhotosService download URLs", () => {
   it("authorizes the survey before issuing a short-lived signed URL", async () => {
@@ -156,5 +158,113 @@ describe("PhotosService getFileStream", () => {
     const service = new PhotosService(photosRepository, surveysService, storageService)
 
     await expect(service.getFileStream("photo-1", { id: "user-1" } as never)).rejects.toBeInstanceOf(NotFoundException)
+  })
+})
+
+describe("PhotosService replace", () => {
+  const file = { buffer: Buffer.from("jpeg"), mimetype: "image/jpeg", originalname: "front.jpg" } as Express.Multer.File
+  const user = { id: "user-1" } as never
+
+  function createService(options?: { deleteOld?: boolean; updateError?: Error }) {
+    const deleted: string[] = []
+    const create = jest.fn(() => Promise.reject(new Error("replace must not create a row")))
+    const photosRepository = {
+      findById: () =>
+        Promise.resolve({
+          id: "photo-1",
+          surveyId: "survey-1",
+          photoType: PhotoType.FRONT,
+          objectKey: "uploads/front-old.jpg",
+        }),
+      update: () => {
+        if (options?.updateError) return Promise.reject(options.updateError)
+        return Promise.resolve({
+          id: "photo-1",
+          surveyId: "survey-1",
+          photoType: PhotoType.FRONT,
+          objectKey: "uploads/front-new.jpg",
+        })
+      },
+      create,
+      delete: jest.fn(() => Promise.resolve({ id: "photo-1" })),
+    } as unknown as PhotosRepository
+    const surveysService = {
+      assertEditableSurvey: () =>
+        Promise.resolve({
+          stateId: "state",
+          districtId: "district",
+          ulbId: "ulb",
+          wardId: "ward",
+        }),
+    } as unknown as SurveysService
+    const storageService = {
+      uploadImage: () =>
+        Promise.resolve({
+          key: "uploads/front-new.jpg",
+          url: "https://storage.example/front-new.jpg",
+          bucket: "photos",
+          provider: "minio",
+          sizeBytes: 4,
+          sizeKB: 1,
+          mimeType: "image/jpeg",
+          checksum: "abc",
+          etag: "etag",
+        }),
+      deleteObject: (key: string) => {
+        deleted.push(key)
+        if (key === "uploads/front-old.jpg" && options?.deleteOld === false) {
+          return Promise.resolve({ deleted: false })
+        }
+        return Promise.resolve({ deleted: true })
+      },
+    } as unknown as StorageService
+    return { service: new PhotosService(photosRepository, surveysService, storageService), deleted, create }
+  }
+
+  it("replaces the existing FRONT row and removes the previous object", async () => {
+    const { service, deleted, create } = createService()
+    const photo = await service.replace("photo-1", file, user, { photoType: PhotoType.FRONT })
+    expect(photo.id).toBe("photo-1")
+    expect(photo.objectKey).toBe("uploads/front-new.jpg")
+    expect(deleted).toEqual(["uploads/front-old.jpg"])
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it("keeps the updated row when cleanup of the old object fails", async () => {
+    const { service } = createService({ deleteOld: false })
+    await expect(service.replace("photo-1", file, user, { photoType: PhotoType.FRONT })).resolves.toMatchObject({
+      id: "photo-1",
+      objectKey: "uploads/front-new.jpg",
+    })
+  })
+
+  it("removes the new object when the database update fails", async () => {
+    const { service, deleted } = createService({ updateError: new Error("db down") })
+    await expect(service.replace("photo-1", file, user)).rejects.toThrow("db down")
+    expect(deleted).toEqual(["uploads/front-new.jpg"])
+  })
+
+  it("leaves the database row in place when storage deletion fails", async () => {
+    const deletePhoto = jest.fn(() => Promise.resolve({ id: "photo-1" }))
+    const photosRepository = {
+      findById: () =>
+        Promise.resolve({
+          id: "photo-1",
+          surveyId: "survey-1",
+          photoType: PhotoType.SIDE,
+          objectKey: "uploads/side.jpg",
+          url: "uploads/side.jpg",
+        }),
+      delete: deletePhoto,
+    } as unknown as PhotosRepository
+    const surveysService = {
+      assertEditableSurvey: () => Promise.resolve({}),
+    } as unknown as SurveysService
+    const storageService = {
+      deleteObject: () => Promise.resolve({ deleted: false }),
+    } as unknown as StorageService
+    const service = new PhotosService(photosRepository, surveysService, storageService)
+    await expect(service.delete("photo-1", user)).rejects.toBeInstanceOf(ServiceUnavailableException)
+    expect(deletePhoto).not.toHaveBeenCalled()
   })
 })

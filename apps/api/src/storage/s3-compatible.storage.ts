@@ -18,6 +18,14 @@ import type {
 } from "./storage.types.js"
 import { StorageProvider } from "./storage.types.js"
 
+/** Bound MinIO/S3 calls so a stalled upload cannot hold the request open. */
+const STORAGE_REQUEST_TIMEOUT_MS = 30_000
+const STORAGE_HEALTH_TIMEOUT_MS = 5_000
+
+function storageAbortSignal(timeoutMs: number): AbortSignal {
+  return AbortSignal.timeout(timeoutMs)
+}
+
 interface S3CompatibleClientOptions {
   region: string
   endpoint?: string
@@ -94,7 +102,8 @@ export class S3CompatibleStorage implements StorageService {
         ContentType: input.mimeType,
         ACL: this.options.defaultAcl,
         Metadata: input.metadata,
-      })
+      }),
+      { abortSignal: storageAbortSignal(STORAGE_REQUEST_TIMEOUT_MS) }
     )
     const url = await this.getSignedDownloadUrl(input.key)
 
@@ -117,7 +126,8 @@ export class S3CompatibleStorage implements StorageService {
       new DeleteObjectCommand({
         Bucket: this.options.bucket!,
         Key: key,
-      })
+      }),
+      { abortSignal: storageAbortSignal(STORAGE_REQUEST_TIMEOUT_MS) }
     )
   }
 
@@ -131,7 +141,8 @@ export class S3CompatibleStorage implements StorageService {
       new GetObjectCommand({
         Bucket: this.options.bucket!,
         Key: key,
-      })
+      }),
+      { abortSignal: storageAbortSignal(STORAGE_REQUEST_TIMEOUT_MS) }
     )
     if (!response.Body) {
       throw new Error(`Object not found: ${key}`)
@@ -181,7 +192,9 @@ export class S3CompatibleStorage implements StorageService {
     }
 
     try {
-      await this.client!.send(new HeadBucketCommand({ Bucket: this.options.bucket! }))
+      await this.client!.send(new HeadBucketCommand({ Bucket: this.options.bucket! }), {
+        abortSignal: storageAbortSignal(STORAGE_HEALTH_TIMEOUT_MS),
+      })
       return {
         configured: true,
         healthy: true,

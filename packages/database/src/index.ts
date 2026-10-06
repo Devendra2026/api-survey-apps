@@ -1,5 +1,5 @@
 export { createPrismaClient, getPrisma, prisma } from "./client.js"
-export type { CreatePrismaClientOptions } from "./client.js"
+export type { CreatePrismaClientOptions, PrismaPoolOptions } from "./client.js"
 export { ensureAccessBootstrap } from "./ensure-access-bootstrap.js"
 export type { AccessBootstrapResult } from "./ensure-access-bootstrap.js"
 export { seedPermissionsAndRoles } from "./rbac-catalog.js"

@@ -5,7 +5,44 @@ import type { Reflector } from "@nestjs/core"
 import type { PrismaService } from "../../prisma/prisma.service.js"
 import type { RoleProvisioningService } from "../services/role-provisioning.service.js"
 import type { TenantScopeService } from "../services/tenant-scope.service.js"
-import { ClerkAuthGuard } from "./clerk-auth.guard.js"
+import { CLERK_PROFILE_SYNC_TTL_MS, ClerkAuthGuard, shouldSyncClerkProfile } from "./clerk-auth.guard.js"
+
+describe("shouldSyncClerkProfile", () => {
+  const now = Date.parse("2026-10-06T00:00:00.000Z")
+
+  it("skips Clerk while the local profile is inside the sync window", () => {
+    expect(
+      shouldSyncClerkProfile({
+        isActive: true,
+        email: "surveyor@example.com",
+        lastLoginAt: new Date(now - 1_000),
+        nowMs: now,
+        ttlMs: CLERK_PROFILE_SYNC_TTL_MS,
+      })
+    ).toBe(false)
+  })
+
+  it("refreshes Clerk after the sync window and for a placeholder email", () => {
+    expect(
+      shouldSyncClerkProfile({
+        isActive: true,
+        email: "surveyor@example.com",
+        lastLoginAt: new Date(now - CLERK_PROFILE_SYNC_TTL_MS),
+        nowMs: now,
+        ttlMs: CLERK_PROFILE_SYNC_TTL_MS,
+      })
+    ).toBe(true)
+    expect(
+      shouldSyncClerkProfile({
+        isActive: true,
+        email: "user_a@clerk.local",
+        lastLoginAt: new Date(now),
+        nowMs: now,
+        ttlMs: CLERK_PROFILE_SYNC_TTL_MS,
+      })
+    ).toBe(true)
+  })
+})
 
 describe("ClerkAuthGuard.resolveLocalUser", () => {
   const findUnique = jest.fn<(...args: unknown[]) => Promise<unknown>>()
@@ -23,6 +60,15 @@ describe("ClerkAuthGuard.resolveLocalUser", () => {
     phone: string | null
     profileFetched: boolean
     emailVerified?: boolean
+    touchLogin?: boolean
+    existing?: {
+      id: string
+      clerkUserId: string
+      email: string
+      fullName: string
+      phone: string | null
+      isActive: boolean
+    } | null
   }) => Promise<unknown>
 
   beforeEach(() => {
@@ -336,5 +382,28 @@ describe("ClerkAuthGuard.resolveLocalUser", () => {
         permissions: ["survey:view"],
       })
     )
+  })
+
+  it("does not write lastLoginAt when the Clerk profile is still fresh", async () => {
+    const existing = {
+      id: "uuid-a",
+      clerkUserId: "user_a",
+      email: "a@example.com",
+      fullName: "Surveyor A",
+      phone: null,
+      isActive: true,
+    }
+    const result = await resolveLocalUser({
+      clerkUserId: "user_a",
+      email: "",
+      fullName: "User",
+      phone: null,
+      profileFetched: false,
+      touchLogin: false,
+      existing,
+    })
+    expect(userUpdate).not.toHaveBeenCalled()
+    expect(loadUserContext).toHaveBeenCalledWith("uuid-a")
+    expect(result).toEqual(expect.objectContaining({ id: "uuid-a", permissions: ["survey:view"] }))
   })
 })

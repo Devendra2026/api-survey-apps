@@ -52,7 +52,7 @@ alwaysApply: false
 - Never skip guards or add routes without `@Public()` intentionally.
 - Never expose `CLERK_SECRET_KEY`, `DATABASE_URL`, Redis, MinIO/S3 keys to the browser.
 - CORS: `CORS_ORIGIN` (comma-separated origins). No `*` in production.
-- Throttle: 120 req / 60s global.
+- Throttle: 120 req / 60s per authenticated user. Anonymous traffic is limited by client IP. `trust proxy` is `loopback, linklocal, uniquelocal` so Traefik on the private Docker network is the only trusted hop. Do not set `trust proxy` to `true` or raise the limit to hide a shared bucket.
 - File uploads: MIME whitelist + size limits via `StorageService.validateImage`.
 
 ## Web

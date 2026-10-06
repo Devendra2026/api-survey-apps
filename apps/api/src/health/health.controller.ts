@@ -1,6 +1,7 @@
 import { Controller, Get, Header, ServiceUnavailableException } from "@nestjs/common"
 import { ConfigService } from "@nestjs/config"
 import { ApiTags } from "@nestjs/swagger"
+import { SkipThrottle } from "@nestjs/throttler"
 import { Redis } from "ioredis"
 import { collectDefaultMetrics, Registry } from "prom-client"
 import { Public } from "../common/decorators/public.decorator.js"
@@ -31,6 +32,7 @@ export class HealthController {
   }
 
   @Public()
+  @SkipThrottle()
   @Get("live")
   getLive() {
     return {
@@ -48,6 +50,7 @@ export class HealthController {
   }
 
   @Public()
+  @SkipThrottle()
   @Get("ready")
   async getReady() {
     const checks: Record<string, string> = {}

@@ -12,6 +12,8 @@ import { PrismaService } from "../../prisma/prisma.service.js"
 @Injectable()
 export class RoleProvisioningService {
   private readonly logger = new Logger(RoleProvisioningService.name)
+  /** Avoid counting signed-in admins on every survey request once one exists. */
+  private signedInAdminCachedUntil = 0
 
   constructor(
     private readonly prisma: PrismaService,
@@ -84,6 +86,9 @@ export class RoleProvisioningService {
 
   /** True when no active ADMIN assignment belongs to a user who has signed in. */
   private async hasNoSignedInAdmin(): Promise<boolean> {
+    if (Date.now() < this.signedInAdminCachedUntil) {
+      return false
+    }
     const signedInAdmins = await this.prisma.db.userTenantRole.count({
       where: {
         isActive: true,
@@ -91,7 +96,11 @@ export class RoleProvisioningService {
         user: { lastLoginAt: { not: null } },
       },
     })
-    return signedInAdmins === 0
+    if (signedInAdmins > 0) {
+      this.signedInAdminCachedUntil = Date.now() + 60_000
+      return false
+    }
+    return true
   }
 
   private parseBootstrapIds(): Set<string> {

@@ -7,6 +7,7 @@ import helmet from "helmet"
 import { randomUUID } from "node:crypto"
 import { pinoHttp } from "pino-http"
 import { AppModule } from "./app.module.js"
+import { TRAEFIK_TRUST_PROXY } from "./config/trust-proxy.js"
 
 async function bootstrap() {
   // rawBody required for Clerk webhook Svix signature verification.
@@ -15,6 +16,9 @@ async function bootstrap() {
   const nodeEnv = configService.get<string>("NODE_ENV") ?? "development"
 
   app.enableShutdownHooks()
+  // One private-network hop (Traefik on dokploy-network / traefik-public). Not `true`.
+  const httpServer = app.getHttpAdapter().getInstance() as { set: (setting: string, value: string) => void }
+  httpServer.set("trust proxy", TRAEFIK_TRUST_PROXY)
 
   let closing = false
   const shutdown = async () => {

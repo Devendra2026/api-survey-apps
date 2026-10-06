@@ -1,13 +1,14 @@
 import { Module } from "@nestjs/common"
 import { ConfigModule } from "@nestjs/config"
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core"
-import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler"
+import { ThrottlerModule } from "@nestjs/throttler"
 import { AuthModule } from "./auth/auth.module.js"
 import { CoOwnersModule } from "./co-owners/co-owners.module.js"
 import { CommandCenterModule } from "./command-center/command-center.module.js"
 import { CommonModule } from "./common/common.module.js"
 import { GlobalExceptionFilter } from "./common/filters/global-exception.filter.js"
 import { ClerkAuthGuard } from "./common/guards/clerk-auth.guard.js"
+import { UserThrottlerGuard } from "./common/guards/user-throttler.guard.js"
 import { PermissionsGuard } from "./common/guards/permissions.guard.js"
 import { TenantGuard } from "./common/guards/tenant.guard.js"
 import { LoggingInterceptor } from "./common/interceptors/logging.interceptor.js"
@@ -55,10 +56,13 @@ import { ClerkWebhookModule } from "./webhooks/clerk-webhook.module.js"
       cache: true,
       validate: validateEnv,
     }),
+    // 120/minute is per tracker. UserThrottlerGuard keys authenticated callers by user id
+    // and anonymous callers by client IP. Do not raise this to hide a shared proxy bucket.
     ThrottlerModule.forRoot([
       {
         ttl: 60_000,
         limit: 120,
+        name: "default",
       },
     ]),
     PrismaModule,
@@ -100,7 +104,7 @@ import { ClerkWebhookModule } from "./webhooks/clerk-webhook.module.js"
     { provide: APP_FILTER, useClass: GlobalExceptionFilter },
     { provide: APP_INTERCEPTOR, useClass: ResponseTransformInterceptor },
     { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: UserThrottlerGuard },
     { provide: APP_GUARD, useExisting: ClerkAuthGuard },
     { provide: APP_GUARD, useExisting: PermissionsGuard },
     { provide: APP_GUARD, useExisting: TenantGuard },

@@ -4,6 +4,7 @@ import {
   assertQcMandatoryFields,
   assertUniqueSurveyId,
   buildExportFilename,
+  buildPublicStorageUrl,
   COMMON_SURVEY_COLUMNS,
   FIXED_HEADERS,
   formatWardNumberAndName,
@@ -18,7 +19,6 @@ import {
   renderSurveyDataWorkbook,
   renderSurveyDataWorkbookStreaming,
   resolveStoredObjectKey,
-  buildPublicStorageUrl,
   sanitizeExportPathSegment,
   SURVEY_CAPTURE_HEADERS,
   SURVEY_PREMIUM_COLUMNS,
@@ -185,7 +185,7 @@ describe("Excel report templates", () => {
     expect(rowValues(generatedSheet, 1)).toHaveLength(45)
   })
 
-  it("renders 39-column Survey Data with floor narrative in Floors column", async () => {
+  it("renders Survey Data with floor narrative in Floors column", async () => {
     const workbook = await loadFromBuffer(await renderSurveyDataWorkbook([bundle]))
     expect(workbook.worksheets.map((s) => s.name)).toEqual(["Survey Data", "Parcel Images"])
     const sheet = workbook.getWorksheet("Survey Data")!
@@ -195,17 +195,20 @@ describe("Excel report templates", () => {
     expect(headerRow[0]).toBe("SN")
     expect(headerRow[1]).toBe("Status")
     expect(headerRow[4]).toBe("Property Id")
-    expect(headerRow[28]).toBe("Floors")
-    expect(headerRow[37]).toBe("Latitude")
-    expect(headerRow[38]).toBe("Longitude")
+    expect(headerRow[29]).toBe("Floors")
+    expect(headerRow[38]).toBe("Latitude")
+    expect(headerRow[39]).toBe("Longitude")
     expect(headerRow).toEqual(COMMON_SURVEY_COLUMNS.map((c) => c.header))
-    expect(COMMON_SURVEY_COLUMNS).toHaveLength(39)
+    expect(COMMON_SURVEY_COLUMNS).toHaveLength(40)
     expect(sheet.getRow(2).getCell(1).value).toBe(1)
     expect(sheet.getRow(2).getCell(2).value).not.toBe("Status")
     expect(sheet.getRow(2).getCell(5).value).toBe(bundle.propertyId)
     expect(sheet.views?.[0]).toMatchObject({ state: "frozen", ySplit: 1, xSplit: 5 })
     const wardCol = headerRow.indexOf("Ward Name") + 1
     expect(sheet.getRow(2).getCell(wardCol).value).toBe("001 - Ward 1")
+    const sectorCol = headerRow.indexOf("Sector Number") + 1
+    expect(sectorCol).toBe(wardCol + 1)
+    expect(sheet.getRow(2).getCell(sectorCol).value).toBe("3")
     const parcelCol = headerRow.indexOf("Parcel No") + 1
     expect(sheet.getRow(2).getCell(parcelCol).value).toBe("00004")
     expect(sheet.getRow(2).getCell(parcelCol).numFmt).toBe("@")
@@ -448,12 +451,17 @@ describe("Excel report templates", () => {
     expect(survey.getRow(2).getCell(headerRow.indexOf("Parcel No") + 1).value).toBe("00004")
   })
 
-  it("matches Ward-1-Etah 39-column headers when golden file is available", async () => {
+  it("matches Ward-1-Etah headers when golden file is available", async () => {
     const golden = await loadGolden("C:/Users/sikar/Downloads/survey-data-district-ETA-wards/ETM/1-Ward-1-Etah.xlsx")
     if (!golden) return
 
     const refHeaders = rowValues(golden.getWorksheet("Survey Data")!, 1)
-    expect(COMMON_SURVEY_COLUMNS.map((c) => c.header)).toEqual(refHeaders.slice(0, COMMON_SURVEY_COLUMNS.length))
+    const expected = [...refHeaders]
+    const wardIndex = expected.indexOf("Ward Name")
+    if (wardIndex >= 0 && expected[wardIndex + 1] !== "Sector Number") {
+      expected.splice(wardIndex + 1, 0, "Sector Number")
+    }
+    expect(COMMON_SURVEY_COLUMNS.map((c) => c.header)).toEqual(expected)
   })
 
   it("sets AutoFilter when enableAutoFilter is true", async () => {
@@ -650,6 +658,22 @@ describe("Survey / QC shared capture mapping", () => {
     expect(toCommonSurveyRow(bundle, 1)[COMMON_SURVEY_COLUMNS.findIndex((c) => c.header === "Ward Name")]).toBe(
       "001 - Ward 1"
     )
+  })
+
+  it("writes Sector Number after Ward Name and keeps later columns aligned when sector is blank", () => {
+    const row = toCommonSurveyRow(bundle, 1)
+    const wardIndex = COMMON_SURVEY_COLUMNS.findIndex((column) => column.header === "Ward Name")
+    const sectorIndex = COMMON_SURVEY_COLUMNS.findIndex((column) => column.header === "Sector Number")
+    const parcelIndex = COMMON_SURVEY_COLUMNS.findIndex((column) => column.header === "Parcel No")
+    expect(sectorIndex).toBe(wardIndex + 1)
+    expect(row[sectorIndex]).toBe("3")
+    expect(row[parcelIndex]).toBe("00004")
+
+    const blank = toCommonSurveyRow({ ...bundle, sectorNo: null }, 1)
+    expect(blank[sectorIndex]).toBe("N/A")
+    expect(blank[wardIndex]).toBe(row[wardIndex])
+    expect(blank[parcelIndex]).toBe(row[parcelIndex])
+    expect(blank).toHaveLength(COMMON_SURVEY_COLUMNS.length)
   })
 })
 

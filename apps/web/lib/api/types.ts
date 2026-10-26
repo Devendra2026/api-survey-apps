@@ -486,6 +486,7 @@ export interface SurveyRegistryRecord {
   surveyorId?: string
   propertyId: string
   wardNumber: string
+  sectorNo: string
   parcelNumber: string
   ownerName: string
   surveyDate: string

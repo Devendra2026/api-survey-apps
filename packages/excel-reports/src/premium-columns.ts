@@ -126,11 +126,12 @@ export const COMMON_SURVEY_COLUMNS: PremiumColumn[] = [
   { header: "Assessment Year", kind: "text" },
   { header: "Property Id", kind: "text", mandatory: true, forceText: true },
   { header: "Date of Survey", kind: "date" },
-  // 7–17: Owner / Respondent
+  // 7–18: Owner / Respondent
   { header: "Owner Name", kind: "text", mandatory: true },
   { header: "Owner Father Name", kind: "text" },
   { header: "Mobile No", kind: "text", forceText: true },
   { header: "Ward Name", kind: "text", mandatory: true, forceText: true },
+  { header: "Sector Number", kind: "text", forceText: true },
   { header: "Is Slum", kind: "text" },
   { header: "Parcel No", kind: "text", mandatory: true, forceText: true },
   { header: "Unit No", kind: "text", forceText: true },
@@ -210,11 +211,12 @@ export function toCommonSurveyRow(row: SurveyExportBundle, serialNumber: number)
     display(row.assessmentYear) || "N/A",
     resolvePremiumSurveyId(row),
     row.submittedAt ?? row.capturedAt ?? "",
-    // 7–17: Owner / Respondent
+    // 7–18: Owner / Respondent
     na(owner?.name ?? row.respondentName),
     na(owner?.fatherOrHusbandName),
     formatExportMobile(owner?.mobile ?? row.mobileNumber),
     formatWardNumberAndName(wardNo, wardName),
+    na(row.sectorNo),
     yesNo(row.isSlum),
     parcel || "N/A",
     unit,

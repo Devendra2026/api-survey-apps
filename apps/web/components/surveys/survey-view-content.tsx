@@ -28,6 +28,11 @@ import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { useMemo, useState } from "react"
 
+function formatWardWithSector(survey: SurveyDetails): string {
+  const wardName = survey.qcLocation?.wardName?.trim() || survey.originalWard?.wardName?.trim() || survey.wardNo
+  return `${wardName} | Sector Number: ${survey.sectorZone}`
+}
+
 function GlassSection({
   title,
   subtitle,
@@ -278,7 +283,7 @@ export function SurveyViewContent({
               <SurveyViewField label="ULB Name" value={survey.ulbName} />
             </div>
             <div className={cn(glassInsetClass, "p-3")}>
-              <SurveyViewField label="Ward No" value={survey.wardNo} />
+              <SurveyViewField label="Ward No" value={formatWardWithSector(survey)} />
             </div>
             <div className={cn(glassInsetClass, "p-3")}>
               <SurveyViewField label="Parcel No" value={survey.parcelNo} />

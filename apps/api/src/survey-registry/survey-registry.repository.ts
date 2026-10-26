@@ -203,6 +203,7 @@ export class SurveyRegistryRepository {
           surveyorId: row.assignedToId ?? row.createdById,
           propertyId: upgraded.propertyId,
           wardNumber: row.ward?.wardNumber ?? row.wardNumber ?? "—",
+          sectorNo: row.sectorNo?.trim() ? row.sectorNo.trim() : "—",
           parcelNumber: row.parcelNumber ?? "—",
           ownerName: row.respondentName ?? "—",
           surveyDate: formatSurveyDate(row.submittedAt ?? row.createdAt),

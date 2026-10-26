@@ -95,6 +95,11 @@ export function buildRegistryColumns(
       cell: ({ row }) => <span className="tabular-nums">{row.original.wardNumber}</span>,
     },
     {
+      accessorKey: "sectorNo",
+      header: "Sector Number",
+      cell: ({ row }) => <span className="tabular-nums">{row.original.sectorNo}</span>,
+    },
+    {
       accessorKey: "parcelNumber",
       header: "Parcel Number",
       cell: ({ row }) => <span className="tabular-nums">{formatParcelDisplay(row.original.parcelNumber)}</span>,

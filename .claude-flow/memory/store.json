@@ -1,0 +1,68 @@
+{
+  "entries": {
+    "cmd-1793016540263": {
+      "key": "cmd-1793016540263",
+      "value": "{\"command\":\"pnpm --filter @workspace/excel-reports build\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-26T12:09:00.263Z",
+      "lastAccessed": "2026-10-26T12:09:00.263Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-25T12:09:00.263Z"
+    },
+    "cmd-1793016571661": {
+      "key": "cmd-1793016571661",
+      "value": "{\"command\":\"pnpm --filter api test -- src/reports/excel/excel-reports.spec.ts\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-26T12:09:31.661Z",
+      "lastAccessed": "2026-10-26T12:09:31.661Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-25T12:09:31.661Z"
+    },
+    "cmd-1793016593435": {
+      "key": "cmd-1793016593435",
+      "value": "{\"command\":\"pnpm --filter api typecheck\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-26T12:09:53.435Z",
+      "lastAccessed": "2026-10-26T12:09:53.435Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-25T12:09:53.435Z"
+    },
+    "cmd-1793016597254": {
+      "key": "cmd-1793016597254",
+      "value": "{\"command\":\"pnpm --filter web typecheck\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-26T12:09:57.254Z",
+      "lastAccessed": "2026-10-26T12:09:57.254Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-25T12:09:57.254Z"
+    },
+    "cmd-1793016610522": {
+      "key": "cmd-1793016610522",
+      "value": "{\"command\":\"pnpm --filter @workspace/excel-reports lint\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-26T12:10:10.522Z",
+      "lastAccessed": "2026-10-26T12:10:10.522Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-25T12:10:10.522Z"
+    },
+    "cmd-1793016643273": {
+      "key": "cmd-1793016643273",
+      "value": "{\"command\":\"pnpm --filter web exec eslint components/surveys/survey-view-content.tsx components/surveys/survey-registry-table.tsx lib/survey-registry-xlsx.ts lib/api/types.ts\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-26T12:10:43.273Z",
+      "lastAccessed": "2026-10-26T12:10:43.273Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-25T12:10:43.273Z"
+    },
+    "cmd-1793016644074": {
+      "key": "cmd-1793016644074",
+      "value": "{\"command\":\"pnpm --filter api exec eslint src/survey-registry/survey-registry.repository.ts src/reports/excel/excel-reports.spec.ts\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-26T12:10:44.074Z",
+      "lastAccessed": "2026-10-26T12:10:44.074Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-25T12:10:44.074Z"
+    }
+  },
+  "version": "3.0.0"
+}

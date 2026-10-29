@@ -644,6 +644,62 @@ describe("Survey / QC shared capture mapping", () => {
     expect(qcRow[floorsIdx]).toBe(floorsText)
   })
 
+  it("sorts Floors column into architectural order without changing property row order", async () => {
+    const reversedFloors: SurveyExportBundle = {
+      ...bundle,
+      propertyId: "801262-001-00004-001-R",
+      floors: [
+        {
+          position: 0,
+          floorPosition: "FIRST_FLOOR",
+          areaSqFt: 4480,
+          usageFactor: "RESIDENTIAL",
+          usageType: "SELF_OCCUPIED",
+          constructionType: "PAKKA_BUILDING_WITH_RCC_ROOF",
+        },
+        {
+          position: 1,
+          floorPosition: "GROUND_FLOOR",
+          areaSqFt: 4480,
+          usageFactor: "RESIDENTIAL",
+          usageType: "SELF_OCCUPIED",
+          constructionType: "PAKKA_BUILDING_WITH_RCC_ROOF",
+        },
+      ],
+    }
+    const secondProperty: SurveyExportBundle = {
+      ...bundle,
+      id: "survey-2",
+      propertyId: "801262-001-00005-001-R",
+      parcelNumber: "5",
+      floors: [
+        {
+          position: 0,
+          floorPosition: "GROUND_FLOOR",
+          areaSqFt: 200,
+          usageFactor: "RESIDENTIAL",
+          usageType: "SELF",
+          constructionType: "RCC",
+        },
+      ],
+    }
+    const workbook = await loadFromBuffer(await renderSurveyDataWorkbook([reversedFloors, secondProperty]))
+    const sheet = workbook.getWorksheet("Survey Data")!
+    const headerRow = rowValues(sheet, 1)
+    expect(headerRow).toEqual(COMMON_SURVEY_COLUMNS.map((c) => c.header))
+    expect(workbook.getWorksheet("Parcel Images")).toBeDefined()
+    const propertyIdCol = headerRow.indexOf("Property Id") + 1
+    const floorsCol = headerRow.indexOf("Floors") + 1
+    expect(sheet.getRow(2).getCell(propertyIdCol).value).toBe("801262-001-00004-001-R")
+    expect(sheet.getRow(3).getCell(propertyIdCol).value).toBe("801262-001-00005-001-R")
+    const floorsText = cellText(sheet.getRow(2).getCell(floorsCol).value)
+    const lines = floorsText.split(",\n")
+    expect(lines[0]).toContain("Ground Floor - 4480 SqFt - 416.2054 SqMt")
+    expect(lines[1]).toContain("First Floor - 4480 SqFt - 416.2054 SqMt")
+    expect(lines[0]).toContain("Usage Type - Residential")
+    expect(lines[1]).toContain("Usage Type - Residential")
+  })
+
   it("preserves leading-zero parcel and unit as text IDs", () => {
     const row = toCommonSurveyRow({ ...bundle, parcelNumber: "4", unitSubNo: "1", pinCode: "012345" }, 1)
     expect(row[COMMON_SURVEY_COLUMNS.findIndex((c) => c.header === "Parcel No")]).toBe("00004")

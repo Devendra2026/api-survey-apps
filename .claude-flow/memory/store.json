@@ -62,6 +62,78 @@
       "lastAccessed": "2026-10-26T12:10:44.074Z",
       "accessCount": 0,
       "expiresAt": "2026-11-25T12:10:44.074Z"
+    },
+    "cmd-1793265041651": {
+      "key": "cmd-1793265041651",
+      "value": "{\"command\":\"pnpm --filter @workspace/validation test 2>&1\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-29T09:10:41.651Z",
+      "lastAccessed": "2026-10-29T09:10:41.651Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-28T09:10:41.651Z"
+    },
+    "cmd-1793265083088": {
+      "key": "cmd-1793265083088",
+      "value": "{\"command\":\"pnpm --filter @workspace/validation build; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; pnpm --filter @workspace/excel-reports typecheck; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; pnpm --filter @workspace/excel-reports build; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; pnpm --filter api test -- excel-reports.spec.ts 2>&1\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-29T09:11:23.088Z",
+      "lastAccessed": "2026-10-29T09:11:23.088Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-28T09:11:23.088Z"
+    },
+    "cmd-1793265117376": {
+      "key": "cmd-1793265117376",
+      "value": "{\"command\":\"pnpm --filter @workspace/validation typecheck; pnpm --filter @workspace/validation test; pnpm --filter @workspace/excel-reports lint 2>&1\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-29T09:11:57.376Z",
+      "lastAccessed": "2026-10-29T09:11:57.376Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-28T09:11:57.376Z"
+    },
+    "cmd-1793265211534": {
+      "key": "cmd-1793265211534",
+      "value": "{\"command\":\"Get-ChildItem -Path \\\"C:\\\\\\\",\\\"E:\\\\\\\",\\\"D:\\\\\\\" -Filter \\\"*Ambedkar*.xlsx\\\" -Recurse -ErrorAction SilentlyContinue 2>$null | Select-Object -First 20 FullName\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-29T09:13:31.534Z",
+      "lastAccessed": "2026-10-29T09:13:31.534Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-28T09:13:31.534Z"
+    },
+    "cmd-1793265243377": {
+      "key": "cmd-1793265243377",
+      "value": "{\"command\":\"Stop-Process -Id 18624 -Force -ErrorAction SilentlyContinue; Get-ChildItem -Path \\\"c:\\\\sdv-books\\\",\\\"C:\\\\Users\\\\sikar\\\\Downloads\\\",\\\"C:\\\\Users\\\\sikar\\\\Desktop\\\",\\\"E:\\\\Sales\\\" -Filter \\\"*Ambedkar*.xlsx\\\" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 15 FullName\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-29T09:14:03.377Z",
+      "lastAccessed": "2026-10-29T09:14:03.377Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-28T09:14:03.377Z"
+    },
+    "cmd-1793265253792": {
+      "key": "cmd-1793265253792",
+      "value": "{\"command\":\"Stop-Process -Id 29940 -Force -ErrorAction SilentlyContinue; Get-ChildItem -Path \\\"C:\\\\Users\\\\sikar\\\\Downloads\\\",\\\"C:\\\\Users\\\\sikar\\\\Desktop\\\" -Filter \\\"*Ambedkar*.xlsx\\\" -ErrorAction SilentlyContinue | Select-Object FullName; Get-ChildItem -Path \\\"c:\\\\sdv-books\\\\projects\\\" -Filter \\\"*Ambedkar*.xlsx\\\" -Recurse -Depth 4 -ErrorAction SilentlyContinue | Select-Object FullName\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-29T09:14:13.792Z",
+      "lastAccessed": "2026-10-29T09:14:13.792Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-28T09:14:13.792Z"
+    },
+    "cmd-1793265270486": {
+      "key": "cmd-1793265270486",
+      "value": "{\"command\":\"node ./scripts/verify-floor-order.mjs 2>&1\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-29T09:14:30.486Z",
+      "lastAccessed": "2026-10-29T09:14:30.486Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-28T09:14:30.486Z"
+    },
+    "cmd-1793265275610": {
+      "key": "cmd-1793265275610",
+      "value": "{\"command\":\"Remove-Item ./scripts/verify-floor-order.mjs -Force; if (Test-Path ./scripts) { if ((Get-ChildItem ./scripts -Force | Measure-Object).Count -eq 0) { Remove-Item ./scripts -Force } }\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-29T09:14:35.610Z",
+      "lastAccessed": "2026-10-29T09:14:35.610Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-28T09:14:35.610Z"
     }
   },
   "version": "3.0.0"

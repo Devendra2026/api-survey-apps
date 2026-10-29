@@ -1,3 +1,4 @@
+import { sortExportFloors } from "@workspace/validation"
 import ExcelJS from "exceljs"
 import { createWorkbook, date, display, number, text, toBuffer, yesNo } from "./convex-full.js"
 import type { SurveyExportBundle } from "./types.js"
@@ -99,7 +100,7 @@ export function toNagarPanchayatRow(row: SurveyExportBundle, serialNumber: numbe
     display(row.propertyUse),
     display(row.situation),
     display(row.roadType),
-    row.floors.map(floorSummary).join(",\n"),
+    sortExportFloors(row.floors).map(floorSummary).join(",\n"),
     number(row.plotAreaSqFt),
     number(row.plotAreaSqMeter),
     number(row.plinthAreaSqFt),

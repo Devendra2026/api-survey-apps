@@ -3,6 +3,7 @@
  */
 
 import { sqFtToSqMeter } from "./convex-import-map.js"
+import { sortExportFloors } from "./floor-order.js"
 import { formatPropertyId, padParcelNo, padUnitNo } from "./property-id.js"
 
 export const EXPORT_NA = "N/A"
@@ -134,7 +135,7 @@ export function computeFloorsAbbreviation(floors: ExportFloorAreaInput[]): strin
  */
 export function formatExportFloorDetailLine(floor: ExportFloorDetailInput): string {
   const area = toFiniteArea(floor.areaSqFt)
-  const position = formatExportFloorPositionLabel(floor.floorPosition)
+  const position = formatExportFloorPositionLabel(floor.floorPosition ?? "")
   return [
     `${position} - ${formatExportAreaSqFt(area)} SqFt - ${formatExportAreaSqMt(area)} SqMt`,
     `Usage Type - ${formatExportUsageFactorLabel(floor.usageFactor)}`,
@@ -143,17 +144,17 @@ export function formatExportFloorDetailLine(floor: ExportFloorDetailInput): stri
   ].join(" || ")
 }
 
-/** Join all floor rows into the single Floors column narrative. */
-export function formatExportFloorDetails(floors: ExportFloorDetailInput[]): string {
-  if (!floors.length) return ""
-  const lines = floors
-    .filter((floor) => {
-      const area = toFiniteArea(floor.areaSqFt)
-      if (area > 0) return true
-      return floor.floorPosition.toUpperCase() === "OPEN_LAND"
-    })
-    .map(formatExportFloorDetailLine)
-  return lines.join(",\n")
+/** Join all floor rows into the single Floors column narrative (architectural order). */
+export function formatExportFloorDetails(floors: ExportFloorDetailInput[] | null | undefined): string {
+  if (floors == null || !floors.length) return ""
+  const filtered = floors.filter((floor) => {
+    const area = toFiniteArea(floor.areaSqFt)
+    if (area > 0) return true
+    const position = (floor.floorPosition ?? "").toUpperCase()
+    return position === "OPEN_LAND"
+  })
+  const ordered = sortExportFloors(filtered)
+  return ordered.map(formatExportFloorDetailLine).join(",\n")
 }
 
 /** Blank / non-10-digit / all-zeros → 0000000000. */

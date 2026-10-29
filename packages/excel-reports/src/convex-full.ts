@@ -1,8 +1,16 @@
-import { CONVEX_SHEETS, SURVEY_EXPORT_COLUMNS } from "@workspace/validation"
+import { CONVEX_SHEETS, SURVEY_EXPORT_COLUMNS, sortExportFloors } from "@workspace/validation"
 import ExcelJS from "exceljs"
 import type { Numeric, SurveyExportBundle } from "./types.js"
 
-const CO_OWNER_COLUMNS = ["Property ID", "Survey ID", "Owner Index", "Name", "Father / Husband Name", "Mobile", "Alt Mobile"]
+const CO_OWNER_COLUMNS = [
+  "Property ID",
+  "Survey ID",
+  "Owner Index",
+  "Name",
+  "Father / Husband Name",
+  "Mobile",
+  "Alt Mobile",
+]
 const FLOOR_COLUMNS = [
   "Property ID",
   "Survey ID",
@@ -15,7 +23,17 @@ const FLOOR_COLUMNS = [
   "Occupancy",
   "Area (Sqft)",
 ]
-const PHOTO_COLUMNS = ["Property ID", "Survey ID", "Slot", "Slot Key", "Captured At", "Size (KB)", "Width", "Height", "Photo URL"]
+const PHOTO_COLUMNS = [
+  "Property ID",
+  "Survey ID",
+  "Slot",
+  "Slot Key",
+  "Captured At",
+  "Size (KB)",
+  "Width",
+  "Height",
+  "Photo URL",
+]
 
 const GUIDE_ROWS = [
   ["Topic", "Detail"],
@@ -111,7 +129,7 @@ export function toCoOwnerRows(row: SurveyExportBundle): unknown[][] {
 }
 
 export function toFloorRows(row: SurveyExportBundle): unknown[][] {
-  return row.floors.map((floor, index) => [
+  return sortExportFloors(row.floors).map((floor, index) => [
     row.propertyId,
     row.id,
     text(floor.clientFloorId),
@@ -146,7 +164,12 @@ export function createWorkbook(): ExcelJS.Workbook {
   return workbook
 }
 
-export function addTable(workbook: ExcelJS.Workbook, name: string, headers: string[], rows: unknown[][]): ExcelJS.Worksheet {
+export function addTable(
+  workbook: ExcelJS.Workbook,
+  name: string,
+  headers: string[],
+  rows: unknown[][]
+): ExcelJS.Worksheet {
   const sheet = workbook.addWorksheet(name, { views: [{ state: "frozen", ySplit: 1 }] })
   sheet.addRow(headers)
   for (const row of rows) sheet.addRow(row)

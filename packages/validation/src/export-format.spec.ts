@@ -92,6 +92,77 @@ describe("export-format", () => {
       expect(text).toContain("Ground Floor - 800 SqFt")
       expect(text).toContain("First Floor - 500 SqFt")
     })
+
+    it("sorts First then Ground into Ground then First with full descriptions", () => {
+      const text = formatExportFloorDetails([
+        {
+          floorPosition: "FIRST_FLOOR",
+          areaSqFt: 4480,
+          usageFactor: "RESIDENTIAL",
+          usageType: "SELF_OCCUPIED",
+          constructionType: "PAKKA_BUILDING_WITH_RCC_ROOF",
+        },
+        {
+          floorPosition: "GROUND_FLOOR",
+          areaSqFt: 4480,
+          usageFactor: "RESIDENTIAL",
+          usageType: "SELF_OCCUPIED",
+          constructionType: "PAKKA_BUILDING_WITH_RCC_ROOF",
+        },
+      ])
+      const lines = text.split(",\n")
+      expect(lines).toHaveLength(2)
+      expect(lines[0]).toBe(
+        "Ground Floor - 4480 SqFt - 416.2054 SqMt || Usage Type - Residential || Usage Factor - Self Occupied || Usage Type - Pakka Building with R.C.C Roof or R.B. Roof"
+      )
+      expect(lines[1]).toBe(
+        "First Floor - 4480 SqFt - 416.2054 SqMt || Usage Type - Residential || Usage Factor - Self Occupied || Usage Type - Pakka Building with R.C.C Roof or R.B. Roof"
+      )
+    })
+
+    it("sorts Ground, First, Second, Third from random input order", () => {
+      const text = formatExportFloorDetails([
+        { floorPosition: "THIRD_FLOOR", areaSqFt: 30, usageFactor: "RESIDENTIAL", constructionType: "RCC" },
+        { floorPosition: "GROUND_FLOOR", areaSqFt: 10, usageFactor: "RESIDENTIAL", constructionType: "RCC" },
+        { floorPosition: "SECOND_FLOOR", areaSqFt: 20, usageFactor: "RESIDENTIAL", constructionType: "RCC" },
+        { floorPosition: "FIRST_FLOOR", areaSqFt: 15, usageFactor: "RESIDENTIAL", constructionType: "RCC" },
+      ])
+      const positions = text.split(",\n").map((line) => line.split(" - ")[0])
+      expect(positions).toEqual(["Ground Floor", "First Floor", "Second Floor", "Third Floor"])
+    })
+
+    it("preserves duplicate floors and empty / null inputs", () => {
+      expect(formatExportFloorDetails(null)).toBe("")
+      expect(formatExportFloorDetails(undefined)).toBe("")
+      expect(formatExportFloorDetails([])).toBe("")
+      const text = formatExportFloorDetails([
+        {
+          floorPosition: "GROUND_FLOOR",
+          areaSqFt: 100,
+          usageFactor: "RESIDENTIAL",
+          constructionType: "RCC",
+        },
+        {
+          floorPosition: "GROUND_FLOOR",
+          areaSqFt: 50,
+          usageFactor: "COMMERCIAL",
+          constructionType: "TIN_SHED",
+        },
+      ])
+      expect(text.split(",\n")).toHaveLength(2)
+      expect(text).toContain("Usage Type - Residential")
+      expect(text).toContain("Usage Type - Commercial")
+    })
+
+    it("keeps unknown floor labels after sorting recognized levels", () => {
+      const text = formatExportFloorDetails([
+        { floorPosition: "CUSTOM_LEVEL", areaSqFt: 5, usageFactor: "RESIDENTIAL", constructionType: "RCC" },
+        { floorPosition: "FIRST_FLOOR", areaSqFt: 20, usageFactor: "RESIDENTIAL", constructionType: "RCC" },
+        { floorPosition: "GROUND_FLOOR", areaSqFt: 10, usageFactor: "RESIDENTIAL", constructionType: "RCC" },
+      ])
+      const positions = text.split(",\n").map((line) => line.split(" - ")[0])
+      expect(positions).toEqual(["Ground Floor", "First Floor", "Custom Level"])
+    })
   })
 
   describe("formatExportMobile", () => {

@@ -6,6 +6,10 @@ autoInstallPeers: true
 
 overrides:
   "@types/react": "19.2.17"
+  # Security floors (2026-11 audit). @nestjs/platform-express 11.x pins multer 2.4.0 (DoS advisories
+  # fixed in 2.5.0); compression <1.8.2 has a memory-leak DoS. Both are semver-minor bumps.
+  multer: "^2.5.0"
+  compression: "^1.8.2"
 
 allowBuilds:
   "@clerk/shared": true

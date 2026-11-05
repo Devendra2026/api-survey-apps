@@ -119,6 +119,20 @@ describe("RoleProvisioningService", () => {
     )
   })
 
+  it("never promotes a portal-instance user just because no signed-in admin exists", async () => {
+    const { service, userTenantRole } = createService({
+      bootstrapIds: "user_other",
+      roles: { ADMIN: { id: "role-admin" } },
+      existing: [],
+      signedInAdminCount: 0,
+    })
+    await expect(service.ensureBootstrapAdmin(userId, clerkUserId, { allowFirstSignInAdmin: false })).resolves.toBe(
+      false
+    )
+    expect(userTenantRole.create).not.toHaveBeenCalled()
+    expect(userTenantRole.count).not.toHaveBeenCalled()
+  })
+
   it("creates ADMIN when bootstrap user has no roles", async () => {
     const { service, userTenantRole } = createService({
       bootstrapIds: clerkUserId,

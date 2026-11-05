@@ -112,6 +112,69 @@ describe("UsersService.remove (lifecycle)", () => {
     expect(usersRepository.hardDelete).not.toHaveBeenCalled()
   })
 
+  describe("scoped managers", () => {
+    const ulbManager: AuthenticatedUser = {
+      ...admin,
+      id: "mgr1",
+      permissions: ["user:delete", "user:view", "role:assign"],
+      tenantRoles: [
+        {
+          id: "tr-mgr",
+          roleId: "r-ulb",
+          roleName: "ULB_ADMIN",
+          permissions: ["user:delete", "user:view", "role:assign"],
+          stateId: "st1",
+          districtId: "d1",
+          ulbId: "ulb1",
+          wardId: null,
+          isActive: true,
+        },
+      ],
+    }
+    const role = (name: string, geo: Partial<Record<"stateId" | "districtId" | "ulbId" | "wardId", string>>) => ({
+      id: `tr-${name}`,
+      roleId: `r-${name}`,
+      isActive: true,
+      stateId: geo.stateId ?? null,
+      districtId: geo.districtId ?? null,
+      ulbId: geo.ulbId ?? null,
+      wardId: geo.wardId ?? null,
+      role: { name },
+    })
+
+    it("cannot delete a global ADMIN (geo-less role is not 'pending')", async () => {
+      usersRepository.findById.mockResolvedValue({ ...targetUser, tenantRoles: [role("ADMIN", {})] } as never)
+      await expect(service.remove("user2", ulbManager)).rejects.toThrow(ForbiddenException)
+      expect(usersRepository.hardDelete).not.toHaveBeenCalled()
+      expect(usersRepository.deactivateIdentity).not.toHaveBeenCalled()
+    })
+
+    it("cannot delete a user who also holds a role outside the manager's ULB", async () => {
+      usersRepository.findById.mockResolvedValue({
+        ...targetUser,
+        tenantRoles: [role("SURVEYOR", { ulbId: "ulb1", wardId: "w1" }), role("DISTRICT_ADMIN", { districtId: "d9" })],
+      } as never)
+      await expect(service.remove("user2", ulbManager)).rejects.toThrow(ForbiddenException)
+      expect(usersRepository.hardDelete).not.toHaveBeenCalled()
+    })
+
+    it("can delete a user whose roles all sit inside the manager's ULB", async () => {
+      usersRepository.findById.mockResolvedValue({
+        ...targetUser,
+        tenantRoles: [role("SURVEYOR", { ulbId: "ulb1", wardId: "w1" })],
+      } as never)
+      await expect(service.remove("user2", ulbManager)).resolves.toMatchObject({ id: "user2" })
+    })
+
+    it("can still delete a PENDING_APPROVAL signup with role:assign", async () => {
+      usersRepository.findById.mockResolvedValue({
+        ...targetUser,
+        tenantRoles: [role("PENDING_APPROVAL", {})],
+      } as never)
+      await expect(service.remove("user2", ulbManager)).resolves.toMatchObject({ id: "user2" })
+    })
+  })
+
   it("deactivates and revokes Clerk when Restrict FKs exist", async () => {
     usersRepository.countDeleteBlockers.mockResolvedValue({
       ...emptyBlockers,

@@ -6,6 +6,7 @@ import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.
 import { getSkipTake, toPaginatedResult } from "../common/utils/pagination.util.js"
 import { resolvePrimaryOwnerName } from "../common/utils/primary-owner.util.js"
 import { buildTenantWhere, resolveTenantScope } from "../common/utils/tenant-scope.util.js"
+import { assertWardInUserScope } from "../common/utils/ward-scope.util.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import { StorageService } from "../storage/storage.service.js"
 import {
@@ -158,12 +159,17 @@ export class DemandNoticesService {
     return docs
   }
 
-  mintPrintToken(dto: DemandNoticePrintTokenDto, user: AuthenticatedUser) {
+  async mintPrintToken(dto: DemandNoticePrintTokenDto, user: AuthenticatedUser) {
     if (!dto.surveyId && !dto.wardId) {
       throw new BadRequestException("surveyId or wardId is required")
     }
-    if (dto.wardId && !dto.surveyId && !dto.assessmentYearId) {
-      // ward bulk can omit AY but UI should prefer it; allow all approved years in ward
+    // The print routes are public (token only), so tenant access is enforced here, at mint time.
+    // Ward bulk may omit assessmentYearId (all approved years in the ward).
+    if (dto.surveyId) {
+      await this.getDocument(dto.surveyId, user)
+    }
+    if (dto.wardId) {
+      await assertWardInUserScope(this.prisma.db, user, dto.wardId)
     }
     const secret = this.printSecret()
     const token = signPrintToken(
@@ -181,7 +187,8 @@ export class DemandNoticesService {
 
   async getDocumentByPrintToken(surveyId: string, token: string): Promise<DemandNoticeDocumentDto> {
     const claims = this.parseToken(token)
-    if (claims.surveyId && claims.surveyId !== surveyId) {
+    // A token only opens the survey it was minted for. A ward-only token must not open arbitrary surveys.
+    if (!claims.surveyId || claims.surveyId !== surveyId) {
       throw new UnauthorizedException("Print token survey mismatch")
     }
     return this.getDocument(surveyId)
@@ -193,10 +200,14 @@ export class DemandNoticesService {
     token: string
   ): Promise<DemandNoticeDocumentDto[]> {
     const claims = this.parseToken(token)
-    if (claims.wardId && claims.wardId !== wardId) {
+    // A token only opens the ward it was minted for. A survey-only token must not list wards.
+    if (!claims.wardId || claims.wardId !== wardId) {
       throw new UnauthorizedException("Print token ward mismatch")
     }
-    const ay = assessmentYearId ?? claims.assessmentYearId
+    if (claims.assessmentYearId && assessmentYearId && assessmentYearId !== claims.assessmentYearId) {
+      throw new UnauthorizedException("Print token assessment year mismatch")
+    }
+    const ay = claims.assessmentYearId ?? assessmentYearId
     return this.listWardDocuments(wardId, ay)
   }
 

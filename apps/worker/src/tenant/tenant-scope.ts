@@ -66,7 +66,8 @@ export function buildTenantWhere(scope: TenantScope): Prisma.SurveyWhereInput | 
   if (scope.ulbIds.length) or.push({ ulbId: { in: scope.ulbIds } })
   if (scope.districtIds.length) or.push({ districtId: { in: scope.districtIds } })
   if (scope.stateIds.length) or.push({ stateId: { in: scope.stateIds } })
-  return or.length ? { OR: or } : { id: "__no_access__" }
+  // Nested under AND so a caller's later `OR` (search) or `id` (selection) key cannot replace it.
+  return or.length ? { AND: [{ OR: or }] } : { AND: [{ id: "__no_access__" }] }
 }
 
 export function canAccessTenant(

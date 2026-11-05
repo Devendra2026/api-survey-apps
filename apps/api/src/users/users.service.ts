@@ -190,7 +190,10 @@ export class UsersService {
     if (dto.isActive === false && id === actor.id) {
       throw new ForbiddenException("You cannot disable your own account")
     }
-    await this.findById(id, actor)
+    const target = await this.findById(id, actor)
+    if (id !== actor.id && !this.canManageUser(actor, target)) {
+      throw new ForbiddenException("Cannot modify a user who holds roles outside your tenant scope")
+    }
     return this.usersRepository.update(id, dto)
   }
 
@@ -409,6 +412,9 @@ export class UsersService {
     }
 
     const user = await this.findById(id, actor)
+    if (!this.canManageUser(actor, user)) {
+      throw new ForbiddenException("Cannot delete a user who holds roles outside your tenant scope")
+    }
     const blockers = await this.usersRepository.countDeleteBlockers(id)
     const reasons = this.formatDeleteBlockers(blockers)
     const hasHistory = reasons.length > 0
@@ -553,6 +559,7 @@ export class UsersService {
         districtId: string | null
         ulbId: string | null
         wardId: string | null
+        role?: { name: string } | null
       }>
     }
   ) {
@@ -573,6 +580,47 @@ export class UsersService {
     )
   }
 
+  /**
+   * Mutations (update / deactivate / delete) need more than visibility: a scoped manager may only
+   * act on users whose every active role sits inside the manager's scope. Otherwise a ULB manager
+   * could disable a district or global ADMIN who merely also holds one ward role in that ULB.
+   */
+  private canManageUser(
+    actor: AuthenticatedUser,
+    target: {
+      tenantRoles: Array<{
+        isActive: boolean
+        stateId: string | null
+        districtId: string | null
+        ulbId: string | null
+        wardId: string | null
+        role?: { name: string } | null
+      }>
+    }
+  ) {
+    const scope = resolveTenantScope(actor.tenantRoles)
+    if (scope.isGlobal) return true
+    if (actor.permissions.includes(PERMISSIONS.ROLE_ASSIGN) && this.isUnaffiliatedOrPending(target)) {
+      return true
+    }
+    const active = target.tenantRoles.filter((role) => role.isActive)
+    if (active.length === 0) return false
+    return active.every(
+      (role) =>
+        Boolean(role.stateId || role.districtId || role.ulbId || role.wardId) &&
+        canAccessTenant(scope, {
+          stateId: role.stateId,
+          districtId: role.districtId,
+          ulbId: role.ulbId,
+          wardId: role.wardId,
+        })
+    )
+  }
+
+  /**
+   * True for signups waiting on approval: no active roles, or only PENDING_APPROVAL.
+   * A global ADMIN also has no geo on its role, so the role name decides — not missing geo.
+   */
   private isUnaffiliatedOrPending(target: {
     tenantRoles: Array<{
       isActive: boolean
@@ -580,11 +628,12 @@ export class UsersService {
       districtId: string | null
       ulbId: string | null
       wardId: string | null
+      role?: { name: string } | null
     }>
   }) {
     const active = target.tenantRoles.filter((role) => role.isActive)
     if (active.length === 0) return true
-    return active.every((role) => !role.stateId && !role.districtId && !role.ulbId && !role.wardId)
+    return active.every((role) => role.role?.name === "PENDING_APPROVAL")
   }
 
   private async assertGeoHierarchy(geo: {

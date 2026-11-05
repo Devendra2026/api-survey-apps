@@ -1,6 +1,6 @@
 import { Button, Screen, StatusView, Text, TextField, cardStyle } from "@/components/ui"
 import { getApiErrorMessage, isApiClientError } from "@/services/api/client"
-import { createSurvey } from "@/services/api/surveys"
+import { createSurvey, getSurveyRecord } from "@/services/api/surveys"
 import { colors, radius, spacing, touchTarget } from "@/theme"
 import type { AuthenticatedProfile } from "@/types/user"
 import { padUlbCode } from "@workspace/validation"
@@ -58,6 +58,7 @@ export function NewSurveyScreen({ profile }: { profile: AuthenticatedProfile }) 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const lockRef = useRef(false)
+  const pendingCreateRef = useRef<{ key: string; propertyId: string } | null>(null)
   const wardsQuery = useUlbWards(assignment && assignment.wardId === null ? assignment.ulbId : null)
   const wardOptions = useMemo(
     () =>
@@ -100,15 +101,30 @@ export function NewSurveyScreen({ profile }: { profile: AuthenticatedProfile }) 
     lockRef.current = true
     setBusy(true)
     setError(null)
+    // Reuse one temporary property ID per ward + year across retries. If a previous attempt timed out
+    // after the server saved it, the retry hits the (ulb, propertyId, year) unique index (409) and we open
+    // that draft instead of creating a second orphan survey.
+    const attemptKey = `${assignment.ulbId}|${effectiveWard.wardId}|${year}`
+    if (pendingCreateRef.current?.key !== attemptKey) {
+      pendingCreateRef.current = { key: attemptKey, propertyId: temporaryPropertyId(randomUUID()) }
+    }
+    const propertyId = pendingCreateRef.current.propertyId
     try {
-      const record = await createSurvey({
-        stateId: assignment.stateId,
-        districtId: assignment.districtId,
-        ulbId: assignment.ulbId,
-        wardId: effectiveWard.wardId,
-        propertyId: temporaryPropertyId(randomUUID()),
-        assessmentYear: year,
-      })
+      let record: { id: string }
+      try {
+        record = await createSurvey({
+          stateId: assignment.stateId,
+          districtId: assignment.districtId,
+          ulbId: assignment.ulbId,
+          wardId: effectiveWard.wardId,
+          propertyId,
+          assessmentYear: year,
+        })
+      } catch (e) {
+        if (!isApiClientError(e) || e.statusCode !== 409) throw e
+        record = await getSurveyRecord(propertyId)
+      }
+      pendingCreateRef.current = null
       invalidateLists()
       router.replace({ pathname: "/(app)/surveys/[id]", params: { id: record.id, step: "property" } })
     } catch (e) {

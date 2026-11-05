@@ -56,7 +56,7 @@ describe("tenant-scope.util", () => {
     expect(scope.parentUlbIds).toEqual(["ulb1"])
     expect(scope.parentDistrictIds).toEqual(["dist1"])
     expect(scope.parentStateIds).toEqual(["st1"])
-    expect(buildTenantWhere(scope)).toEqual({ OR: [{ wardId: { in: ["ward10"] } }] })
+    expect(buildTenantWhere(scope)).toEqual({ AND: [{ OR: [{ wardId: { in: ["ward10"] } }] }] })
   })
 
   it("allows access within ulb scope", () => {
@@ -103,7 +103,7 @@ describe("tenant-scope.util", () => {
 
     expect(scope.ulbIds).toEqual(["ulb1"])
     expect(scope.wardIds).toEqual([])
-    expect(buildTenantWhere(scope)).toEqual({ OR: [{ ulbId: { in: ["ulb1"] } }] })
+    expect(buildTenantWhere(scope)).toEqual({ AND: [{ OR: [{ ulbId: { in: ["ulb1"] } }] }] })
     expect(canAccessTenant(scope, { districtId: "dist1", ulbId: "ulb1" })).toBe(true)
     expect(canAccessTenant(scope, { ulbId: "ulb1", wardId: "any-ward" })).toBe(true)
     // Start QC must send ulbId; wardId alone cannot satisfy All Wards scope.
@@ -133,15 +133,29 @@ describe("tenant-scope.util", () => {
       }),
     ])
 
-    expect(buildTenantWhere(qcWard10)).toEqual({ OR: [{ wardId: { in: ["ward10"] } }] })
-    expect(buildTenantWhere(qcWard5)).toEqual({ OR: [{ wardId: { in: ["ward5"] } }] })
+    expect(buildTenantWhere(qcWard10)).toEqual({ AND: [{ OR: [{ wardId: { in: ["ward10"] } }] }] })
+    expect(buildTenantWhere(qcWard5)).toEqual({ AND: [{ OR: [{ wardId: { in: ["ward5"] } }] }] })
     expect(canAccessTenant(qcWard10, { wardId: "ward5", ulbId: "ulb1" })).toBe(false)
     expect(canAccessTenant(qcWard5, { wardId: "ward10", ulbId: "ulb1" })).toBe(false)
   })
 
   it("returns impossible filter when no scope", () => {
     const scope = resolveTenantScope([])
-    expect(buildTenantWhere(scope)).toEqual({ id: "__no_access__" })
+    expect(buildTenantWhere(scope)).toEqual({ AND: [{ id: "__no_access__" }] })
+  })
+
+  it("keeps the tenant filter when callers spread a search OR or an id selection after it", () => {
+    const scoped = buildTenantWhere(resolveTenantScope([baseRole({ wardId: "ward1" })]))
+    const where = {
+      ...(scoped ?? {}),
+      id: { in: ["foreign-survey"] },
+      OR: [{ propertyId: { contains: "x" } }],
+    }
+    expect(where.AND).toEqual([{ OR: [{ wardId: { in: ["ward1"] } }] }])
+
+    const none = buildTenantWhere(resolveTenantScope([]))
+    const selected = { ...(none ?? {}), id: { in: ["foreign-survey"] } }
+    expect(selected.AND).toEqual([{ id: "__no_access__" }])
   })
 
   it("does not leak admin permission across tenant scopes", () => {

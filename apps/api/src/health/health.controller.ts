@@ -1,4 +1,4 @@
-import { Controller, Get, Header, ServiceUnavailableException } from "@nestjs/common"
+import { Controller, Get, Header, type OnModuleDestroy, ServiceUnavailableException } from "@nestjs/common"
 import { ConfigService } from "@nestjs/config"
 import { ApiTags } from "@nestjs/swagger"
 import { SkipThrottle } from "@nestjs/throttler"
@@ -14,7 +14,9 @@ collectDefaultMetrics({ register: metricsRegistry, prefix: "api_" })
 
 @ApiTags("health")
 @Controller()
-export class HealthController {
+export class HealthController implements OnModuleDestroy {
+  private redisProbe: Redis | null = null
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
@@ -90,20 +92,36 @@ export class HealthController {
     })
   }
 
+  /**
+   * One long-lived probe connection instead of connect/quit per request: `/ready` is public and
+   * unthrottled, so a per-call socket turned every orchestrator probe (or a flood) into connection churn.
+   */
   private async checkRedis(redisUrl: string) {
-    const client = new Redis({
-      ...redisConnectionOptions(redisUrl),
-      lazyConnect: true,
-      maxRetriesPerRequest: 1,
-      enableOfflineQueue: false,
-    })
+    if (!this.redisProbe) {
+      this.redisProbe = new Redis({
+        ...redisConnectionOptions(redisUrl),
+        lazyConnect: true,
+        maxRetriesPerRequest: 1,
+        enableOfflineQueue: false,
+        connectTimeout: 2_000,
+      })
+      // Errors surface through ping(); without a listener ioredis logs every reconnect attempt as unhandled.
+      this.redisProbe.on("error", () => undefined)
+    }
+    const client = this.redisProbe
     try {
-      await client.connect()
+      if (client.status === "wait" || client.status === "end") {
+        await client.connect()
+      }
       return (await client.ping()) === "PONG"
     } catch {
       return false
-    } finally {
-      await client.quit().catch(() => client.disconnect())
     }
+  }
+
+  async onModuleDestroy() {
+    const client = this.redisProbe
+    this.redisProbe = null
+    if (client) await client.quit().catch(() => client.disconnect())
   }
 }

@@ -86,7 +86,9 @@ async function bootstrap() {
   if (bootstrapAdmins.length > 0) {
     console.log(`BOOTSTRAP_ADMIN_CLERK_USER_IDS configured (${bootstrapAdmins.length} id(s))`)
   } else {
-    console.warn("BOOTSTRAP_ADMIN_CLERK_USER_IDS is empty — first Clerk signup will stay Pending User")
+    console.warn(
+      "BOOTSTRAP_ADMIN_CLERK_USER_IDS is empty — until an ADMIN has signed in, the first admin-instance Clerk sign-in becomes ADMIN"
+    )
   }
 
   const port = configService.get<number>("PORT") ?? configService.get<number>("APP_PORT") ?? 4000

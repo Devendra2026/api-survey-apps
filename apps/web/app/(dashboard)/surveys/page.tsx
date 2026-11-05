@@ -24,7 +24,7 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value"
 import { useHydrateGeoScopeFromSearchParams } from "@/hooks/use-hydrate-geo-scope"
 import { getApiErrorMessage } from "@/lib/api/client"
 import type { SurveyRegistryCounts, SurveyRegistryRecord, SurveyRegistryTab } from "@/lib/api/types"
-import { exportRegistryToExcel, parseRegistryExcelFile } from "@/lib/survey-registry-xlsx"
+import { exportRegistryToExcel } from "@/lib/survey-registry-xlsx"
 import { buildSurveyRegistryHref } from "@/lib/ward-action-links"
 import { useAuthStore } from "@/stores/app-store"
 import type { RowSelectionState } from "@tanstack/react-table"
@@ -212,9 +212,9 @@ function SurveysPageInner() {
 
   const onImportFile = async (file: File) => {
     try {
-      const parsed = await parseRegistryExcelFile(file)
+      // The API parses and validates the workbook; parsing it here too only blocked the UI thread.
       const result = await importMutation.mutateAsync(file)
-      toast.success(result.message ?? `Import queued${parsed.length ? ` (${parsed.length} rows detected)` : ""}`)
+      toast.success(result.message ?? "Import queued")
     } catch (error) {
       toast.error(getApiErrorMessage(error))
     }

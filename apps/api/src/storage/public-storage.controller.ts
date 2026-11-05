@@ -39,7 +39,7 @@ export class PublicStorageController {
     }
 
     const objectKey = normalizeObjectKey(path, req)
-    if (!objectKey || !looksLikeStorageKey(objectKey)) {
+    if (!objectKey || !isPublicImageKey(objectKey)) {
       throw new NotFoundException("Storage object not found")
     }
 
@@ -82,6 +82,21 @@ function normalizeObjectKey(path: string | string[], req: Request): string | nul
 
   if (!decoded || decoded.includes("..") || decoded.includes("\\")) return null
   return decoded
+}
+
+/** Same bucket also holds import workbooks and report exports (owner PII); never stream those here. */
+const PRIVATE_KEY_PREFIXES = ["imports/", "exports/"]
+const PUBLIC_IMAGE_EXTENSION = /\.(jpe?g|png|webp|heic)$/i
+
+/**
+ * Only survey photo objects are reachable without a session (Excel Parcel Images links).
+ * Everything else in the bucket goes through authenticated, tenant-checked routes.
+ */
+export function isPublicImageKey(objectKey: string): boolean {
+  if (!looksLikeStorageKey(objectKey)) return false
+  const lower = objectKey.toLowerCase()
+  if (PRIVATE_KEY_PREFIXES.some((prefix) => lower.startsWith(prefix))) return false
+  return PUBLIC_IMAGE_EXTENSION.test(objectKey)
 }
 
 function safeFileName(objectKey: string): string {

@@ -20,10 +20,19 @@ export class RoleProvisioningService {
     private readonly configService: ConfigService
   ) {}
 
-  async ensureBootstrapAdmin(userId: string, clerkUserId: string): Promise<boolean> {
+  /**
+   * @param options.allowFirstSignInAdmin false for sessions from the public portal Clerk instance:
+   *   anyone can sign up there, so "first signed-in user becomes ADMIN" must never apply to it.
+   */
+  async ensureBootstrapAdmin(
+    userId: string,
+    clerkUserId: string,
+    options: { allowFirstSignInAdmin?: boolean } = {}
+  ): Promise<boolean> {
     const bootstrapIds = this.parseBootstrapIds()
     const listed = bootstrapIds.has(clerkUserId)
-    const allowFirstAdmin = listed ? false : await this.hasNoSignedInAdmin()
+    const firstSignInEligible = options.allowFirstSignInAdmin !== false
+    const allowFirstAdmin = listed || !firstSignInEligible ? false : await this.hasNoSignedInAdmin()
 
     if (!listed && !allowFirstAdmin) {
       return false

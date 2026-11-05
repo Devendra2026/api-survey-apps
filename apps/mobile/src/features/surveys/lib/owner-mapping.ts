@@ -36,7 +36,8 @@ export function mergeCoOwners<T extends { id: string }>(
   const next = incoming ?? []
   const incomingIds = new Set(next.map((owner) => owner.id))
   const localOnly = (previous ?? []).filter((owner) => !incomingIds.has(owner.id))
-  if (localOnly.length === 0) return next
+  // Always a fresh array: handing back the caller's (readonly, possibly cached) array would let edits alias it.
+  if (localOnly.length === 0) return [...next]
   return [...next, ...localOnly]
 }
 

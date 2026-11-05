@@ -15,6 +15,7 @@ import ExcelJS from "exceljs"
 import PDFDocument from "pdfkit"
 import type { PaginationQueryDto } from "../common/dto/pagination-query.dto.js"
 import type { AuthenticatedUser } from "../common/interfaces/authenticated-user.interface.js"
+import { assertWardInUserScope } from "../common/utils/ward-scope.util.js"
 import { JobsService } from "../jobs/jobs.service.js"
 import { PrismaService } from "../prisma/prisma.service.js"
 import { StorageService } from "../storage/storage.service.js"
@@ -147,6 +148,8 @@ export class ReportsService {
       if (!filters.wardId) {
         throw new BadRequestException("wardId is required for demand_notices PDF export")
       }
+      // The worker renders this ward through the token-only print route, which has no session.
+      await assertWardInUserScope(this.prisma.db, user, filters.wardId)
       filters = { ...filters, qcStatus: "APPROVED" }
     }
 

@@ -54,8 +54,12 @@ export function resolveTenantScope(roles: TenantRoleAssignment[]): TenantScope {
 }
 
 /**
- * Builds a Prisma OR filter for Survey (or any model with stateId/districtId/ulbId/wardId).
+ * Builds a Prisma tenant filter for Survey (or any model with stateId/districtId/ulbId/wardId).
  * Returns undefined when global (no filter). Returns impossible filter when no scope.
+ *
+ * The filter is always nested under `AND` so callers can spread it next to their own
+ * `OR` (search) or `id` (selection) keys without the later key replacing the tenant check.
+ * Callers must not add a sibling `AND` key after spreading; put extra clauses inside an `AND` array instead.
  */
 export function buildTenantWhere(scope: TenantScope): Prisma.SurveyWhereInput | undefined {
   if (scope.isGlobal) return undefined
@@ -67,10 +71,10 @@ export function buildTenantWhere(scope: TenantScope): Prisma.SurveyWhereInput | 
   if (scope.stateIds.length) or.push({ stateId: { in: scope.stateIds } })
 
   if (!or.length) {
-    return { id: "__no_access__" }
+    return { AND: [{ id: "__no_access__" }] }
   }
 
-  return { OR: or }
+  return { AND: [{ OR: or }] }
 }
 
 /** Whether an assignment's geographic scope covers the target geo. */

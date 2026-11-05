@@ -231,6 +231,7 @@ export class ClerkAuthGuard implements CanActivate {
       verificationDetail,
       touchLogin: syncProfile,
       existing: preview,
+      clerkInstance: matched.name,
     })
     return true
   }
@@ -248,6 +249,8 @@ export class ClerkAuthGuard implements CanActivate {
     touchLogin?: boolean
     /** Already loaded row. `null` means the lookup ran and found nobody. */
     existing?: LocalUserRecord | null
+    /** Which Clerk instance verified the token. Portal sessions never qualify for first-sign-in ADMIN. */
+    clerkInstance?: ClerkInstance["name"]
   }): Promise<AuthenticatedUser> {
     const now = new Date()
     const touchLogin = input.touchLogin !== false
@@ -360,7 +363,9 @@ export class ClerkAuthGuard implements CanActivate {
       throw new UnauthorizedException("Your account has been disabled. Please contact the system administrator.")
     }
 
-    const bootstrapped = await this.roleProvisioning.ensureBootstrapAdmin(user.id, user.clerkUserId)
+    const bootstrapped = await this.roleProvisioning.ensureBootstrapAdmin(user.id, user.clerkUserId, {
+      allowFirstSignInAdmin: input.clerkInstance !== "portal",
+    })
     if (!bootstrapped) {
       await this.roleProvisioning.ensurePendingApproval(user.id)
     }

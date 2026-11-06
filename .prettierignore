@@ -1,0 +1,15 @@
+# pnpm owns this file's format. Formatting it with Prettier (via lint-staged's *.yaml rule)
+# flipped every quote, so each dependency change produced an ~18k-line diff and merge conflicts.
+pnpm-lock.yaml
+
+# Generated / build output
+**/dist/
+**/.next/
+**/.turbo/
+**/coverage/
+packages/database/src/generated/
+
+# Local agent-tooling state
+.claude-flow/
+.swarm/
+.superpowers/

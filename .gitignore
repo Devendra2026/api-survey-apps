@@ -72,5 +72,9 @@ infra/terraform/envs/**/terraform.tfvars
 # superpowers agent reports
 .superpowers/
 
+# Local agent-tooling state (rewritten in the background; tracking it caused stash/merge conflicts)
+.claude-flow/
+.swarm/
+
 # cursor
 .cursor/

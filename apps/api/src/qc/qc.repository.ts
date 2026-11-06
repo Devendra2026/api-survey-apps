@@ -759,12 +759,12 @@ export class QcRepository {
       throw new BadRequestException("QC corrections are only allowed while the survey is Pending QC")
     }
 
-    if (patch.assignedToId) {
+    if (patch.assignedToId && patch.assignedToId !== existing.assignedToId) {
       const assignee = await this.prisma.db.user.findFirst({
         where: { id: patch.assignedToId, isActive: true },
         select: { id: true },
       })
-      if (!assignee) throw new BadRequestException("Invalid assignedToId")
+      if (!assignee) throw new BadRequestException("Surveyor is inactive or was not found.")
     }
 
     const nextStateId = patch.stateId ?? existing.stateId

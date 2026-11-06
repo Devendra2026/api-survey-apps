@@ -203,7 +203,19 @@ export function QcReviewSections({
   const { data: districts } = useDistricts(draft.stateId || undefined)
   const { data: ulbs } = useUlbs(draft.districtId || undefined)
   const { data: wards } = useWards(draft.ulbId || undefined)
-  const { data: users } = useUsers(canPickSurveyor ? { limit: 100, page: 1 } : {})
+  const { data: users } = useUsers(
+    canPickSurveyor
+      ? {
+          limit: 100,
+          page: 1,
+          isActive: true,
+          roleName: "SURVEYOR",
+          ulbId: draft.ulbId || undefined,
+          sortBy: "fullName",
+          sortOrder: "asc",
+        }
+      : {}
+  )
 
   const stateItems = useMemo(() => states?.items ?? [], [states?.items])
   const districtItems = useMemo(() => districts?.items ?? [], [districts?.items])
@@ -213,11 +225,20 @@ export function QcReviewSections({
     [wards?.items]
   )
   const userItems = useMemo(() => {
-    const items = users?.items ?? []
-    return [...items].sort((a, b) =>
-      (a.fullName ?? "").localeCompare(b.fullName ?? "", undefined, { sensitivity: "base" })
-    )
-  }, [users?.items])
+    const items = (users?.items ?? []).map((user) => ({
+      id: user.id,
+      fullName: user.fullName ?? "",
+    }))
+    const currentId = draft.assignedToId
+    if (currentId && !items.some((user) => user.id === currentId)) {
+      const currentName = survey.surveyor.trim()
+      items.unshift({
+        id: currentId,
+        fullName: currentName && currentName !== "—" ? currentName : "Current surveyor",
+      })
+    }
+    return items.sort((a, b) => a.fullName.localeCompare(b.fullName, undefined, { sensitivity: "base" }))
+  }, [users?.items, draft.assignedToId, survey.surveyor])
 
   const setField = <K extends keyof QcSurveyEditable>(key: K, value: QcSurveyEditable[K]) => {
     onDraftChange({ ...draft, [key]: value })

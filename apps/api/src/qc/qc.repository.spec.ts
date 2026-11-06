@@ -121,6 +121,9 @@ describe("QcRepository.qcCorrectSurvey", () => {
         survey: {
           findFirst: jest.fn().mockResolvedValue(survey as never),
         },
+        user: {
+          findFirst: jest.fn().mockResolvedValue(null as never),
+        },
         $transaction: jest.fn(async (fn: (client: typeof tx) => Promise<unknown>) => fn(tx)),
       },
     }
@@ -467,6 +470,67 @@ describe("QcRepository.qcCorrectSurvey", () => {
       (c) => typeof c[0] === "string" && c[0].includes("survey_audits") && c[3] === "survey.qc_identity_swapped"
     )
     expect(swapCalls).toHaveLength(0)
+  })
+
+  it("saves an unchanged assignedToId without looking up the user", async () => {
+    const { repo, prisma } = makeRepo({
+      assignedToId: "user-current",
+      ownershipType: OwnershipType.INDIVIDUAL,
+      coOwners: [],
+    })
+    await expect(
+      repo.qcCorrectSurvey(
+        surveyId,
+        {
+          assignedToId: "user-current",
+          respondentName: "Updated owner",
+        },
+        "user-1"
+      )
+    ).resolves.toBeDefined()
+    expect(prisma.db.user.findFirst).not.toHaveBeenCalled()
+  })
+
+  it("rejects a new assignedToId when the user is missing or inactive", async () => {
+    const { repo } = makeRepo({ assignedToId: "user-current", ownershipType: OwnershipType.INDIVIDUAL, coOwners: [] })
+    await expect(
+      repo.qcCorrectSurvey(
+        surveyId,
+        {
+          assignedToId: "user-missing",
+          respondentName: "Updated owner",
+        },
+        "user-1"
+      )
+    ).rejects.toThrow("Surveyor is inactive or was not found.")
+  })
+
+  it("connects assignedTo when the new assignee is active", async () => {
+    const { repo, tx, prisma } = makeRepo({
+      assignedToId: "user-current",
+      ownershipType: OwnershipType.INDIVIDUAL,
+      coOwners: [],
+    })
+    prisma.db.user.findFirst = jest.fn().mockResolvedValue({ id: "user-next" } as never)
+    await repo.qcCorrectSurvey(
+      surveyId,
+      {
+        assignedToId: "user-next",
+        respondentName: "Updated owner",
+      },
+      "user-1"
+    )
+    expect(prisma.db.user.findFirst).toHaveBeenCalledWith({
+      where: { id: "user-next", isActive: true },
+      select: { id: true },
+    })
+    expect(tx.survey.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          assignedTo: { connect: { id: "user-next" } },
+        }),
+      })
+    )
   })
 })
 

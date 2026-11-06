@@ -130,6 +130,13 @@ jobs:
       - name: CI / API tests
         run: pnpm --filter api test:ci
 
+      # Shared domain packages (validation, etl-core, audit-etl) ship their own Jest suites.
+      - name: CI / Package tests
+        run: pnpm turbo test --filter=./packages/*
+
+      - name: CI / Mobile tests
+        run: pnpm --filter mobile test
+
       - name: CI / Build
         run: pnpm build
 

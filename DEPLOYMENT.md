@@ -179,6 +179,7 @@ PR / push main
   → lint + typecheck (+ explicit mobile lint/typecheck)
   → db:deploy (ephemeral CI Postgres)
   → api test:ci
+  → package tests (validation, etl-core, audit-etl) + mobile tests
   → pnpm build
   → Docker smoke (api, web, worker)
   → dokploy compose config
